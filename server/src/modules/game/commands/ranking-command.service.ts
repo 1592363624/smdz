@@ -1,16 +1,14 @@
 /**
- * 排行榜指令域服务（game 模块化重构 P2-1 抽出）
+ * 排行榜指令域服务
  *
  * 职责：全部排行榜指令——战力/等级/理论伤害/最大伤害/击杀/在线时长/使魔/财富/
  *       载具价值排行与调度入口 handleRanking，以及排行数据源随指令结算
  *       （recordRankingStats：在线时间累计 + 战力历史记录）。
- * 依赖方向：依赖支撑层（GameSupportService）、Prisma、Player、CombatSystem、
- *       CombatState、Bonus、Item；不依赖任何指令域子服务。
- * 单一真相源：排行文本统一 formatRankingText；在线时长文本统一走
- *       game-text.util.formatSecondsDurationText（支撑层 secondsToTimeText）。
+ * 统一出口：排行文本走本服务 formatRankingText；在线时长文本走
+ *       game-text.util.formatSecondsDurationText。
  * 对口原版：_主程序.ecode 排行榜显示（L9718-9745 等）。
  *
- * 状态字段（§4.1 归属表，随本批迁出）：lastCalcAtByUser（在线时间结算基准）、
+ * 本服务持有的状态字段：lastCalcAtByUser（在线时间结算基准）、
  * RANKING_SUB_TYPES（排行子类型定义，static）。
  */import { Injectable, Logger } from '@nestjs/common';
 import { asJsonValue } from '../../../common/utils/json-value.util';
@@ -205,7 +203,10 @@ export class RankingCommandService {
     );
   }
 
-  /** 秒数 → 时间文本（对应原版 数字到时间；在线时间可能跨天，补 天/小时 段） */
+  /**
+   * 随指令结算排行数据源：按上次指令时间累计「在线时间」成就（单次增量封顶 180 秒），
+   * 并在当前计算战斗力高于历史值时刷新「战斗力」成就。
+   */
 
   async recordRankingStats(userId: number): Promise<void> {
     const now = Date.now();
@@ -334,7 +335,12 @@ export class RankingCommandService {
     return this.formatRankingText(requesterName, '游戏总财富排行', entries);
   }
 
-  /** 最有价值的载具排行（原版 L9714-9726）：全地图玩家载具按制造成本估值 */
+  /**
+   * 排行榜输出统一渲染（原版 _主程序.ecode L9733-9745）：按数值降序取前 30，
+   * 格式「N、名称(数值)」。在线时间子榜（原版 L9737-9741）数值用 数字到时间 格式，
+   * 通过 valueText 定制。
+   * @param valueText 数值格式化函数，缺省按取整展示
+   */
 
   formatRankingText(
     requesterName: string,
@@ -356,9 +362,8 @@ export class RankingCommandService {
 
 
   /**
-   * 处理大召唤术命令
-   * 批量召唤使魔
-   * 委托到 FamiliarSkillsService.executeSkill 执行大召唤术技能
+   * 最有价值的载具排行（原版 _主程序.ecode L9714-9726）：
+   * 全地图玩家载具按零件制造成本（support.pushVehicleParts + itemService.calculateValue）估值。
    */
 
   async handleVehicleValueRanking(requesterName: string): Promise<string> {
@@ -386,8 +391,6 @@ export class RankingCommandService {
 
     return this.formatRankingText(requesterName, '最有价值的载具排行', entries);
   }
-
-  /** 取制造成本：把载具零件展开为可估值的物品数组（原版 取制造成本） */
 
   /** 使魔排行十子榜（原版 _主程序.ecode L9565 菜单顺序） */
   private static readonly RANKING_SUB_TYPES = [

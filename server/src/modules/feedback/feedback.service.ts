@@ -175,7 +175,6 @@ export class FeedbackService {
       throw new ForbiddenException('该反馈工单已关闭，无法继续回复');
     }
 
-    // 创建消息
     const msg = await this.prisma.feedbackMessage.create({
       data: {
         feedbackId,

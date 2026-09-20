@@ -1,17 +1,12 @@
 /**
- * 时间结算/登录指令域服务（game 模块化重构 P2-4 抽出）
- *
- * 职责：离线/离线补偿结算（calculateTimeElapsed 及 WS 断连/重连钩子）、
- * 每日登录与签到、充值、行动提示（getActionHints）、今日字符串（localTodayString）。
- * 依赖方向：依赖 Player、CombatSystem、CombatState、Stats、Vitality、Task、
- * StaticData、支撑层（hasTrainerAccess/setMarkers2/incrementMarker/mutatePlayer）；
- * 不依赖任何指令域子服务。
+ * 时间结算/登录指令域服务：离线补偿结算（calculateTimeElapsed 及 WS 断连/重连钩子）、
+ * 每日登录与签到、护盾回充、行动提示（getActionHints）、今日字符串（localTodayString）。
  * 单一真相源：活力恢复公式走 VitalityService；池回复走 player-pool.util；
- * 增益标记写入统一支撑层 setMarkers2（秒口径）。
+ * 增益标记写入统一走支撑层 setMarkers2（秒口径）。
  * 对口原版：_主程序.ecode 时间流逝计算与登录奖励分支。
  */import { Injectable, Logger, Optional } from '@nestjs/common';
 import { asJsonValue } from '../../../common/utils/json-value.util';
-import { formatDisplayNumber } from '../../../common/utils/game-text.util';
+import { CARD_DIVIDER, formatDisplayNumber } from '../../../common/utils/game-text.util';
 import { lookupFromStaticData, mergeBackpackItem } from '.././item-normalize.util';
 import { capPoolValue } from '.././player-pool.util';
 import { PlayerService } from '.././player.service';
@@ -65,11 +60,10 @@ export class TimeSettleService {
       // ===== 时间基准初始化（原版 加成计算.ecode L1596-1597）=====
       // 【原文 L1596】玩家.时间差 = (s - 玩家.读取时间) / #转秒
       // 【原文 L1597】玩家.读取时间 = 原始时间戳
-      // 原版是「先算时间差、再无条件回写读取时间」，没有"时间差过小就不回写"的分支。
-      // 本框架额外加了 10 秒防抖（不足 10 秒不结算、也不推进时间戳，让时间继续累积），
-      // 这就带来一个死锁：新档/旧档/GM 清空数据后 lastOpTime 与 readTime 都是 0，
-      // 若按旧写法 fallback 成 now，则 timeDiff 恒为 0 → 每次都从第 10 秒阈值处 return，
-      // 永远走不到末尾的「写回 lastOpTime」→ 活力恢复/离线回血回盾回甲/躺下经验全部永久失效。
+      // 原版是「先算时间差、再无条件回写读取时间」；本框架多了 10 秒防抖（不足 10 秒不结算、
+      // 也不推进时间戳，让时间继续累积），于是存在死锁：新档/GM 清数据后 lastOpTime 与 readTime
+      // 都是 0，若此时把基准回退成 now，timeDiff 恒为 0 → 每次都在阈值处 return，
+      // 永远走不到末尾的「写回 lastOpTime」→ 活力恢复/离线回血回盾回甲/躺下经验永久失效。
       // 因此这里必须先落一次基准时间戳（本次不补偿，等价于原版读档后第一次操作）。
       if (storedOpTime <= 0) {
         player.lastOpTime = BigInt(now);
@@ -211,7 +205,6 @@ export class TimeSettleService {
       // 更新最后操作时间（BigInt 字段）
       player.lastOpTime = BigInt(now);
 
-      // 保存玩家数据
       await this.playerService.savePlayer(player);
 
       // 构建回复结果文本（显示走两位小数闸，消除 126.39999999999998 型浮点尾巴）
@@ -300,9 +293,7 @@ export class TimeSettleService {
   }
 
   /**
-   * 获取玩家当前所在的地图对象
-   * @param userId 用户ID
-   * @returns 地图对象
+   * 本地时区（服务器时钟）的今日字符串 `YYYY-MM-DD`，作为每日登录/签到结算的按天去重键。
    */
 
   localTodayString(now = new Date()): string {
@@ -522,16 +513,13 @@ export class TimeSettleService {
     const now = new Date();
     const todayStr = this.localTodayString(now);
 
-    // 从 markers 中读取签到数据
     const checkinData = markers['daily_checkin'] || { lastDate: '', consecutiveDays: 0, totalDays: 0 };
     const lastDate = checkinData.lastDate || '';
 
-    // 检查今天是否已经签到
     if (lastDate === todayStr) {
-      return `你今天已经签到过了哦！\n━━━━━━━━━━━━━━━\n连续签到: ${checkinData.consecutiveDays || 0} 天\n累计签到: ${checkinData.totalDays || 0} 天\n\n明天再来签到吧~`;
+      return `你今天已经签到过了哦！\n${CARD_DIVIDER}\n连续签到: ${checkinData.consecutiveDays || 0} 天\n累计签到: ${checkinData.totalDays || 0} 天\n\n明天再来签到吧~`;
     }
 
-    // 检查昨天是否签到，判断连续天数
     const yesterday = new Date(now);
     yesterday.setDate(yesterday.getDate() - 1);
     const yesterdayStr = this.localTodayString(yesterday);
@@ -539,7 +527,6 @@ export class TimeSettleService {
     const consecutiveDays = (lastDate === yesterdayStr) ? (Number(checkinData.consecutiveDays) || 0) + 1 : 1;
     const totalDays = (Number(checkinData.totalDays) || 0) + 1;
 
-    // 奖励规则（基础经验/连续加成/三张奖励表）全部读自系统配置中心，后台可在线调整
     const cfg = await this.checkinReward.getConfig();
 
     // 经验奖励：基础经验 + 连续天数加成（封顶天数由配置控制）；叠加世界事件全服经验 buff
@@ -585,25 +572,24 @@ export class TimeSettleService {
 
     const lines = [
       `✅ 签到成功！`,
-      `━━━━━━━━━━━━━━━`,
+      CARD_DIVIDER,
       `📅 ${todayStr}`,
       `🔥 连续签到: ${consecutiveDays} 天`,
       `📊 累计签到: ${totalDays} 天`,
-      `━━━━━━━━━━━━━━━`,
+      CARD_DIVIDER,
       `✨ 获得经验: +${formatDisplayNumber(totalExp)}`,
     ];
     // 三类额外奖励合并到一个分隔区块，避免配置变多时刷屏
     if (extraLines.length) {
-      lines.push(`━━━━━━━━━━━━━━━`, ...extraLines);
+      lines.push(CARD_DIVIDER, ...extraLines);
     }
 
     return lines.filter(Boolean).join('\n');
   }
 
   /**
-   * 处理文本发送命令
-   * 切换发送模式（文本发送模式/普通发送模式）
-   * 对应原版：文本发送 命令
+   * 「回充」指令：需已装备护盾回充器，与「修理」共用 90 秒回充冷却；
+   * 成功 +1 活跃度并挂 10 秒「回充」增益，不消耗背包物品。
    */
 
   async handleRecharge(userId: number): Promise<string> {

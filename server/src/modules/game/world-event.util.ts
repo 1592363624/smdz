@@ -147,9 +147,7 @@ export function reachedMilestones(milestones: number[], percent: number): number
   return (Array.isArray(milestones) ? milestones : []).filter((m) => percent >= Number(m)).map(Number);
 }
 
-/**
- * 字符进度条（Q 群纯文本降级，不依赖颜色）。width 为总格数。
- */
+/** 字符进度条（Q 群纯文本降级，不依赖颜色）；width 为总格数。 */
 export function asciiProgressBar(percent: number, width = 20): string {
   const p = Math.max(0, Math.min(100, Number(percent) || 0));
   const filled = Math.round((p / 100) * width);

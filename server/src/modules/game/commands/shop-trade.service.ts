@@ -1,18 +1,8 @@
 /**
- * 商店/交易/逆向指令域服务（game 模块化重构 P2-8 抽出）
- *
- * 职责：交易（含家园交易，withTradeLock 读改写窗口串行化）、商店/活跃商店/
- * 钻石商店/数据商店/自动购物、赠予、行商（呼叫/购买门槛/库存生成）、
- * 配方与配方解锁、逆向（查询/单项/全部/结算展示）。
- * 依赖方向：依赖 Player、Prisma、Task、StaticData、Map、FamiliarSystemService、
- * Achievement、Item、ItemSystem、Home、支撑层（getCurrentMap/round2Text/
- * itemName/itemType/itemQuantity/deductBackpackItem 等）；跨域直接注入兄弟
- * 子服务 FusionCraft（isFusionWeapon），单向边无环。
- * 单一真相源：库存生成统一 buildMerchantInventory（schedule.service 同源调用）；
- * 背包扣减/累加统一支撑层出口；货币读写统一 PlayerService 入口。
- * 对口原版：_主程序.ecode 商店/行商/逆向分支。
- *
- * 状态字段（§4.1 归属表，随本批迁出）：tradeLocks（交易串行化锁）。
+ * 商店/交易/逆向指令域服务：交易（含家园交易）、各类商店、赠予、行商、配方与逆向。
+ * 不变量：同键读改写用 withTradeLock 串行化；背包扣减/累加走支撑层出口，
+ * 货币读写走 PlayerService，行商库存生成单源 buildMerchantInventory。
+ * 对应原版：_主程序.ecode 商店/行商/逆向分支。
  */import { Injectable, Logger } from '@nestjs/common';
 import { asJsonValue } from '../../../common/utils/json-value.util';
 import { lookupFromStaticData, mergeBackpackItem } from '.././item-normalize.util';
@@ -29,6 +19,7 @@ import { StaticDataService } from '.././static-data.service';
 import { TaskService } from '.././task.service';
 import { GameSupportService } from '.././game-support.service';
 import { FusionCraftService } from './fusion-craft.service';
+import { CARD_DIVIDER } from '../../../common/utils/game-text.util';
 
 @Injectable()
 export class ShopTradeService {
@@ -46,7 +37,7 @@ export class ShopTradeService {
     private readonly familiarSystemService: FamiliarSystemService,
     private readonly staticData: StaticDataService,
     private readonly taskService: TaskService,
-    // 跨域兄弟直连（P4 清理：原过渡期经门面引用），单向边无环。
+    // 跨域兄弟直连（FusionCraft），依赖保持单向无环。
     private readonly fusion: FusionCraftService,
   ) {}
 
@@ -71,7 +62,6 @@ export class ShopTradeService {
    */
 
   async handleTrade(userId: number, action: string, args: string[]): Promise<string> {
-    // 获取玩家数据
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
 
@@ -94,11 +84,9 @@ export class ShopTradeService {
       }
     }
 
-    // 获取用户QQ号
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     const userQQ = user?.qqNumber || '';
 
-    // 如果没有指定操作，显示市场列表
     if (!action) {
       // 查询所有在售商品（未过期的）
       const now = new Date();
@@ -109,19 +97,19 @@ export class ShopTradeService {
       });
 
       if (listings.length === 0) {
-        return '📊 贸易市场\n━━━━━━━━━━━━━━━\n当前没有在售的商品\n\n上架物品：贸易 上架 物品名 价格\n下架物品：贸易 下架 编号\n购买物品：贸易 购买 编号';
+        return `📊 贸易市场\n${CARD_DIVIDER}\n当前没有在售的商品\n\n上架物品：贸易 上架 物品名 价格\n下架物品：贸易 下架 编号\n购买物品：贸易 购买 编号`;
       }
 
       const lines = [
         `📊 贸易市场 (${listings.length}件商品)`,
-        `━━━━━━━━━━━━━━━`,
+        CARD_DIVIDER,
       ];
       for (let i = 0; i < listings.length; i++) {
         const item = listings[i];
         lines.push(`  ${i + 1}. ${item.itemName} ×${item.itemCount}`);
         lines.push(`     价格: ${item.price} | 卖家: ${item.sellerQQ}`);
       }
-      lines.push(`━━━━━━━━━━━━━━━`);
+      lines.push(CARD_DIVIDER);
       lines.push(`上架物品：贸易 上架 物品名 价格`);
       lines.push(`下架物品：贸易 下架 编号`);
       lines.push(`购买物品：贸易 购买 编号`);
@@ -129,7 +117,6 @@ export class ShopTradeService {
       return lines.join('\n');
     }
 
-    // 处理各操作
     switch (action) {
       case '上架':
       case 'sell': {
@@ -142,7 +129,6 @@ export class ShopTradeService {
           return '价格必须为正数';
         }
 
-        // 检查背包中是否有该物品
         const backpack = this.playerService.getBackpackItems(player);
         const item = backpack.find((i: any) => i.name === itemName);
         if (!item) {
@@ -151,7 +137,6 @@ export class ShopTradeService {
 
         const count = item.quantity ?? 1;
 
-        // 从背包移除物品
         const removed = await this.playerService.removeFromBackpack(userId, itemName, 1);
         if (!removed) {
           return '上架失败，请重试';
@@ -186,7 +171,6 @@ export class ShopTradeService {
           return '请指定有效的商品编号';
         }
 
-        // 查询当前玩家的在售商品
         const now = new Date();
         const myListings = await this.prisma.gameShopItem.findMany({
           where: {
@@ -202,10 +186,8 @@ export class ShopTradeService {
 
         const targetItem = myListings[index];
 
-        // 将物品归还背包
         await this.playerService.addToBackpack(userId, targetItem.itemName, targetItem.itemCount);
 
-        // 删除商品记录
         await this.prisma.gameShopItem.delete({
           where: { id: targetItem.id },
         });
@@ -225,7 +207,6 @@ export class ShopTradeService {
           return '请指定有效的商品编号';
         }
 
-        // 查询所有在售商品
         const now2 = new Date();
         const allListings = await this.prisma.gameShopItem.findMany({
           where: { expireAt: { gte: now2 } },
@@ -243,10 +224,8 @@ export class ShopTradeService {
           return '不能购买自己的商品';
         }
 
-        // 将物品添加到买家背包
         await this.playerService.addToBackpack(userId, buyItem.itemName, buyItem.itemCount);
 
-        // 删除商品记录
         await this.prisma.gameShopItem.delete({
           where: { id: buyItem.id },
         });
@@ -603,7 +582,6 @@ export class ShopTradeService {
       return '请指定目标QQ和物品名称，格式：赠予 QQ号 物品名 [数量]';
     }
 
-    // 查找目标用户
     const targetUser = await this.prisma.user.findUnique({
       where: { qqNumber: targetQQ },
     });
@@ -616,7 +594,6 @@ export class ShopTradeService {
       return '不能赠送物品给自己';
     }
 
-    // 查找目标玩家
     const targetPlayer = await this.prisma.player.findUnique({
       where: { userId: targetUser.id },
     });
@@ -639,13 +616,11 @@ export class ShopTradeService {
       return `数量无效`;
     }
 
-    // 从发送者背包移除
     const removed = await this.playerService.removeFromBackpack(userId, itemName, actualCount);
     if (!removed) {
       return `移除物品失败`;
     }
 
-    // 添加到目标背包
     const added = await this.playerService.addToBackpack(targetUser.id, itemName, actualCount);
     if (!added) {
       // 回滚：将物品加回发送者背包
@@ -717,7 +692,7 @@ export class ShopTradeService {
       };
     }
 
-    // 方案B：声明冷却类型，面板据此显示「商店冷却中」而非兜底的「武器冷却中」
+    // 声明 kind，面板据此显示「商店冷却中」而不是默认的「武器冷却中」
     markers2.push({ name: '购买冷却', kind: 'shop-cd', expireAt: now + 10 * 1000 });
     return { blocked: false, message: '', markers2, markers2Changed: true };
   }
@@ -790,11 +765,10 @@ export class ShopTradeService {
   }
 
   /**
-   * 公开接口：为行商生成物品库存（装备+资源），供 ScheduleService 调用。
+   * 为行商生成物品库存（装备+资源）。
    * 对齐原版 后台运作.ecode L1228 生成行商物品(g.背包)。
    * @param level 行商等级（默认1），决定装备/资源数量
    * @param extra 资源额外数量（默认0）
-   * @returns 物品数组
    */
 
   async buildMerchantInventory(level = 1, extra = 0): Promise<any[]> {
@@ -876,7 +850,6 @@ export class ShopTradeService {
       return '📜 当前没有任何可用的制造配方';
     }
 
-    // 如果有指定配方名，查看该配方的详细信息
     if (recipeName) {
       const recipe = allRecipes.find((r) => r.name === recipeName);
       if (!recipe) {
@@ -887,14 +860,14 @@ export class ShopTradeService {
       const outputs = asJsonValue<any[]>(recipe.outputs, []);
       const lines = [
         `📜 【${recipe.name}】配方详情`,
-        `━━━━━━━━━━━━━━━`,
+        CARD_DIVIDER,
       ];
       if (recipe.description) lines.push(`📖 ${recipe.description}`);
       lines.push(`等级要求: ${recipe.level}`);
       lines.push(``);
       lines.push(`📥 需求材料:`);
       for (const req of reqs) {
-        // 配方材料/产出数量只读规范键 quantity（同义旧键 count 已废弃）
+        // 配方材料/产出数量只读规范键 quantity（count 不是配方键）
         lines.push(`  ${req.name} ×${req.quantity ?? 1}`);
       }
       lines.push(``);
@@ -920,7 +893,7 @@ export class ShopTradeService {
       categorized[type].push(recipe);
     }
 
-    const lines = ['📜 制造配方总览:', `━━━━━━━━━━━━━━━`];
+    const lines = ['📜 制造配方总览:', CARD_DIVIDER];
     for (const [type, recipes] of Object.entries(categorized)) {
       lines.push(`【${type}】(${recipes.length}个)`);
       for (const recipe of recipes as any[]) {

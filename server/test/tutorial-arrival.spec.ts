@@ -112,7 +112,7 @@ describe('教程到达与白NPC交互（原版对齐）', () => {
       familiarSystemService: { checkAndUpdateGrowth: jest.fn() },
       logger: { log: jest.fn(), warn: jest.fn(), error: jest.fn() },
     });
-    // P3-1：quest 域已迁出，经门面引用调用 rescue 域 ensurePlayerWhite——桩自挂门面（懒构造桥触发后接线）
+    // quest 域在子服务上，经门面引用调用 rescue 域 ensurePlayerWhite——桩自挂门面（懒构造桥触发后接线）
     return { service, player, map, taskService, gameMapUpdates };
   }
 
@@ -204,7 +204,7 @@ describe('教程到达与白NPC交互（原版对齐）', () => {
       savePlayer: jest.fn(async () => undefined),
     };
     const staticData: any = {
-      // 任务需求/奖励条目数量只读规范键 quantity（count 旧镜像已废弃：
+      // 任务需求/奖励条目数量只读规范键 quantity（无 count 镜像：误读 count 会拿到 0，
       // 需求数量读到 0 会被判定为已满足、任务立即自动完成，奖励会被跳过）
       getTaskByName: (name: string) => ({
         '教程-苏醒': {

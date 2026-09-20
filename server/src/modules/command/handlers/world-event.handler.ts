@@ -1,9 +1,6 @@
 /**
- * 全服世界事件指令处理器（独立 handlerKey = 'worldEvent'）。
- *
- * 不写进 game-command.handler.ts（G5 冻结）、不往 game.service 加 handleXxx（G1/G6）。
- * 三条指令都归本 handler，靠 rawMessage 首段（引擎按 name/别名精确或最长前缀命中后改写为
- * 「标准指令名 + 参数」）分支：
+ * 全服世界事件指令处理器（独立 handlerKey = 'worldEvent'）。三条指令都归本 handler，
+ * 靠 rawMessage 首段（引擎按 name/别名精确或最长前缀命中后改写为「标准指令名 + 参数」）分支：
  *   世界事件      → 查看进度面板
  *   领取世界奖励  → 领取已解锁里程碑奖励
  *   世界事件管理  → 管理员开关/结算/重置/调目标（内部自鉴权）
@@ -11,6 +8,7 @@
 import { Inject } from '@nestjs/common';
 import { WorldEventService } from '../../game/world-event.service';
 import { CommandContext, CommandHandler, CommandResult } from '../interfaces/command.interface';
+import { failCommand, okCommand } from '../command-result.util';
 
 export class WorldEventHandler implements CommandHandler {
   key = 'worldEvent';
@@ -22,7 +20,7 @@ export class WorldEventHandler implements CommandHandler {
 
   async handle(ctx: CommandContext, args: string[]): Promise<CommandResult> {
     if (!ctx.userId) {
-      return { success: false, content: '未登录', broadcast: false, durationMs: 0 };
+      return failCommand('未登录');
     }
     const userId = ctx.userId;
     const first = ctx.rawMessage.replace(/^[\/！!]/, '').trim().split(/\s+/)[0] || '';
@@ -38,6 +36,6 @@ export class WorldEventHandler implements CommandHandler {
       // 世界事件 / world-event / 事件 / sj
       content = await this.worldEvent.viewPanel(userId);
     }
-    return { success: true, content, broadcast: false, durationMs: 0 };
+    return okCommand(content);
   }
 }

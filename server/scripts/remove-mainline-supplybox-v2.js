@@ -1,5 +1,5 @@
-// 删除脚本 v2（更可靠）：逐行读出 backpack -> JS 删除 name==="主线补给箱" -> update 写回
-// 关键改动：打印 update 返回的 affected rows，确认是否真落库；最后用 $queryRaw 复查。
+// 一次性删除：从 Player/GameMonster 的 backpack 中移除 name==="主线补给箱" 的条目。
+// 逐行读出 → JS 过滤 → update 写回，打印 affected rows 并用原生 SQL 复查是否真落库。
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 const TARGET = '主线补给箱';

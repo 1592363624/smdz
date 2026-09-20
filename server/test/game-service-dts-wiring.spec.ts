@@ -1,5 +1,5 @@
 /**
- * 延时任务结算接线冒烟测试（重构方案 R9 / C5）
+ * 延时任务结算接线冒烟测试
  *
  * 背景：GameService.onModuleInit 注册 12 个 dts.registerHandler 延时结算回调
  *（gather/move/rescue/reload/dungeonClose/mine/refill/cargo/repair/

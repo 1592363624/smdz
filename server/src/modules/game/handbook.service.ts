@@ -1,23 +1,14 @@
 /**
- * 图鉴服务（HandbookService）
- * ------------------------------------------------------------------
- * 对齐原版易语言：数据显示.ecode L2632-3742 子程序 使魔图鉴。
- *
- * 原版行为：分类总览 → 类目列表 / 跨分类关键词搜索 → 单条详情。
- * 每条详情按各分类原版写法（L2970-3530）逐段输出：基础信息、伤害属性、好感 N 解锁链、
- * 技能等级替换、词条池展开、采集产出(基础+玩家倍率)、通道/怪物/资源/复活点、特效编号(调试用)、
- * 毛发来源等。
- *
- * 与原版的差异说明：
- *   - 原版每条详情开头调用 `取图片(输入)` 群发内嵌图片。新版已确认无需群内嵌图，纯文本输出。
- *   - 玩家.名称 前缀沿用原版习惯输出「玩家名 + 换行 + 条目内容」。
+ * 图鉴服务：分类总览 → 类目列表 / 跨分类关键词搜索 → 单条详情。
+ * 对齐原版易语言：数据显示.ecode L2632-3742 子程序 使魔图鉴（各分类详情按 L2970-3530 逐段输出）。
+ * 与原版差异：不再 `取图片(输入)` 群发内嵌图，纯文本输出；玩家名前缀沿用原版「玩家名 + 换行 + 条目内容」。
  */
 
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { StaticDataService } from './static-data.service';
 import { ShortcutService } from './shortcut.service';
 import { GlobalProficiencyService, pickMonsterLevel, proficiencyLevelFromPoints } from './global-proficiency.service';
-import { LINE_BREAK_MARKER, padToWidth } from '../../common/utils/game-text.util';
+import { CARD_DIVIDER, LINE_BREAK_MARKER, padToWidth } from '../../common/utils/game-text.util';
 import { asJsonValue } from '../../common/utils/json-value.util';
 
 // ---------- 纯函数工具 ----------
@@ -95,7 +86,6 @@ function lines(s: string | undefined | null): string[] {
   return String(s).split(LINE_BREAK_MARKER).map((p) => p.trim()).filter(Boolean);
 }
 
-/** 切分字符串 */
 function splitText(s: string | undefined | null, sep: string): string[] {
   if (!s) return [];
   return String(s).split(sep);
@@ -181,8 +171,6 @@ function sciText(n: unknown): string {
 }
 
 // ---------- 原版两列菜单排版（L2654） ----------
-
-// displayWidth / padToWidth 已下沉到 common/utils/game-text.util（主菜单两列排版共用，单一实现）
 
 /** 两列菜单左列的显示宽度：序号2 + "、"2 + 最长标签"对话文本"8 = 12，留 1 列余量 */
 const MENU_COL_WIDTH = 13;
@@ -474,10 +462,10 @@ export class HandbookService {
     await this.shortcutService.setTempInput(ctx.userId, shortcuts.join('#'));
     const lines: string[] = [
       `${ctx.playerName}${quote('攻击文本')}的图鉴搜索结果`,
-      `━━━━━━━━━━━━━━━`,
+      CARD_DIVIDER,
     ];
     names.forEach((n, i) => lines.push(`${i + 1}、${n}`));
-    lines.push(`━━━━━━━━━━━━━━━`, `使用「图鉴 完整名称」查看详情`);
+    lines.push(CARD_DIVIDER, `使用「图鉴 完整名称」查看详情`);
     return lines.join('\n');
   }
 
@@ -488,10 +476,10 @@ export class HandbookService {
     await this.shortcutService.setTempInput(ctx.userId, shortcuts.join('#'));
     const lines: string[] = [
       `${ctx.playerName}${quote('对话文本')}的图鉴搜索结果`,
-      `━━━━━━━━━━━━━━━`,
+      CARD_DIVIDER,
     ];
     names.forEach((n, i) => lines.push(`${i + 1}、${n}对话`));
-    lines.push(`━━━━━━━━━━━━━━━`, `使用「图鉴 完整名称」查看详情`);
+    lines.push(CARD_DIVIDER, `使用「图鉴 完整名称」查看详情`);
     return lines.join('\n');
   }
 
@@ -502,25 +490,25 @@ export class HandbookService {
       return `图鉴中没有找到【${placeName}附近】\n使用「图鉴」查看所有分类`;
     }
     nearby.sort((a, b) => String(a.name).localeCompare(String(b.name), 'zh-Hans-CN'));
-    const lines = [`📖 【${placeName}】附近的地图 (${nearby.length}张):`, `━━━━━━━━━━━━━━━`];
+    const lines = [`📖 【${placeName}】附近的地图 (${nearby.length}张):`, CARD_DIVIDER];
     const shortcuts: string[] = [];
     nearby.forEach((mp, index) => {
       const tag = mp.isFrontier ? '（家园）' : mp.isInstance ? '（副本）' : '';
       lines.push(`${index + 1}、${mp.name}${tag}`);
       shortcuts.push(`${index + 1}@图鉴${mp.name}`);
     });
-    lines.push(`━━━━━━━━━━━━━━━`, `使用「图鉴 地图名」查看地图详情`);
+    lines.push(CARD_DIVIDER, `使用「图鉴 地图名」查看地图详情`);
     await this.shortcutService.setTempInput(ctx.userId, shortcuts.join('#'));
     return lines.join('\n');
   }
 
   private renderCategoryList(section: CategoryEntry): string {
-    const lines = [`📖 ${section.title}图鉴 (${section.entries.length}条):`, `━━━━━━━━━━━━━━━`];
+    const lines = [`📖 ${section.title}图鉴 (${section.entries.length}条):`, CARD_DIVIDER];
     for (const e of section.entries) {
       const brief = e.brief ? ` - ${e.brief}` : '';
       lines.push(`${e.name}${brief}`);
     }
-    lines.push(`━━━━━━━━━━━━━━━`);
+    lines.push(CARD_DIVIDER);
     lines.push(`使用「图鉴 名称」查看详情，使用「图鉴」查看所有分类`);
     return lines.join('\n');
   }
@@ -549,15 +537,15 @@ export class HandbookService {
     if (hits.length > 30) {
       const lines = [
         `📖 【${keyword}】的图鉴搜索结果 (${hits.length}条，仅显示前30):`,
-        `━━━━━━━━━━━━━━━`,
+        CARD_DIVIDER,
       ];
       for (const h of hits.slice(0, 30)) lines.push(`【${h.category}】${h.entry.name}`);
-      lines.push(`━━━━━━━━━━━━━━━`, `请输入更完整的关键词缩小范围`);
+      lines.push(CARD_DIVIDER, `请输入更完整的关键词缩小范围`);
       return lines.join('\n');
     }
-    const lines = [`📖 【${keyword}】的图鉴搜索结果 (${hits.length}条):`, `━━━━━━━━━━━━━━━`];
+    const lines = [`📖 【${keyword}】的图鉴搜索结果 (${hits.length}条):`, CARD_DIVIDER];
     for (const h of hits) lines.push(`【${h.category}】${h.entry.name}`);
-    lines.push(`━━━━━━━━━━━━━━━`, `使用「图鉴 完整名称」查看详情`);
+    lines.push(CARD_DIVIDER, `使用「图鉴 完整名称」查看详情`);
     return lines.join('\n');
   }
 
@@ -1016,8 +1004,8 @@ export class HandbookService {
    * 输出顺序为：属性面板 → 使用的武器 → 使用的装备 → 驾驶的载具 → 闪避冷却 →
    * 掉落(含熟练度加成) → 掉落(你的加成) → 麻醉值 → 来自装备的被动效果 → 出处 → 说明。
    *
-   * 新版改从 monsters.json 的 bonus 字段读取（武器/装备/载具/drops/麻醉 均已迁移），
-   * 不再依赖运行时初始化；玩家相关加成由 ctx.playerDrop* 传入，缺省按 0 计算。
+   * 数据取自 monsters.json 的 bonus 字段（武器/装备/载具/drops/麻醉 均已入库），
+   * 不依赖运行时初始化怪物；玩家相关加成由 ctx.playerDrop* 传入，缺省按 0 计算。
    */
   private renderMonsterDetail(m: any, ctx?: HandbookContext): string[] {
     const bonus = parseObj(m.bonus);
@@ -1143,9 +1131,7 @@ export class HandbookService {
   /**
    * 掉落熟练度等级（原版 L3199 的 b）。
    * 原版 = 显示熟练度等级(全局标记, 怪物类型, 去物种前缀=真) + 显示熟练度等级(全局标记, "世界")。
-   * 两项均由 GlobalProficiencyService（原版「全局标记」）提供——单一真相源，
-   * 不再由调用方经 ctx 透传（此前 ctx.monsterProficiency 从未被填充，
-   * 导致怪物类型熟练度恒为 0，见 2026-09-10 审计）。
+   * 两项均由 GlobalProficiencyService（原版「全局标记」）提供——单一真相源，不经 ctx 透传。
    */
   private dropProficiencyLevel(m: any, _ctx?: HandbookContext): number {
     if (!this.globalProficiency) return 0;
@@ -1359,7 +1345,7 @@ export class HandbookService {
       const recipe = craftings.find((c) => c.name === p.name);
       if (!recipe) continue;
       for (const req of parseArr(recipe.requirements)) {
-        // 需求/零件数量只读规范键 quantity（同义旧键 count 已废弃）
+        // 需求/零件数量只读规范键 quantity
         acc.set(req.name, (acc.get(req.name) ?? 0) + Number(req.quantity ?? 0) * Number(p.quantity ?? 1));
       }
     }

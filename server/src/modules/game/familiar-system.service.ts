@@ -22,7 +22,7 @@ import { DelayedTaskService } from './delayed-task.service';
 import { GameHighlightService } from './highlight.service';
 import { hasActive } from './expire-time.util';
 import { asJsonValue } from '../../common/utils/json-value.util';
-import { roundItemQuantity, formatDamageText } from '../../common/utils/game-text.util';
+import { CARD_DIVIDER, roundItemQuantity, formatDamageText } from '../../common/utils/game-text.util';
 import { GlobalConfig } from '../../config/global.config';
 import { mergeBackpackItem, lookupFromStaticData } from './item-normalize.util';
 import { appendHomeBuildGuide } from './home-build-guide.util';
@@ -43,7 +43,7 @@ import {
 } from './familiar-menu.util';
 
 /**
- * 召唤物/宠物实例（与现有 FamiliarService 中的 SummonUnit 一致）
+ * 召唤物/宠物实例
  */
 export interface SummonUnit {
   specialSeq: number;
@@ -55,32 +55,22 @@ export interface SummonUnit {
   ownerQQ?: string;
   /** 当前地图上的召唤物标识 */
   qq?: string;
-  /** 类型 */
   type?: string;
-  /** 当前生命值 */
   hp?: number;
-  /** 战斗力 */
   combatPower?: number;
   /** === 原版召唤物为"玩家2实例"，携带完整玩家级数组（对应 _主程序.ecode L9783 重定义数组） === */
   /** 剧情房子（原版 玩家2.房子 = 对话列表[1].任务） */
   房子?: string;
-  /** 成就数组 */
   achievements?: any[];
-  /** 背包数组 */
   backpack?: any[];
-  /** 增益数组 */
   buffs?: any[];
-  /** 武器数组 */
   weapons?: any[];
-  /** 装备数组 */
   equipments?: any[];
   /** 标记2数组 */
   markers2?: any[];
   /** 标记数组 */
   markers?: any[];
-  /** 任务数组 */
   任务?: any[];
-  /** 装备预设数组 */
   equipmentPresets?: any[];
 }
 
@@ -122,7 +112,7 @@ export interface Producer {
 
 /**
  * 产出物品
- * 数量只用规范键 quantity（与物品域同口径；count 旧镜像已废弃）
+ * 数量只用规范键 quantity（与物品域同口径；读写 count 拿不到值）
  */
 export interface OutputItem {
   name: string;
@@ -154,23 +144,19 @@ export class FamiliarSystemService {
     @Optional() private readonly itemSystem?: ItemSystemService,
     @Inject(forwardRef(() => FamiliarSkillsService))
     @Optional() private readonly familiarSkills?: FamiliarSkillsService,
-    // P2 写入口收口：兑换等读改写路径逐步迁到 mutate 管道（锁+新鲜快照+审计）。
-    // Optional 末位参数，旧测试桩不传也不受影响。
+    // 兑换等读改写路径经 mutate 管道（锁 + 新鲜快照 + 审计）。
     @Optional() private readonly mutateService?: any,
     // 选择使魔预览/列表的编号快捷指令依赖临时输入替换（对应原版 临时输入替换）。
     @Optional() private readonly shortcutService?: ShortcutService,
     // 建造地基/建造房子写入「工作」计时标记（对应原版 添加标记("工作",秒,玩家.标记2)）。
-    // Optional 末位参数，旧测试桩不传也不受影响。
     @Optional() private readonly combatState?: CombatStateService,
-    // 高光时刻推送（领取使魔称号时播放屏幕级动画）。Optional 末位参数，
-    // 旧测试桩不传也不受影响。
+    // 高光时刻推送（领取使魔称号时播放屏幕级动画）。
     @Optional() private readonly highlight?: GameHighlightService,
-    // 建造地基/建造房子的完工延时结算（工作标记到期后发经验+完工播报）。
-    // Optional 末位参数，旧测试桩不传也不受影响（无排程时退化为开工即完工提示）。
+    // 建造地基/建造房子的完工延时结算（工作标记到期后发经验+完工播报）；
+    // 不注入时退化为开工即完工提示。
     @Optional() private readonly delayedTaskService?: DelayedTaskService,
   ) {
-    // P2 管道注入自检：@Optional 注入失效会静默回落裸锁路径（生产极难察觉，
-    // 见正式库 CurrencyLog 空表事故）。
+    // 注入自检：@Optional 注入失效会静默回落裸锁路径，生产环境极难察觉。
     this.logger.log(
       `使魔系统 mutate 管道注入自检: ${this.mutateService?.mutate ? '已激活' : '未注入（兑换走裸锁路径）'}`,
     );
@@ -179,12 +165,7 @@ export class FamiliarSystemService {
   // ==================== 使魔基础操作 ====================
 
   /**
-   * 选择/更换使魔
-   * 对应原版：选择使魔/更换使魔()
-   * 更换玩家的使魔类型，需要已拥有该使魔（好感度 > 0）
-   * @param userId 用户ID
-   * @param familiarName 使魔名称
-   * @returns 操作结果文本
+   * 选择/更换使魔，对应原版 选择使魔/更换使魔()：更换玩家的使魔类型，需要已拥有该使魔（好感度 > 0）。
    */
   async selectFamiliar(userId: number, familiarName: string): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -277,7 +258,7 @@ export class FamiliarSystemService {
       // 初始等级/生命保持基础值，正式进入游戏
       player.level = player.level || 1;
       player.exp = 0;
-      // 升级经验门槛按公式重算，避免沿用错误的存量值（如旧版 100）
+      // 升级经验门槛按公式重算，避免沿用错误的存量值
       player.upgradeExp = player.upgradeExp || this.playerService.calcUpgradeExp(player.level);
       // 按原版 _计算玩家 公式重算基础战斗属性（1级：攻击10、生命上限≈52、护盾≈22、装甲≈32）
       // 对齐加成计算.ecode L1799-1833，使开局属性即符合等级成长公式
@@ -319,7 +300,6 @@ export class FamiliarSystemService {
       return `${player.name || '冒险者'} 你尚未获得该使魔「${name}」\n请使用「召唤使魔」来获取新使魔`;
     }
 
-    // 检查是否炮击模式
     if (player.attackMode === 1) {
       return `${player.name || '冒险者'} 炮击模式下不可以更换使魔`;
     }
@@ -339,12 +319,10 @@ export class FamiliarSystemService {
       else if (multiHandI) cooldown = 750;
     }
 
-    // 检查是否为同一使魔
     if (player.type === name) {
       return `${player.name || '冒险者'} 你上次换成${name}还是上次`;
     }
 
-    // 检查冷却
     const markers2 = asJsonValue<any[]>(player.markers2, []);
     const cooldownMarker = markers2.find((m: any) => m.name === '更换使魔');
     const now = Date.now() / 1000;
@@ -367,7 +345,6 @@ export class FamiliarSystemService {
     // 同步当前好感到 affinity 字段（战斗计算中按好感触发使魔专属效果）
     player.affinity = this.playerService.getMarkerValue(markers, affinityKey);
 
-    // 设置冷却标记
     const newMarkers2 = markers2.filter((m: any) => m.name !== '更换使魔');
     newMarkers2.push({
       name: '更换使魔',
@@ -459,12 +436,7 @@ export class FamiliarSystemService {
   }
 
   /**
-   * 召唤使魔
-   * 对应原版：召唤使魔()
-   * 消耗召唤券随机获取新使魔
-   * @param userId 用户ID
-   * @param count 召唤次数
-   * @returns 召唤结果文本
+   * 召唤使魔，对应原版 召唤使魔()：消耗召唤券随机获取新使魔。
    */
   async summonFamiliar(userId: number, count: number = 1): Promise<string> {
     if (count < 1) {
@@ -480,8 +452,8 @@ export class FamiliarSystemService {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 检查召唤券数量（统一货币读入口：与落库仲裁同口径，绝不读到双字段镜像的旧值——
-    // 正式库 7516「兑换后立刻召唤只看到 21.012」事故根因即读侧只取 .count）
+    // 检查召唤券数量：必须走统一货币读入口（与落库仲裁同口径）；
+    // 读侧只取 .count 会拿到双字段镜像的旧值。
     const backpack = this.playerService.getBackpackItems(player);
     const ticketCount = this.playerService.getCurrencyAmount(player, '召唤券', backpack);
 
@@ -496,15 +468,12 @@ export class FamiliarSystemService {
       return '没有可召唤的使魔';
     }
 
-    // 执行召唤
     const summonedItems: string[] = [];
 
     for (let i = 0; i < count; i++) {
-      // 随机选择一个使魔
       const randomIndex = Math.floor(Math.random() * allFamiliars.length);
       const chosenFamiliar = allFamiliars[randomIndex];
 
-      // 增加该使魔的好感度
       const affinityKey = `${chosenFamiliar.name}好感`;
       const currentAffinity = this.playerService.getMarkerValue(markers, affinityKey);
       markers[affinityKey] = currentAffinity + 1;
@@ -512,16 +481,15 @@ export class FamiliarSystemService {
       summonedItems.push(chosenFamiliar.name);
     }
 
-    // 扣除召唤券（统一货币写入口：count/quantity 双字段同步 + 刷新物化基准；
-    // 数值过 roundItemQuantity 闸：73.012 - 73 的 IEEE754 长尾 0.012000000000000455
-    // 会原样入库并泄漏到 UI，正式库事故实锤）。携带工作数组：提交由下方
-    // player.backpack = backpack 统一完成（全库「解析克隆→改→写回」约定）。
+    // 扣除召唤券：统一货币写入口（count/quantity 双字段同步 + 刷新物化基准），
+    // 数值过 roundItemQuantity 闸，否则 IEEE754 长尾（73.012-73 → 0.012000000000000455）
+    // 会原样入库并泄漏到 UI。携带工作数组：提交由下方 player.backpack = backpack
+    // 统一完成（全库「解析克隆→改→写回」约定）。
     this.playerService.setCurrencyAmount(player, '召唤券', ticketCount - count, backpack);
 
     player.markers = markers; // Player markers 为 Json 列，直接写对象
     player.backpack = backpack; // Player backpack 为 Json 列，直接写数组
 
-    // 检查召唤冷却
     const markers2 = asJsonValue<any[]>(player.markers2, []);
     const cooldownMarker = markers2.find((m: any) => m.name === '召唤冷却');
     const now = Date.now() / 1000;
@@ -544,25 +512,15 @@ export class FamiliarSystemService {
   }
 
   /**
-   * 召唤固定剧情角色"白"（特殊召唤，不消耗召唤券）
-   * 对应原版：召唤1白1()（_主程序.ecode L9777-9795）
-   * 原版逻辑：
-   *   玩家2.名称 = "白"; 玩家2.类型 = "白"; 玩家2.QQ = "召唤物" + 生成编号()
-   *   玩家2.归属 = 玩家.QQ
-   *   重定义数组(玩家2.成就/背包/增益/武器/装备/标记2/标记/任务/装备预设, 假, 0)  // 全新实例
-   *   添加成就("好感" + 玩家.QQ, 30, 玩家2.标记)  // 对召唤者好感 30
-   *   玩家2.房子 = 对话列表[1].任务  // 剧情：初始休眠仓
-   *   加入成员(地图列表[玩家.地图].召唤物, 玩家2)
-   *   添加成就("召唤白", 1, 玩家.标记)
-   * @param userId 用户ID
+   * 召唤固定剧情角色"白"（特殊召唤，不消耗召唤券），对应原版 召唤1白1()
+   * （_主程序.ecode L9777-9795）：玩家2 为全新实例、对召唤者好感 30、
+   * 房子=初始休眠仓，重复召唤先移除地图上的已有"白"。
    * @param name 剧情角色名（固定"白"）
-   * @returns 结果文本
    */
   async summonStoryFamiliar(userId: number, name: string): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
 
-    // 获取当前地图的召唤物列表
     const map = await this.mapService.getMapById(player.mapId);
     if (!map) {
       return `${player.name || '冒险者'} 你不在任何地图上，无法召唤。`;
@@ -610,12 +568,7 @@ export class FamiliarSystemService {
   }
 
   /**
-   * 命名使魔
-   * 对应原版：命名使魔()
-   * 修改玩家的使魔显示名称
-   * @param userId 用户ID
-   * @param name 新名称
-   * @returns 操作结果文本
+   * 命名使魔，对应原版 命名使魔()：修改玩家的使魔显示名称。
    */
   async nameFamiliar(userId: number, name: string): Promise<string> {
     if (!name) {
@@ -642,14 +595,9 @@ export class FamiliarSystemService {
   }
 
   /**
-   * 查看使魔数据
-   * 对应原版：使魔数据()
-   * 查看玩家当前使魔的详细数据
-   * @param userId 用户ID
-   * @returns 使魔数据文本
+   * 查看使魔数据，对应原版 使魔数据()（对齐 数据显示.ecode L723-995）。
    */
   async viewFamiliarData(userId: number, detailed = false): Promise<string> {
-    // 对齐原版 数据显示.ecode L723-995 显示使魔数据()
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers, buffs } = playerData;
 
@@ -692,7 +640,7 @@ export class FamiliarSystemService {
 
     // 基础信息（对齐原版 L736-786）
     lines.push(`【${familiar.name}】Lv.${player.level}`);
-    lines.push('━━━━━━━━━━━━━━━');
+    lines.push(CARD_DIVIDER);
 
     // 护盾/装甲/生命（对齐原版 L780-786）
     if (calc.护盾) {
@@ -724,11 +672,11 @@ export class FamiliarSystemService {
     const 挑战 = this.playerService.getMarkerValue(markers, '挑战等级');
     lines.push(`战力: ${combatPower}\t挑战:${Math.round(Number(挑战) || 0)}`);
 
-    // ====== 详细模式属性（对齐原版 L808-976 详细=真）======
+    // ====== 详细模式属性（对应原版 数据显示.ecode 显示使魔数据 L723-995 的 L808-976 详细=真分支）======
     // 仅「查看使魔详细」输出；「查看使魔」只显示基础数据（对齐原版 详细=空）。
     // 技能说明/好感解锁分层由「使魔技能」单独展示，避免与查看使魔重复。
     if (detailed) {
-      lines.push('━━━━━━━━━━━━━━━');
+      lines.push(CARD_DIVIDER);
 
       // 三层抗性（对齐原版 L809-823）
       if (calc.护盾伤害上限) {
@@ -814,7 +762,7 @@ export class FamiliarSystemService {
     }
 
     // 魅力/活力（对齐原版 L977-984，无条件显示）
-    lines.push('━━━━━━━━━━━━━━━');
+    lines.push(CARD_DIVIDER);
     lines.push(`魅力: ${Math.round(calc.魅力 || 0)}`);
 
     // 活力（对齐原版 L983-984: 活力/活力2）
@@ -827,11 +775,8 @@ export class FamiliarSystemService {
   }
 
   /**
-   * 使魔品质前缀
-   * 对齐原版 数据显示.ecode L1591-1617 显示品质()
-   * 取装备数据首位字符映射品质：e=普通 d=良好 c=优秀 b=精良 a=史诗 s=传说 default=神迹
-   * @param data 装备数据字符串
-   * @returns 品质前缀文本
+   * 使魔品质前缀，对齐原版 数据显示.ecode L1591-1617 显示品质()。
+   * 取装备数据首位字符映射：e=普通 d=良好 c=优秀 b=精良 a=史诗 s=传说，其余（含空值）=神迹。
    */
   private familiarQualityPrefix(data: string): string {
     if (!data || typeof data !== 'string') return '神迹';
@@ -844,12 +789,7 @@ export class FamiliarSystemService {
   }
 
   /**
-   * 查看使魔详细
-   * 对应原版：查看使魔详细()
-   * 查看指定使魔的详细信息
-   * @param userId 用户ID
-   * @param familiarName 使魔名称
-   * @returns 使魔详细信息文本
+   * 查看使魔详细，对应原版 查看使魔详细()：指定使魔的详情文本。
    */
   async viewFamiliarDetail(userId: number, familiarName: string): Promise<string> {
     if (!familiarName) {
@@ -862,25 +802,23 @@ export class FamiliarSystemService {
       return `不存在的使魔：${familiarName}`;
     }
 
-    // 获取玩家对该使魔的好感度
     const playerData = await this.playerService.getPlayerData(userId);
     const { markers } = playerData;
     const affinityKey = `${familiarName}好感`;
     const affinity = this.playerService.getMarkerValue(markers, affinityKey);
 
-    // 获取技能等级
     const skillKey = `${familiarName}技能熟练度`;
     const skillExp = this.playerService.getMarkerValue(markers, skillKey);
     const skillLevel = this.playerService.getSkillLevel(markers, familiarName);
 
     const lines = [
       `【${familiar.name}】`,
-      `━━━━━━━━━━━━━━━`,
+      CARD_DIVIDER,
       `${familiar.description2 || familiar.description || ''}`,
-      `━━━━━━━━━━━━━━━`,
+      CARD_DIVIDER,
       `特有技能: ${familiar.uniqueSkill || '无'}`,
       `技能说明: ${familiar.skillDesc || '无'}`,
-      `━━━━━━━━━━━━━━━`,
+      CARD_DIVIDER,
       `你的好感度: ${Math.round(affinity)}`,
       `技能等级: ${skillLevel}`,
       familiar.noSummon ? '⚠️ 不可召唤' : '✅ 可召唤',
@@ -912,10 +850,8 @@ export class FamiliarSystemService {
   }
 
   private addResourceToBackpack(backpack: any[], name: string, count: number, type = '资源'): void {
-    // 统一走背包写入唯一出口（item-normalize.mergeBackpackItem）：type 以静态定义为唯一真源、
-    // 非装备按名合并（双字段镜像 + 两位小数收敛）、装备不合并。
-    // 2026-09-10 收敛：原实现此处手写合并逻辑，且装备分支写死 `data: ''` —— 会落下
-    // 无品质码的裸装备（原版不存在这种装备）；出口对缺品质码的装备会前置补 E 兜底。
+    // 入包走背包写入唯一出口 item-normalize.mergeBackpackItem：type 以静态定义为唯一真源、
+    // 非装备按名合并（双字段镜像 + 两位小数收敛）、装备不合并且缺品质码时前置补 E 兜底。
     const item: any =
       type === '装备'
         ? { name, type: '装备', quantity: 1, durability: 0 }
@@ -940,12 +876,8 @@ export class FamiliarSystemService {
   }
 
   /**
-   * 使魔商店
-   * 对应原版：使魔商店()
-   * 显示商店列表，支持子商店：活跃度商店、钻石商店、数据商店
-   * @param userId 用户ID
-   * @param shopType 子商店类型（activity/diamond/dataCore）
-   * @returns 商店内容文本
+   * 使魔商店，对应原版 使魔商店()：无参显示三个子商店入口，否则列出该子商店。
+   * @param shopType 子商店类型（activity/diamond/dataCore，也接受中文「活跃度/钻石/数据」）
    */
   async familiarShop(userId: number, shopType?: string): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -968,7 +900,7 @@ export class FamiliarSystemService {
       return `${player.name || '冒险者'}#换行1、活跃度商店#2、钻石商店#3、数据商店`;
     }
 
-    // 展示走统一货币读入口：分裂条目（历史上单字段写遗留）不得显示旧值
+    // 展示走统一货币读入口：count/quantity 分裂的条目不得显示旧值
     const diamondCount = this.playerService.getCurrencyAmount(player, '钻石');
     const dataCoreCount = this.playerService.getCurrencyAmount(player, '数据核心');
     const activity = this.playerService.getMarkerValue(markers, '活跃度');
@@ -987,13 +919,7 @@ export class FamiliarSystemService {
   }
 
   /**
-   * 兑换
-   * 对应原版：兑换()
-   * 从商店兑换物品
-   * @param userId 用户ID
-   * @param itemName 物品名称
-   * @param count 兑换数量
-   * @returns 兑换结果文本
+   * 兑换，对应原版 兑换()：从商店兑换物品。
    */
   async exchange(userId: number, itemName: string, count: number = 1): Promise<string> {
     const rawName = (itemName || '').trim();
@@ -1007,10 +933,9 @@ export class FamiliarSystemService {
     count = Math.max(1, Math.trunc(Number(count) || 1));
     const normalizedName = rawName.replace(/\d/g, '').replace(/\s+/g, '');
 
-    // 扣货币→加货→整包写回必须全程持用户级共享锁，否则与后台自动开采/
-    // 任务结算并发时，本结果会被其旧快照整包覆盖（曾导致钻石被扣、召唤券
-    // 却没到账）。优先走 P2 mutate 管道（同一把锁 + 新鲜快照 + 货币审计）；
-    // 测试桩未注入管道时回落到裸锁路径。
+    // 扣货币→加货→整包写回必须全程持用户级共享锁，否则与后台自动开采/任务结算并发时，
+    // 本结果会被对方的旧快照整包覆盖（钻石被扣、召唤券却没到账）。
+    // 优先走 mutate 管道（同一把锁 + 新鲜快照 + 货币审计）；未注入管道时回落到裸锁路径。
     if (this.mutateService?.mutate) {
       return this.mutateService.mutate(userId, (ctx: any) =>
         this.doExchange(ctx, normalizedName, count));
@@ -1083,13 +1008,7 @@ export class FamiliarSystemService {
   // ==================== 家园系统 ====================
 
   /**
-   * 家园操作
-   * 对应原版：家园/家园音乐/家园搬迁/家园命名()
-   * 完全实现家园系统
-   * @param userId 用户ID
-   * @param subCommand 子命令
-   * @param args 额外参数
-   * @returns 操作结果文本
+   * 家园操作总入口，对应原版 家园/家园音乐/家园搬迁/家园命名()。
    */
   async handleHome(userId: number, subCommand: string, ...args: string[]): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -1332,9 +1251,6 @@ export class FamiliarSystemService {
     return lines;
   }
 
-  /**
-   * 家园音乐
-   */
   private async handleHomeMusic(userId: number, musicName?: string): Promise<string> {
     if (!musicName) {
       return '请指定音乐名称，例如：家园音乐月光';
@@ -1360,9 +1276,6 @@ export class FamiliarSystemService {
     return `已将家园背景音乐更换为：${musicName}`;
   }
 
-  /**
-   * 家园搬迁
-   */
   private async handleHomeRelocate(userId: number, targetMap?: string): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
@@ -1376,7 +1289,6 @@ export class FamiliarSystemService {
       return '请指定搬迁目标地图，例如：家园搬迁森林出口';
     }
 
-    // 检查目标地图是否存在
     let map: any;
     try {
       map = await this.mapService.getMapByName(targetMap);
@@ -1388,7 +1300,6 @@ export class FamiliarSystemService {
       return `地图「${targetMap}」不存在`;
     }
 
-    // 检查是否可搬迁
     if (map.noMove) {
       return `「${targetMap}」不可搬迁至此`;
     }
@@ -1421,9 +1332,6 @@ export class FamiliarSystemService {
     return `家园已搬迁至「${targetMap}」`;
   }
 
-  /**
-   * 家园命名
-   */
   private async handleHomeRename(userId: number, newName?: string): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
@@ -1437,7 +1345,6 @@ export class FamiliarSystemService {
       return `请指定新名称，例如：家园命名陨落之地`;
     }
 
-    // 检查名称是否已被其他玩家使用
     const existingPlayers = await this.prisma.player.findMany({
       where: { houseName: newName },
     });
@@ -1465,11 +1372,7 @@ export class FamiliarSystemService {
 
   // ==================== 家园建造流程 ====================
 
-  /**
-   * 圈地 - 开始建造家园
-   * 对应原版：圈地()
-   * 设置家园进度=1，表示开始清空地面
-   */
+  /** 圈地：家园进度置 1（开始清空地面）。对应原版：圈地() */
   private async handleHomeClaim(userId: number, player: any, markers: any): Promise<string> {
     const progress = this.playerService.getMarkerValue(markers, '家园进度');
 
@@ -1497,7 +1400,6 @@ export class FamiliarSystemService {
     player.stats = stats; // Player stats 为 Json 列，直接写对象
     await this.mapService.ensureHouseMaps(houseName, currentMap.id, 1);
 
-    // 设置家园进度为1
     markers['家园进度'] = 1;
     player.markers = markers; // Player markers 为 Json 列，直接写对象
 
@@ -1542,7 +1444,6 @@ export class FamiliarSystemService {
       resources2: [this.copyResourceDef('土堆'), this.copyResourceDef('土堆')], // Json 列直接写数组
     });
 
-    // 更新进度
     markers['家园进度'] = 2;
     player.markers = markers; // Player markers 为 Json 列，直接写对象
 
@@ -1819,9 +1720,6 @@ export class FamiliarSystemService {
     return '家园正在建造收尾，请稍候';
   }
 
-  /**
-   * 获取进度文本描述
-   */
   private getProgressText(progress: number): string {
     const texts: Record<number, string> = {
       0: '未开始',
@@ -1856,13 +1754,12 @@ export class FamiliarSystemService {
   }
 
   /**
-   * 家园产出
-   * 对应原版：家园产出() / 取地图产出() / 产出资源()
-   * 计算家园中所有建筑和作物的产出，并将产出物品添加到玩家背包
+   * 家园产出，对应原版 家园产出() / 取地图产出() / 产出资源()：
+   * 结算家园建筑与作物的产出并入包。
    */
   private async handleHomeOutput(userId: number): Promise<string> {
-    // 原版地图操作.ecode 的完整观测逻辑统一由 HomeService 执行；保留下方旧实现仅供
-    // 没有注入 HomeService 的历史单元测试夹具回退，线上 Nest 实例始终走此入口。
+    // 线上始终由 HomeService 执行原版地图操作.ecode 的观测逻辑；
+    // 下方回退路径只服务未注入 HomeService 的测试夹具。
     if (this.homeService) {
       return this.homeService.collectHomeOutput(userId);
     }
@@ -1887,7 +1784,6 @@ export class FamiliarSystemService {
       return '家园所在的地图不存在';
     }
 
-    // 解析地图上的建筑列表
     const mapBuildings = asJsonValue<any[]>(map.buildings, []);
     if (mapBuildings.length === 0) {
       return '家园中没有建筑，无法产出';
@@ -1899,13 +1795,11 @@ export class FamiliarSystemService {
       .getAllBuildings()
       .filter((b) => buildingNames.includes(b?.name));
 
-    // 构建建筑定义映射
     const buildingDefMap = new Map<string, any>();
     for (const def of buildingDefs) {
       buildingDefMap.set(def.name, def);
     }
 
-    // 转为生产：将地图上的建筑转换为生产者
     const producers: Producer[] = [];
     for (const b of mapBuildings) {
       const def = buildingDefMap.get(b.name);
@@ -1929,7 +1823,6 @@ export class FamiliarSystemService {
       return '家园中的建筑没有产出配置';
     }
 
-    // 获取玩家背包作为存放地
     const backpack = this.playerService.getBackpackItems(player);
 
     // 计算时间差：距离上次产出过去了多少秒
@@ -1947,31 +1840,24 @@ export class FamiliarSystemService {
     const powerFuelOutputRate = 1.0;   // 燃电产出倍率
     const laborSupplyRate = 1.0;       // 人力供应倍率
 
-    // 执行产出计算（按优先级分组）
     const outputItems: any[] = [];
     const priorities = [...new Set(producers.map(p => p.priority))].sort();
 
     for (const pri of priorities) {
-      // 筛选当前优先级的建筑
       const priorityProducers = producers.filter(p => p.priority === pri);
 
-      // 计算每个生产者的产出
       for (const producer of priorityProducers) {
-        // 计算最小产出时间（受消耗品影响）
         const minTime = this.calcMinOutputTime(producer, timeDiff, backpack);
 
         for (const output of producer.outputs) {
           let quantity = output.quantity * producer.count * minTime / 60;
 
-          // 应用倍率
           if (output.quantity > 0) {
-            // 正产出
             quantity = quantity * buildingOutputRate;
             if (output.name === '电力' || output.name === '燃料') {
               quantity = quantity * powerFuelOutputRate;
             }
           } else {
-            // 负产出（消耗品）
             if (output.name === '电力') {
               quantity = quantity * powerConsumeRate;
             } else if (output.name === '燃料') {
@@ -1982,7 +1868,6 @@ export class FamiliarSystemService {
           // 跳过电力消耗（电力消耗在整体计算中处理）
           if (output.name === '电力' && output.quantity < 0) continue;
 
-          // 添加到产出列表
           const existing = outputItems.find((o: any) => o.name === output.name);
           if (existing) {
             existing.quantity += quantity;
@@ -2005,10 +1890,9 @@ export class FamiliarSystemService {
       powerOutput.quantity = 0;
     }
 
-    // 将产出添加到玩家背包
     const resultLines: string[] = [];
     resultLines.push(`🏠 家园产出（${timeDiff < 60 ? '1' : Math.round(timeDiff / 60)}分钟）`);
-    resultLines.push(`━━━━━━━━━━━━━━━`);
+    resultLines.push(CARD_DIVIDER);
 
     let hasOutput = false;
     for (const item of outputItems) {
@@ -2016,12 +1900,10 @@ export class FamiliarSystemService {
       if (count === 0) continue;
 
       if (count > 0) {
-        // 正产出 - 添加到背包
         await this.playerService.addToBackpack(userId, item.name, Math.abs(count));
         resultLines.push(`✅ +${count} ${item.name}`);
         hasOutput = true;
       } else {
-        // 消耗品不足时显示
         resultLines.push(`⚠️ 消耗了${Math.abs(count)} ${item.name}`);
       }
     }
@@ -2030,7 +1912,6 @@ export class FamiliarSystemService {
       resultLines.push('本次没有产出任何物品');
     }
 
-    // 更新上次产出时间
     markers['家园产出时间'] = now;
     player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
@@ -2038,19 +1919,13 @@ export class FamiliarSystemService {
     return resultLines.join('\n');
   }
 
-  /**
-   * 计算最小产出时间
-   * 对应原版：取最小产出时间()
-   * 受消耗品（负产出）限制，计算可供消耗的时间
-   */
+  /** 计算最小产出时间，对应原版 取最小产出时间()：受消耗品（负产出）限制，算出可供消耗的时间。 */
   private calcMinOutputTime(producer: Producer, timeDiff: number, backpack: any[]): number {
-    // 检查是否有消耗品（负产出）
     const consumables = producer.outputs.filter(o => o.quantity < 0 && o.name !== '电力');
     if (consumables.length === 0) {
       return timeDiff;
     }
 
-    // 计算各消耗品能支撑的时间
     const times: number[] = [];
     for (const cons of consumables) {
       const item = backpack.find((i: any) => i.name === cons.name);
@@ -2068,18 +1943,13 @@ export class FamiliarSystemService {
       return timeDiff;
     }
 
-    // 取最小可支撑时间
     times.sort((a, b) => a - b);
     const minTime = times[0];
 
     return Math.min(timeDiff, minTime);
   }
 
-  /**
-   * 取建筑数量
-   * 对应原版：取建筑数量()
-   * 统计地图上不占建筑数量上限的建筑总数
-   */
+  /** 取建筑数量，对应原版 取建筑数量()：统计地图上不占建筑数量上限的建筑总数。 */
   private async countBuildings(map: any): Promise<number> {
     const buildings = asJsonValue<any[]>(map.buildings, []);
     const buildingNames = buildings.map((b: any) => b.name);
@@ -2089,7 +1959,6 @@ export class FamiliarSystemService {
       .filter((b) => buildingNames.includes(b?.name))
       .map((b) => ({ name: b.name, type: b.type }));
 
-    // 构建不占位建筑集合
     const noOccupancyNames = new Set<string>();
     for (const def of buildingDefs) {
       // 如果建筑类型为"天花板"、"墙壁"等结构类，不占数量上限
@@ -2109,11 +1978,7 @@ export class FamiliarSystemService {
 
   // ==================== 家园前线 ====================
 
-  /**
-   * 家园前线
-   * 对应原版：家园前线() / 是否有特殊宠物()
-   * 显示家园前线状态，检查是否有特殊宠物等
-   */
+  /** 家园前线，对应原版 家园前线() / 是否有特殊宠物()：显示前线状态与特殊宠物。 */
   private async handleHomeFrontline(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
@@ -2165,7 +2030,6 @@ export class FamiliarSystemService {
       .safeJsonParse<any[]>(map.buildings, [])
       .reduce((sum: number, b: any) => sum + Number(b.quantity ?? 1), 0);
 
-    // 获取地图上的建筑列表
     const mapBuildings = asJsonValue<any[]>(map.buildings, []);
     const frontline = summons.find((s: any) => (s.QQ || s.qq) === frontlineQQ);
     const frontLevel = this.playerService.getMarkerValue(markers, '前线');
@@ -2183,7 +2047,6 @@ export class FamiliarSystemService {
       lines.push(`${name}（伤害${physical}%）`);
     }
 
-    // 显示特殊宠物
     if (specialPets.length > 0) {
       lines.push(`特殊存在:`);
       for (const pet of specialPets) {
@@ -2191,7 +2054,6 @@ export class FamiliarSystemService {
       }
     }
 
-    // 显示建筑列表
     if (mapBuildings.length > 0) {
       lines.push(`建筑列表:`);
       for (const b of mapBuildings) {
@@ -2225,14 +2087,7 @@ export class FamiliarSystemService {
 
   // ==================== 宠物系统 ====================
 
-  /**
-   * 宠物操作
-   * 对应原版：宠物()
-   * 宠物操作的总入口
-   * @param userId 用户ID
-   * @param subCommand 子命令
-   * @returns 操作结果文本
-   */
+  /** 宠物操作总入口，对应原版 宠物()。 */
   async handlePet(userId: number, subCommand: string): Promise<string> {
     switch (subCommand) {
       case '操作':
@@ -2242,9 +2097,6 @@ export class FamiliarSystemService {
     }
   }
 
-  /**
-   * 获取宠物操作帮助
-   */
   private async getPetOperationsHelp(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
@@ -2259,7 +2111,7 @@ export class FamiliarSystemService {
 
     const lines = [
       `${player.name || '冒险者'} 的宠物操作`,
-      `━━━━━━━━━━━━━━━`,
+      CARD_DIVIDER,
       `1. 宠物改名 - 修改宠物名称`,
       `2. 宠物转让 - 转让宠物给他人`,
       `3. 全部跟随 - 让宠物跟随`,
@@ -2277,8 +2129,8 @@ export class FamiliarSystemService {
       `15. 宠物攻击 - 宠物主动攻击`,
       `16. 宠物喂食 - 喂食提高好感`,
       `17. 宠物嗅探 - 寻找怪物`,
-      `━━━━━━━━━━━━━━━`,
-      // 原版 L8026 帮助长文（完整恢复，此前被删减为4行）
+      CARD_DIVIDER,
+      // 原版 L8026 帮助长文
       `跟随:跟着玩家移动`,
       `主动:主动攻击`,
       `被动:挨打也不会反击`,
@@ -2296,20 +2148,12 @@ export class FamiliarSystemService {
     return lines.join('\n');
   }
 
-  /**
-   * 宠物改名
-   * 对应原版：宠物改名()
-   * @param userId 用户ID
-   * @param oldName 宠物原名
-   * @param newName 新名称
-   * @returns 操作结果文本
-   */
+  /** 宠物改名。对应原版：宠物改名() */
   async renamePet(userId: number, oldName: string, newName: string): Promise<string> {
     if (!oldName || !newName) {
       return '请指定格式：宠物改名原名 新名';
     }
 
-    // 检查禁用名称
     if (this.forbiddenNames.includes(oldName) || this.forbiddenNames.includes(newName)) {
       return '不能改这个名字';
     }
@@ -2320,7 +2164,6 @@ export class FamiliarSystemService {
       return '最多16字符，中文占2字符';
     }
 
-    // 获取当前地图上的召唤物
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
 
@@ -2334,7 +2177,6 @@ export class FamiliarSystemService {
 
     const summons = asJsonValue<any[]>(map.summons, []);
 
-    // 查找属于玩家的宠物
     const petIndex = summons.findIndex(
       (s: any) => (s.name === oldName || s.image === oldName) && s.ownerQQ === player.userId.toString(),
     );
@@ -2360,20 +2202,12 @@ export class FamiliarSystemService {
     return `把${oldName}改名为${newName}`;
   }
 
-  /**
-   * 宠物转让
-   * 对应原版：宠物转让()
-   * @param userId 用户ID
-   * @param targetQQ 目标QQ号
-   * @param petName 宠物名称
-   * @returns 操作结果文本
-   */
+  /** 宠物转让，对应原版 宠物转让()。 */
   async transferPet(userId: number, targetQQ: string, petName: string): Promise<string> {
     if (!targetQQ || !petName) {
       return '请指定格式：宠物转让@QQ 宠物名';
     }
 
-    // 检查禁用名称
     if (this.forbiddenNames.includes(petName)) {
       return '不能转让这个';
     }
@@ -2381,14 +2215,12 @@ export class FamiliarSystemService {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
 
-    // 获取当前地图
     const map = await this.mapService.getMapById(player.mapId);
 
     if (!map) {
       return '你不在任何地图上';
     }
 
-    // 目标玩家是否存在
     const targetPlayer = await this.prisma.player.findFirst({
       where: { masterQQ: targetQQ },
     });
@@ -2407,9 +2239,7 @@ export class FamiliarSystemService {
       const markers = summons[petIndex].markers || {};
       if (markers['幼崽']) return { err: '宝宝不能转让' };
       if (markers['阵地']) return { err: '防御阵地不能转让' };
-      // 执行转让
       summons[petIndex].ownerQQ = targetQQ;
-      // 清空标记并重置好感
       summons[petIndex].markers = { [`好感${targetQQ}`]: 100 };
       return { err: null };
     });
@@ -2419,12 +2249,8 @@ export class FamiliarSystemService {
   }
 
   /**
-   * 宠物驾驶
-   * 对应原版：宠物驾驶()
-   * @param userId 用户ID
-   * @param petName 宠物名称
+   * 宠物驾驶，对应原版 宠物驾驶()。
    * @param vehicleName 载具名称（或"原"表示使用宠物自带载具）
-   * @returns 操作结果文本
    */
   async petDrive(userId: number, petName: string, vehicleName: string): Promise<string> {
     if (!petName || !vehicleName) {
@@ -2434,7 +2260,6 @@ export class FamiliarSystemService {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
 
-    // 获取当前地图
     const map = await this.mapService.getMapById(player.mapId);
 
     if (!map) {
@@ -2450,7 +2275,6 @@ export class FamiliarSystemService {
         const summons = f.summons;
         const vehicles = f.vehicles;
 
-        // 查找属于玩家的宠物
         const petIndex = summons.findIndex(
           (s: any) => (s.name === petName || s.image === petName) && s.ownerQQ === player.userId.toString(),
         );
@@ -2460,7 +2284,6 @@ export class FamiliarSystemService {
         if (pet.hp === 0) return { err: `${petName} 没有属性，不能战斗` };
 
         if (vehicleName === '原') {
-          // 使用宠物自带载具
           const petVehicle = vehicles.find((v: any) => v.id === petName);
           if (petVehicle) {
             petVehicle.driver = petName;
@@ -2469,22 +2292,17 @@ export class FamiliarSystemService {
           return { err: `${petName} 并不是自带载具的宠物` };
         }
 
-        // 查找指定载具
         const vehicleIndex = vehicles.findIndex((v: any) => v.name === vehicleName);
         if (vehicleIndex === -1) return { err: `附近没有载具「${vehicleName}」` };
 
         const vehicle = vehicles[vehicleIndex];
 
-        // 检查归属
         if (vehicle.owner !== player.userId.toString() && vehicle.owner !== petName) {
           return { err: `这不是你的或者不是${petName}的${vehicle.name}` };
         }
 
-        // 执行驾驶
-        // 踢出当前驾驶员
         const currentDriver = vehicle.driver;
         if (currentDriver) {
-          // 查找驾驶员并清除其载具引用
           const driverPet = summons.find((s: any) => s.qq === currentDriver);
           if (driverPet) {
             driverPet.vehicle = '';
@@ -2502,15 +2320,7 @@ export class FamiliarSystemService {
     return driveResult.msg!;
   }
 
-  /**
-   * 宠物喂食
-   * 对应原版：宠物喂食()
-   * 消耗糖心巧克力提高宠物好感
-   * @param userId 用户ID
-   * @param petName 宠物名称
-   * @param count 消耗数量
-   * @returns 操作结果文本
-   */
+  /** 宠物喂食，对应原版 宠物喂食()：消耗糖心巧克力提高宠物好感。 */
   async petFeed(userId: number, petName: string, count: number = 1): Promise<string> {
     if (!petName || count <= 0) {
       return '请指定格式：宠物喂食宠物名 数量\n消耗糖心巧克力来提高宠物的好感';
@@ -2519,7 +2329,6 @@ export class FamiliarSystemService {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
 
-    // 检查背包是否有糖心巧克力
     const backpack = this.playerService.getBackpackItems(player);
     const chocolateItem = backpack.find((item: any) => item.name === '糖心巧克力');
     const chocolateCount = chocolateItem ? Number(chocolateItem.quantity ?? 0) : 0;
@@ -2528,14 +2337,12 @@ export class FamiliarSystemService {
       return `需要${count}个糖心巧克力，你只有${chocolateCount}`;
     }
 
-    // 获取当前地图
     const map = await this.mapService.getMapById(player.mapId);
 
     if (!map) {
       return '你不在任何地图上';
     }
 
-    // 扣除糖心巧克力
     if (chocolateCount === count) {
       const idx = backpack.findIndex((item: any) => item.name === '糖心巧克力');
       if (idx !== -1) backpack.splice(idx, 1);
@@ -2552,10 +2359,8 @@ export class FamiliarSystemService {
       if (petIndex === -1) return { err: `当前地图没有名为「${petName}」并且属于你的宠物` };
       const pet = summons[petIndex];
 
-      // 检查是否为临时宠物
       if (pet.qq && pet.qq.includes('x')) return { err: '临时宠物不能喂食' };
 
-      // 增加好感
       const affinityKey = `好感${player.userId}`;
       if (!pet.markers) pet.markers = {};
       const currentAffinity = pet.markers[affinityKey] || 0;
@@ -2570,15 +2375,7 @@ export class FamiliarSystemService {
     return `${petName} 对你的好感提高了${count * 10}（当前${Math.round(feedResult.newAffinity)}）`;
   }
 
-  /**
-   * 宠物嗅探
-   * 对应原版：宠物嗅探()
-   * 让狩猎宠物寻找当前地图的怪物
-   * @param userId 用户ID
-   * @param petName 宠物名称
-   * @param monsterName 要寻找的怪物名称
-   * @returns 操作结果文本
-   */
+  /** 宠物嗅探，对应原版 宠物嗅探()：让狩猎宠物寻找当前地图的怪物。 */
   async petSniff(userId: number, petName: string, monsterName: string): Promise<string> {
     if (!petName || !monsterName) {
       return '请指定格式：宠物嗅探宠物名 怪物名\n消耗宠物等级的生肉，让宠物尝试寻找当前地图存在的怪物，冷却10分钟';
@@ -2587,7 +2384,6 @@ export class FamiliarSystemService {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 获取当前地图
     const map = await this.mapService.getMapById(player.mapId);
 
     if (!map) {
@@ -2596,7 +2392,6 @@ export class FamiliarSystemService {
 
     const summons = asJsonValue<any[]>(map.summons, []);
 
-    // 查找属于玩家的宠物
     const petIndex = summons.findIndex(
       (s: any) => (s.name === petName || s.image === petName) && s.ownerQQ === player.userId.toString(),
     );
@@ -2607,13 +2402,11 @@ export class FamiliarSystemService {
 
     const pet = summons[petIndex];
 
-    // 检查是否为狩猎宠物
     const isHunter = this.huntingPetTypes.some(type => (pet.type || '').includes(type));
     if (!isHunter) {
       return `${petName} 不是狩猎宠物，当前的狩猎类宠物有常春藤、各种狼、各种虎、巨齿鲨`;
     }
 
-    // 检查冷却
     const markers2 = asJsonValue<any[]>(player.markers2, []);
     const cooldownMarker = markers2.find((m: any) => m.name === '宠物嗅探');
     const now = Date.now() / 1000;
@@ -2622,7 +2415,6 @@ export class FamiliarSystemService {
       return `宠物嗅探冷却中，剩余${remaining}秒`;
     }
 
-    // 检查生肉数量
     const backpack = this.playerService.getBackpackItems(player);
     const meatItem = backpack.find((item: any) => item.name === '生肉');
     const meatCount = meatItem ? Number(meatItem.quantity ?? 0) : 0;
@@ -2640,7 +2432,6 @@ export class FamiliarSystemService {
       return `在${map.name}无法找到「${monsterName}」这种怪物`;
     }
 
-    // 扣除生肉
     if (meatCount === petLevel) {
       const idx = backpack.findIndex((item: any) => item.name === '生肉');
       if (idx !== -1) backpack.splice(idx, 1);
@@ -2649,7 +2440,6 @@ export class FamiliarSystemService {
     }
     player.backpack = backpack; // Player backpack 为 Json 列，直接写数组
 
-    // 设置冷却
     const newMarkers2 = markers2.filter((m: any) => m.name !== '宠物嗅探');
     newMarkers2.push({
       name: '宠物嗅探',
@@ -2715,7 +2505,7 @@ export class FamiliarSystemService {
 
       await this.mapService.addTempMonster(map.id, newMonster);
 
-      // 添加嗅探标记到地图标记3（map.markers 仍为 GameMap 字段，保留）
+      // 嗅探标记写入 GameMap.markers（原版 标记3）
       const mapMarkers3 = asJsonValue<any[]>(map.markers || '[]', []);
       mapMarkers3.push({
         name: `嗅探${monsterName}`,
@@ -2737,14 +2527,9 @@ export class FamiliarSystemService {
   }
 
   /**
-   * 宠物觉醒
-   * 对应原版：宠物觉醒()
-   * 消耗觉醒丹觉醒宠物，每觉醒一次宠物全属性+0.5%
-   * 觉醒到99的倍数时需要花费(觉醒次数+1)÷10的觉醒丹来突破；次数为-1时返还所有觉醒丹
-   * @param userId 用户ID
-   * @param petName 宠物名称
+   * 宠物觉醒，对应原版 宠物觉醒()：消耗觉醒丹，每觉醒一次全属性 +0.5%；
+   * 觉醒到 99 的倍数时需 (觉醒次数+1)÷10 颗觉醒丹突破。
    * @param countStr 觉醒次数（负数表示返还觉醒丹）
-   * @returns 操作结果文本
    */
   async petAwaken(userId: number, petName: string, countStr: string): Promise<string> {
     if (!petName || !countStr) {
@@ -2768,7 +2553,6 @@ export class FamiliarSystemService {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
 
-    // 获取当前地图
     const map = await this.mapService.getMapById(player.mapId);
     if (!map) {
       return '你不在任何地图上';
@@ -2889,10 +2673,6 @@ export class FamiliarSystemService {
 ${this.getAwakenStageName(d)}(${d})`;
   }
 
-  /**
-   * 获取觉醒阶段名称
-   * @param awaken 觉醒次数
-   */
   private getAwakenStageName(awaken: number): string {
     if (awaken < 100) return `神识初醒(${awaken})`;
     if (awaken < 200) return `炼精化气(${awaken - 100})(${awaken})`;
@@ -2902,14 +2682,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     return `天神降世(${awaken - 500})(${awaken})`;
   }
 
-  /**
-   * 宠物攻击
-   * 对应原版：宠物攻击()
-   * 远程操作放在指定地图、觉醒≥400、生命大于0的宠物对怪物发起攻击（冷却30秒）
-   * @param userId 用户ID
-   * @param mapName 目标地图名称
-   * @returns 操作结果文本
-   */
+  /** 宠物攻击，对应原版 宠物攻击()：远程让指定地图上觉醒≥400、生命>0 的宠物攻击怪物（冷却30秒）。 */
   async petAttack(userId: number, mapName: string): Promise<string> {
     if (!mapName) {
       return `「宠物攻击森林出口」来远程操作，让你放在森林出口的宠物对怪物发起攻击`;
@@ -3008,7 +2781,7 @@ ${this.getAwakenStageName(d)}(${d})`;
       resultText += `\n（${qualifiedPet.name}已不在${map.name}，状态未保存）`;
     }
 
-    // 设置冷却和活动标记
+    // 写入 30 秒冷却
     const newMarkers2 = markers2.filter((m: any) => m.name !== cooldownKey);
     newMarkers2.push({ name: cooldownKey, expireAt: now + 30 });
     player.markers2 = newMarkers2; // Player markers2 为 Json 列，直接写数组
@@ -3022,13 +2795,7 @@ ${this.getAwakenStageName(d)}(${d})`;
   }
 
   /**
-   * 宠物前往
-   * 对应原版：宠物前往()
-   * 让当前地图上属于玩家的宠物移动到指定地图
-   * @param userId 用户ID
-   * @param petName 宠物名称
-   * @param mapName 目标地图名称
-   * @returns 操作结果文本
+   * 宠物前往，对应原版 宠物前往()：让当前地图上属于玩家的宠物移动到指定地图。
    */
   async petGoto(userId: number, petName: string, mapName: string): Promise<string> {
     if (!petName || !mapName) {
@@ -3099,13 +2866,8 @@ ${this.getAwakenStageName(d)}(${d})`;
   }
 
   /**
-   * 宠物装备
-   * 对应原版：宠物装备()
-   * 让宠物额外使用背包里的武器/装备/法宝（必须是宝宝，螳螂除外），或把装备还给你
-   * @param userId 用户ID
-   * @param petName 宠物名称
+   * 宠物装备，对应原版 宠物装备()：让宠物额外使用背包里的武器/装备/法宝（必须是宝宝，螳螂除外），或把装备还给你。
    * @param itemArg 物品序号（给装备）或物品名称（还装备）
-   * @returns 操作结果文本
    */
   async petEquip(userId: number, petName: string, itemArg: string): Promise<string> {
     if (!petName || !itemArg) {
@@ -3161,7 +2923,6 @@ ${this.getAwakenStageName(d)}(${d})`;
       // 原版中背包数组从1开始
       const item = backpack[idx - 1];
 
-      // 判断物品类型
       const itemType = item.type || '';
       const isWeaponType = itemType === '武器';
       const isEquipType = itemType === '装备';
@@ -3171,7 +2932,6 @@ ${this.getAwakenStageName(d)}(${d})`;
         return `${item.name}不是装备，也不是武器或者法宝`;
       }
 
-      // 检查是否已装备同名物品
       const sameName = extraEquip.some((e: any) => e.name === item.name);
       if (sameName) {
         return `${petName} 已经在使用${item.name}这件物品了`;
@@ -3249,18 +3009,13 @@ ${this.getAwakenStageName(d)}(${d})`;
 
 
   /**
-   * 捕捉宠物
-   * 对应原版：捕捉/开始捕捉/停止捕捉()
-   * @param userId 用户ID
+   * 捕捉宠物（对应原版：捕捉/开始捕捉/停止捕捉()）
    * @param action 动作：capture/start/stop
-   * @param target 目标名称
-   * @returns 操作结果文本
    */
   async capturePet(userId: number, action: string, target?: string): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 获取当前地图
     const map = await this.mapService.getMapById(player.mapId);
 
     if (!map) {
@@ -3541,7 +3296,6 @@ ${this.getAwakenStageName(d)}(${d})`;
       return `附近没有${target}`;
     }
 
-    // 检查饲料
     const backpack = this.playerService.getBackpackItems(player);
     const feedItem = backpack.find((item: any) => item.name === '饲料');
     const feedCount = feedItem ? Number(feedItem.quantity ?? 0) : 0;
@@ -3566,7 +3320,7 @@ ${this.getAwakenStageName(d)}(${d})`;
       // 入包走唯一出口（按名合并 / type 以静态定义为唯一真源 / 两位小数收敛）
       mergeBackpackItem(
         backpack,
-        // 数量只写规范键 quantity（count 镜像已废弃）
+        // 数量只写规范键 quantity（别名 count/数量 只在读写边界由 field-contract 收敛）
         { name: itemName, quantity: count },
         lookupFromStaticData(this.staticData),
       );
@@ -3625,12 +3379,8 @@ ${this.getAwakenStageName(d)}(${d})`;
   // ==================== 使魔技能 ====================
 
   /**
-   * 安乐天使技能
-   * 对应原版：安乐天使()
-   * 给自己、其他玩家或召唤物施加行星护盾（20秒伤害免疫）
-   * @param userId 用户ID
+   * 安乐天使技能，对应原版 安乐天使()：给自己、其他玩家或召唤物施加行星护盾（20秒伤害免疫）。
    * @param targetName 目标名称（可选，为空则对自己使用）
-   * @returns 操作结果文本
    */
   async safetyAngel(userId: number, targetName?: string): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -3729,12 +3479,8 @@ ${this.getAwakenStageName(d)}(${d})`;
   }
 
   /**
-   * 福音书技能
-   * 对应原版：福音书()
-   * 给自己或目标施加福音书增益（300秒属性加成）
-   * @param userId 用户ID
+   * 福音书技能，对应原版 福音书()：给自己或目标施加 300 秒属性加成，每日一次。
    * @param targetName 目标名称（可选，为空则对自己使用）
-   * @returns 操作结果文本
    */
   async gospelBook(userId: number, targetName?: string): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -3881,9 +3627,8 @@ ${this.getAwakenStageName(d)}(${d})`;
   }
 
   /**
-   * 更新召唤物的幼崽成长计时。
-   * 对应原版 数据分析.ecode L947-971 的“计算幼崽”。
-   * 返回 true 表示仍是幼崽，false 表示本次已经长大。
+   * 更新召唤物的幼崽成长计时，对应原版 数据分析.ecode L947-971「计算幼崽」。
+   * @returns true 仍是幼崽，false 本次已长大（幼崽/时间2 标记被删除）
    */
   private updateSummonGrowth(summon: any, markers: Record<string, any>): boolean {
     let remaining = Number(markers['幼崽'] ?? 0);
@@ -3914,9 +3659,8 @@ ${this.getAwakenStageName(d)}(${d})`;
   }
 
   /**
-   * 检查并更新召唤物幼崽成长计时（public 包装）。
+   * 检查并更新召唤物幼崽成长计时（updateSummonGrowth 的 public 包装）。
    * 对应原版 _主程序.ecode L6045 在呼叫/操作宠物前先调用 计算幼崽 的逻辑。
-   * @returns true 表示仍是幼崽，false 表示已长大（标记已被清除）
    */
   checkAndUpdateGrowth(summon: any): boolean {
     const markers = summon?.markers ?? {};
@@ -3924,19 +3668,14 @@ ${this.getAwakenStageName(d)}(${d})`;
   }
 
   /**
-   * 设置跟随
-   * 对应原版 _主程序.ecode L1121-1174。
+   * 设置跟随（对应原版 _主程序.ecode L1121-1174）：
    * 无显式第二参数时按原版切换“跟随”标记；传入 stop/false 由网页指令层显式关闭。
-   * @param userId 用户ID
    * @param targetName 宠物名称或QQ
-   * @param isFollow 是否跟随；省略时按当前状态切换
-   * @returns 操作结果文本
    */
   async setFollow(userId: number, targetName: string, isFollow?: boolean): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
 
-    // 获取当前地图
     const map = await this.mapService.getMapById(player.mapId);
 
     if (!map) {
@@ -4073,12 +3812,9 @@ ${this.getAwakenStageName(d)}(${d})`;
 
   /**
    * 把数组形态的标记容器转成字典形态（`[{name,value}]` → `{标记名: 数值}`）。
-   *
-   * 标记条目在库里/内存里有两种规范形态：字典（Player.markers）与数组（GameMonster/召唤物.markers）。
-   * 数组条目字段名统一为 `name`/`value`；历史 `{名称,数值}` 由共享归一化器收敛后再读，
-   * 保证不会出现「有的地方读 数值、有的地方读 value」的双口径。
-   *
-   * @param entries 数组形态的标记条目
+   * 标记条目有两种规范形态：字典（Player.markers）与数组（GameMonster/召唤物.markers），
+   * 数组条目字段名统一为 `name`/`value`（`{名称,数值}` 由共享归一化器先收敛），
+   * 避免出现「有的地方读 数值、有的地方读 value」的双口径。
    * @returns 标记字典（无 name 的条目丢弃）
    */
   private markersToRecord(entries: any[]): Record<string, any> {
@@ -4091,25 +3827,16 @@ ${this.getAwakenStageName(d)}(${d})`;
   }
 
   /**
-   * 获取使魔技能效果
-   * 根据好感度计算技能效果倍率
-   * 好感度越高，技能效果越强
-   * @param affinity 当前好感度数值
-   * @returns 效果倍率（1.0 为基准）
+   * 好感度技能效果倍率（1.0 为基准）：每 1000 好感 +5%，上限 2.0。
    */
   getSkillEffect(affinity: number): number {
-    // 基础效果为 1.0（100%）
-    // 好感度每增加 1000，效果提升 5%，最高提升至 200%
     const bonus = Math.min(1.0, Math.floor(affinity / 1000) * 0.05);
     return Math.min(2.0, 1.0 + bonus);
   }
 
   // ==================== 好感度系统 ====================
 
-  /**
-   * 好感度等级配置
-   * 1-5级，每级对应不同的好感度阈值和效果描述
-   */
+  /** 好感度等级：1-5 级，各有阈值与解锁效果描述 */
   private readonly affinityLevels = [
     { level: 1, minAffinity: 0, name: '陌生', effect: '基础效果' },
     { level: 2, minAffinity: 25, name: '熟悉', effect: '解锁部分专属对话' },
@@ -4118,13 +3845,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     { level: 5, minAffinity: 100, name: '挚爱', effect: '技能效果提升30%，解锁专属剧情' },
   ];
 
-  /**
-   * 增加好感度
-   * 好感度增加：战斗/对话/赠礼等增加好感
-   * @param userId 用户ID
-   * @param amount 增加的好感度数值
-   * @returns 操作结果文本
-   */
+  /** 增加好感度（战斗/对话/赠礼等），并在跨越等级时附带解锁效果文案。 */
   async increaseAffinity(userId: number, amount: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
@@ -4133,23 +3854,19 @@ ${this.getAwakenStageName(d)}(${d})`;
       return '你还没有选择使魔';
     }
 
-    // 获取当前使魔的好感度
     const affinityKey = `${player.type}好感`;
     const currentAffinity = this.playerService.getMarkerValue(markers, affinityKey);
     const newAffinity = currentAffinity + amount;
 
-    // 更新好感度
     markers[affinityKey] = newAffinity;
     player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
-    // 获取之前的等级和新的等级
     const oldLevel = this.getAffinityLevelByValue(currentAffinity);
     const newLevel = this.getAffinityLevelByValue(newAffinity);
 
     let result = `${player.type} 的好感度增加了 ${amount} 点（当前: ${Math.round(newAffinity)}）`;
 
-    // 如果等级提升，显示解锁效果
     if (newLevel > oldLevel) {
       const levelConfig = this.affinityLevels.find(l => l.level === newLevel);
       if (levelConfig) {
@@ -4160,11 +3877,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     return result;
   }
 
-  /**
-   * 根据好感度数值获取等级
-   * @param affinity 好感度数值
-   * @returns 好感度等级（1-5）
-   */
+  /** 好感度 → 等级（1-5） */
   private getAffinityLevelByValue(affinity: number): number {
     let level = 1;
     for (const l of this.affinityLevels) {
@@ -4175,11 +3888,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     return level;
   }
 
-  /**
-   * 获取好感度等级
-   * @param userId 用户ID
-   * @returns 好感度等级（1-5）
-   */
+  /** 当前使魔的好感度等级（1-5）；未选择使魔返回 0。 */
   async getAffinityLevel(userId: number): Promise<number> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
@@ -4193,12 +3902,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     return this.getAffinityLevelByValue(affinity);
   }
 
-  /**
-   * 应用好感度效果
-   * 根据好感度等级给玩家添加对应的属性加成
-   * @param userId 用户ID
-   * @param bonus 加成数据对象
-   */
+  /** 按好感度等级（每级 +10%）给对应使魔的属性加成施加到 bonus 上（就地改）。 */
   async applyAffinityEffects(userId: number, bonus: BonusData): Promise<void> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
@@ -4207,16 +3911,11 @@ ${this.getAwakenStageName(d)}(${d})`;
       return;
     }
 
-    // 获取好感度等级
     const affinityKey = `${player.type}好感`;
     const affinity = this.playerService.getMarkerValue(markers, affinityKey);
     const level = this.getAffinityLevelByValue(affinity);
-
-    // 根据等级应用加成
-    // 等级越高，加成越多
     const affinityBonus = (level - 1) * 0.1; // 每级10%加成
 
-    // 根据使魔类型应用不同的加成效果
     switch (player.type) {
       case '龙姬':
         bonus.攻击 = (bonus.攻击 || 0) + Math.floor(10 * affinityBonus);
@@ -4247,9 +3946,8 @@ ${this.getAwakenStageName(d)}(${d})`;
   }
 
   // ==================== 使魔排行 ====================
-  // 使魔排行十子榜已统一收敛到 game.service.handleFamiliarRank
-  // （原版 _主程序.ecode L9562-9745，数据写入点见 MEMORY.md 排行数据源红线）。
-  // 本服务不再持有排行实现——旧版按 Player.level 排玩家的占位口径已删除。
+  // 使魔排行十子榜的实现在 game.service.handleFamiliarRank（原版 _主程序.ecode L9562-9745）；
+  // 本服务不持有排行实现，排行数据源与写入点有红线约束，勿在此另起一套。
 
   // ==================== 使魔称号 ====================
 
@@ -4272,12 +3970,7 @@ ${this.getAwakenStageName(d)}(${d})`;
   }
 
   /**
-   * 领取称号
-   * 仅支持原版 140 个称号（titles.json：条件+资源奖励，
-   * 对应原版 _主程序.ecode L10577-10620）。
-   * @param userId 用户ID
-   * @param titleName 称号名称
-   * @returns 操作结果文本
+   * 领取称号：仅支持原版 140 个称号（titles.json：条件+资源奖励，对应原版 _主程序.ecode L10577-10620）。
    */
   async claimTitle(userId: number, titleName: string): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -4294,7 +3987,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     if (!originalTitle) {
       return `${player.name || '冒险者'}${titleName}在称号列表不存在！`;
     }
-    // 条件与奖励条目数量只读规范键 quantity（同义旧键 count 已废弃，titles.json 已改名）
+    // 条件与奖励条目数量只读规范键 quantity（读同义键 count 拿到 undefined）
     const requirements = asJsonValue<Array<{ name?: string; quantity?: number }>>(originalTitle.requirements, []);
     // 逐条校验条件（原版通常单条件；多条件需全部满足），未满足时按原版文案播报第一条差距
     for (const req of requirements) {
@@ -4353,9 +4046,6 @@ ${this.getAwakenStageName(d)}(${d})`;
   /**
    * 佩戴称号
    * 选择当前使用的称号
-   * @param userId 用户ID
-   * @param titleName 称号名称
-   * @returns 操作结果文本
    */
   async equipTitle(userId: number, titleName: string): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -4405,11 +4095,8 @@ ${this.getAwakenStageName(d)}(${d})`;
   }
 
   /**
-   * 查看称号列表
-   * 显示已获得的称号：同系列只保留最高等级、一行双列压缩高度；
+   * 查看已获得的称号：同系列只保留最高等级、一行双列压缩高度；
    * 注册临时输入 `编号@佩戴称号 称号名`，玩家直接回数字即可佩戴。
-   * @param userId 用户ID
-   * @returns 称号列表文本
    */
   async viewTitles(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -4435,18 +4122,12 @@ ${this.getAwakenStageName(d)}(${d})`;
   }
 
   /**
-   * 查看可领取的称号
-   * 原版 140 个称号（titles.json）统一编号；可领取项注册临时输入替换：
-   * 玩家直接发数字即可快速领取（原版编号菜单惯例，原版 L10520-10553）。
-   * 本方法只做数据装配（进度计算 + 系列归组），版式渲染统一走
-   * title-menu.util.renderAvailableTitles（2026-09-15 可读性重排：可领取项从
-   * "行尾一个 ✦" 改为置顶「✅ 现在就能领」区块 + 顶部点名，玩家不再找不到是哪几个）。
-   * 组内只展开「已达成待领取的阶位」+「首个未达成的下一阶」，更靠后的高阶位
-   * 由组头“下一阶需 X”与顶部汇总概括，编号也只发给展开项以保持连续。
-   * 进度格式：要求名(当前/要求值)；在线时间用时间格式（数字到时间）；
-   * 含 "*" 的要求做汉字模糊匹配求和（对应原版 取成就熟练度 模糊+取全部匹配）。
-   * @param userId 用户ID
-   * @returns 可领取称号列表
+   * 查看可领取的称号：原版 140 个称号（titles.json）统一编号，可领取项注册临时输入替换，
+   * 玩家直接回数字即可领取（原版编号菜单惯例，原版 L10520-10553）。
+   * 本方法只做数据装配（进度计算 + 系列归组），版式渲染统一走 title-menu.util 的
+   * renderAvailableTitles —— 「✅ 现在就能领」置顶区块 + 顶部点名的文案格式由契约测试锁定。
+   * 组内只展开「已达成待领取的阶位」+「首个未达成的下一阶」，更高阶位由组头“下一阶需 X”
+   * 与顶部汇总概括，编号只发给展开项以保持连续。
    */
   async viewAvailableTitles(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -4477,7 +4158,6 @@ ${this.getAwakenStageName(d)}(${d})`;
       for (const req of requirements) {
         const reqName = String(req?.name || '').trim();
         if (!reqName) continue;
-        // 条件数量只读规范键 quantity（同义旧键 count 已废弃）
         const need = Number(req?.quantity) || 0;
         const current = this.getTitleProgress(markers, reqName);
         if (current < need) ready = false;
@@ -4524,9 +4204,6 @@ ${this.getAwakenStageName(d)}(${d})`;
   /**
    * 使魔升级
    * 获得经验时使魔也获得经验
-   * @param userId 用户ID
-   * @param exp 获得的经验值
-   * @returns 操作结果文本
    */
   async addFamiliarExp(userId: number, exp: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -4561,13 +4238,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     return result;
   }
 
-  /**
-   * 提升技能等级
-   * 使用技能提升技能等级，技能等级影响效果
-   * @param userId 用户ID
-   * @param skillName 技能名称
-   * @returns 操作结果文本
-   */
+  /** 提升技能等级：使用技能累加熟练度，技能等级影响效果。 */
   async increaseSkillLevel(userId: number, skillName: string): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
@@ -4581,7 +4252,6 @@ ${this.getAwakenStageName(d)}(${d})`;
     const currentExp = this.playerService.getMarkerValue(markers, skillKey);
     const currentLevel = this.playerService.getSkillLevel(markers, player.type);
 
-    // 每次使用技能增加10点熟练度
     const newExp = currentExp + 10;
     markers[skillKey] = newExp;
     const newLevel = this.playerService.getSkillLevel(markers, player.type);
@@ -4594,7 +4264,6 @@ ${this.getAwakenStageName(d)}(${d})`;
       result += `\n🎉 技能等级提升！Lv.${currentLevel} → Lv.${newLevel}`;
     }
 
-    // 技能等级影响效果：每级提升2%效果
     result += `\n当前技能等级: Lv.${newLevel}（效果加成: ${(newLevel - 1) * 2}%）`;
 
     return result;
@@ -4602,52 +4271,35 @@ ${this.getAwakenStageName(d)}(${d})`;
 
   // ==================== 使魔专属效果 ====================
 
-  /**
-   * 军姬X传送判断
-   * 军姬2好感≥20时传送无需消耗
-   * 对应原版：军姬X传送判断()
-   * @param userId 用户ID
-   * @returns 是否可以免费传送
-   */
+  /** 军姬2 好感≥20 时传送无需消耗。对应原版：军姬X传送判断() */
   async canFreeTeleport(userId: number): Promise<boolean> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 检查使魔是否为军姬2
     if (player.type !== '军姬2') {
       return false;
     }
 
-    // 检查好感度是否≥20
     const affinityKey = '军姬2好感';
     const affinity = this.playerService.getMarkerValue(markers, affinityKey);
     return affinity >= 20;
   }
 
-  /**
-   * 普拉娜幼崽剪毛
-   * 装备剪刀时自动剪毛
-   * 对应原版：普拉娜幼崽剪毛()
-   * @param userId 用户ID
-   * @returns 操作结果文本
-   */
+  /** 普拉娜幼崽剪毛：背包需有「剪刀」，每天一次。对应原版：普拉娜幼崽剪毛() */
   async shearPlana(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
 
-    // 检查是否装备了剪刀
     const backpack = this.playerService.getBackpackItems(player);
     const hasScissors = backpack.some((item: any) => item.name === '剪刀');
     if (!hasScissors) {
       return '需要装备「剪刀」才能剪毛';
     }
 
-    // 检查使魔是否为普拉娜幼崽
     if (player.type !== '普拉娜幼崽') {
       return '需要普拉娜幼崽才能剪毛';
     }
 
-    // 检查冷却（每天一次）
     const markers2 = asJsonValue<any[]>(player.markers2, []);
     const now = Date.now() / 1000;
     const cooldownMarker = markers2.find((m: any) => m.name === '剪毛');
@@ -4655,7 +4307,6 @@ ${this.getAwakenStageName(d)}(${d})`;
       return '剪毛冷却中，每天只能剪一次';
     }
 
-    // 设置冷却
     const newMarkers2 = markers2.filter((m: any) => m.name !== '剪毛');
     newMarkers2.push({
       name: '剪毛',
@@ -4664,35 +4315,23 @@ ${this.getAwakenStageName(d)}(${d})`;
     player.markers2 = newMarkers2; // Player markers2 为 Json 列，直接写数组
     await this.playerService.savePlayer(player);
 
-    // 获得毛发物品
     await this.playerService.addToBackpack(userId, '毛发', 1);
 
     return '普拉娜幼崽的毛被剪下来了！获得了毛发x1';
   }
 
-  /**
-   * 获取当天结束的时间戳
-   * @param now 当前时间戳
-   * @returns 当天23:59:59的时间戳
-   */
+  /** 当天 23:59:59 的时间戳，单位秒（与 markers2.expireAt 同口径） */
   private getEndOfDay(now: number): number {
     const date = new Date(now * 1000);
     date.setHours(23, 59, 59, 999);
     return date.getTime() / 1000;
   }
 
-  /**
-   * 纯白之翼自动技能
-   * 自动释放使魔技能
-   * 对应原版：纯白之翼()
-   * @param userId 用户ID
-   * @returns 是否自动释放了技能
-   */
+  /** 纯白之翼：背包有「纯白之翼」且冷却就绪时自动释放使魔主动技能，返回回包文本。对应原版：纯白之翼() */
   async autoCastSkill(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 检查是否装备了纯白之翼
     const backpack = this.playerService.getBackpackItems(player);
     if (!backpack.some((item: any) => item.name === '纯白之翼')) {
       return '';
@@ -4747,7 +4386,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     }
   }
 
-  /** 将存量特有技能文本映射为 FamiliarSkillsService 的规范技能名。（战斗内自动释放等跨服务复用，公开） */
+  /** 将存量特有技能文本映射为 FamiliarSkillsService 的规范技能名 */
   normalizeUniqueSkill(raw: any, type: any): string {
     const value = String(raw ?? '').trim().replace(/[！!。]+$/g, '');
     const aliases: Record<string, string> = {
@@ -4767,12 +4406,8 @@ ${this.getAwakenStageName(d)}(${d})`;
   }
 
   /**
-   * 兰音技能冷却
-   * 冷却核心-10cd，技能等级减cd
-   * 对应原版：兰音冷却处理()
-   * @param userId 用户ID
+   * 兰音技能冷却：有冷却核心 -10 秒、技能等级每级 -0.5 秒，下限 5 秒。对应原版：兰音冷却处理()
    * @param baseCooldown 基础冷却时间（秒）
-   * @returns 实际冷却时间（秒）
    */
   async lanyinCooldown(userId: number, baseCooldown: number): Promise<number> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -4784,29 +4419,22 @@ ${this.getAwakenStageName(d)}(${d})`;
 
     let cooldown = baseCooldown;
 
-    // 检查是否装备了冷却核心（-10秒冷却）
     const backpack = this.playerService.getBackpackItems(player);
     if (backpack.some((item: any) => item.name === '冷却核心')) {
       cooldown -= 10;
     }
 
-    // 技能等级减cd（每级-0.5秒）
     const skillKey = '兰音技能熟练度';
     const skillExp = this.playerService.getMarkerValue(markers, skillKey);
     const skillLevel = this.playerService.getSkillLevel(markers, '兰音');
     const levelReduction = Math.floor(skillLevel * 0.5);
     cooldown -= levelReduction;
 
-    // 最低冷却为5秒
     return Math.max(5, cooldown);
   }
 
   /**
-   * 兰音自动释放形神合一
-   * 公共冷却为0时自动释放
-   * 对应原版：兰音自动释放处理()
-   * @param userId 用户ID
-   * @returns 是否自动释放了技能
+   * 兰音公共冷却为 0 时自动释放形神合一，并顺带落库。对应原版：兰音自动释放处理()
    */
   async autoCastLanyinSkill(userId: number): Promise<boolean> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -4816,12 +4444,10 @@ ${this.getAwakenStageName(d)}(${d})`;
       return false;
     }
 
-    // 计算公共冷却
     const skillKey = '兰音技能熟练度';
     const skillExp = this.playerService.getMarkerValue(markers, skillKey);
     const skillLevel = this.playerService.getSkillLevel(markers, '兰音');
 
-    // 检查是否装备冷却核心
     const backpack = this.playerService.getBackpackItems(player);
     const hasCoolCore = backpack.some((item: any) => item.name === '冷却核心');
 
@@ -4837,7 +4463,6 @@ ${this.getAwakenStageName(d)}(${d})`;
       return false;
     }
 
-    // 自动释放形神合一
     const markers2 = asJsonValue<any[]>(player.markers2, []);
     const now = Date.now() / 1000;
     const cooldownMarker = markers2.find((m: any) => m.name === '形神合一');
@@ -4845,7 +4470,6 @@ ${this.getAwakenStageName(d)}(${d})`;
       return false; // 形神合一冷却中
     }
 
-    // 设置形神合一冷却
     const newMarkers2 = markers2.filter((m: any) => m.name !== '形神合一');
     newMarkers2.push({
       name: '形神合一',
@@ -4853,7 +4477,6 @@ ${this.getAwakenStageName(d)}(${d})`;
     });
     player.markers2 = newMarkers2; // Player markers2 为 Json 列，直接写数组
 
-    // 增加活跃度
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
     player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
@@ -4862,12 +4485,8 @@ ${this.getAwakenStageName(d)}(${d})`;
   }
 
   /**
-   * 战斗女仆技能
-   * RPG/机枪/震撼弹/云爆弹
-   * 对应原版：战斗女仆武器技能()
-   * @param userId 用户ID
+   * 战斗女仆技能（RPG/机枪/震撼弹/云爆弹）。对应原版：战斗女仆武器技能()
    * @param weaponType 武器类型（rpg/machinegun/flashbang/thermobaric）
-   * @returns 操作结果文本
    */
   async battleMaidSkill(userId: number, weaponType: string): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -4877,7 +4496,6 @@ ${this.getAwakenStageName(d)}(${d})`;
       return '需要战斗女仆才能使用此技能';
     }
 
-    // 检查冷却
     const cooldownName = `战斗女仆_${weaponType}`;
     const markers2 = asJsonValue<any[]>(player.markers2, []);
     const now = Date.now() / 1000;
@@ -4887,7 +4505,6 @@ ${this.getAwakenStageName(d)}(${d})`;
       return `技能冷却中，剩余${remaining}秒`;
     }
 
-    // 获取好感度
     const affinity = this.playerService.getMarkerValue(markers, '战斗女仆好感');
     const effect = this.getSkillEffect(affinity);
 
@@ -4920,7 +4537,6 @@ ${this.getAwakenStageName(d)}(${d})`;
         return `未知武器类型：${weaponType}，可用类型：rpg、machinegun、flashbang、thermobaric`;
     }
 
-    // 设置冷却
     const newMarkers2 = markers2.filter((m: any) => m.name !== cooldownName);
     newMarkers2.push({
       name: cooldownName,
@@ -4928,7 +4544,6 @@ ${this.getAwakenStageName(d)}(${d})`;
     });
     player.markers2 = newMarkers2; // Player markers2 为 Json 列，直接写数组
 
-    // 增加活跃度
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
     player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
@@ -4936,13 +4551,7 @@ ${this.getAwakenStageName(d)}(${d})`;
     return result;
   }
 
-  /**
-   * 恶毒好感度效果
-   * 好感≥60全体攻击变溅射
-   * 对应原版：恶毒溅射判断()
-   * @param userId 用户ID
-   * @returns 是否触发溅射效果
-   */
+  /** 恶毒好感≥60 时全体攻击变溅射。对应原版：恶毒溅射判断() */
   async venomSplash(userId: number): Promise<boolean> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
@@ -4951,24 +4560,16 @@ ${this.getAwakenStageName(d)}(${d})`;
       return false;
     }
 
-    // 检查好感度是否≥60
     const affinityKey = '恶毒好感';
     const affinity = this.playerService.getMarkerValue(markers, affinityKey);
     if (affinity < 60) {
       return false;
     }
 
-    // 好感≥60时全体攻击变溅射
     return true;
   }
 
-  /**
-   * 伊卡洛斯歼灭模式
-   * 额外攻击+3
-   * 对应原版：伊卡洛斯额外攻击()
-   * @param userId 用户ID
-   * @returns 额外攻击次数
-   */
+  /** 伊卡洛斯歼灭模式下额外攻击 +3，否则 0。对应原版：伊卡洛斯额外攻击() */
   async icalusExtraAttack(userId: number): Promise<number> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
@@ -4984,17 +4585,10 @@ ${this.getAwakenStageName(d)}(${d})`;
       return 0;
     }
 
-    // 额外攻击+3
     return 3;
   }
 
-  /**
-   * 普拉娜武器显示
-   * 攻击时显示武器名
-   * 对应原版：普拉娜武器显示()
-   * @param userId 用户ID
-   * @returns 武器名称文本
-   */
+  /** 普拉娜攻击时的武器名提示（随机取背包内一件武器，形如「（武器名）」）。对应原版：普拉娜武器显示() */
   async planaWeaponDisplay(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
@@ -5003,7 +4597,6 @@ ${this.getAwakenStageName(d)}(${d})`;
       return '';
     }
 
-    // 获取当前武器
     const backpack = this.playerService.getBackpackItems(player);
     const weapons = backpack.filter((item: any) => item.type === '武器' || item.name.includes('枪') || item.name.includes('炮'));
 
@@ -5011,7 +4604,6 @@ ${this.getAwakenStageName(d)}(${d})`;
       return '';
     }
 
-    // 随机选择一个武器显示
     const weapon = weapons[Math.floor(Math.random() * weapons.length)];
     return `（${weapon.name}）`;
   }

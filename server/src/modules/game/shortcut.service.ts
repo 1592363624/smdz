@@ -62,18 +62,14 @@ export class ShortcutService {
   constructor(private readonly playerService: PlayerService) {}
 
   /**
-   * 快捷输入处理（核心函数）
-   * 按照优先级顺序处理文本替换：临时输入替换 > 快捷键 > 输入替换
+   * 快捷输入处理：按优先级 临时输入替换 > 快捷键 > 输入替换 依次尝试文本替换
    * @param content 原始输入文本
-   * @param userId 玩家用户ID
-   * @returns 处理后的文本
    */
   async processShortcut(content: string, userId: number): Promise<string> {
     const data = await this.loadShortcuts(userId);
     let result = content;
 
-    // ========== 第一优先级：临时输入替换 ==========
-    // 临时输入替换 2分钟内有效，且触发一次后清空
+    // ========== 第一优先级：临时输入替换（2分钟内有效，触发一次后清空） ==========
     const now = Date.now();
     const tempElapsed = (now - data.tempTime) / 1000;
     if (data.tempInputs.length > 0 && tempElapsed <= this.TEMP_EXPIRY_SECONDS) {
@@ -83,7 +79,6 @@ export class ShortcutService {
         const isNumeric = /^\d+$/.test(temp.original);
         const matched = isNumeric ? result === temp.original : result.startsWith(temp.original);
         if (matched) {
-          // 替换左边匹配的原文本为目标文本
           result = result.replace(temp.original, temp.target);
           // 临时输入替换触发一次后仅移除当前匹配项，保留其他编号选项（如 1/2/3/4）
           data.tempInputs = data.tempInputs.filter(t => t !== temp);
@@ -118,7 +113,7 @@ export class ShortcutService {
    * 将目标文本中的「【换行】」标记展开为真实换行符。
    * 对应原版接口1.ecode L367：消息按【换行】分割后逐段送入 Main 从左到右依次执行，
    * 帮助文案（L263）：你可以用「【换行】」来替代换行符，使用换行符可以一次输入多条指令。
-   * 新版在快捷输入预处理出口统一展开，多渠道（网页/AstrBot）的多行拆分逻辑即可自然逐条执行。
+   * 本服务在快捷输入预处理出口统一展开，多渠道（网页/AstrBot）的多行拆分逻辑即可自然逐条执行。
    */
   static normalizeNewlineMarkers(text: string): string {
     return String(text || '').split('【换行】').map(s => s.trim()).filter(Boolean).join('\n');
@@ -128,8 +123,6 @@ export class ShortcutService {
    * 读取玩家的快捷输入数据
    * 从 Player 的 markers 字段中读取持久化的快捷键和输入替换，
    * 并与内存中的临时输入状态合并
-   * @param userId 玩家用户ID
-   * @returns 完整的快捷输入数据对象
    */
   async loadShortcuts(userId: number): Promise<ShortcutData> {
     // 先检查内存缓存中是否有完整数据（含临时输入状态）
@@ -159,14 +152,12 @@ export class ShortcutService {
   /**
    * 保存快捷输入数据到数据库
    * 仅持久化快捷键和输入替换（临时输入不保存）
-   * @param userId 玩家用户ID
    */
   async saveShortcuts(userId: number): Promise<void> {
     const data = await this.loadShortcuts(userId);
     const playerData = await this.playerService.getPlayerData(userId);
     const markers = playerData.markers;
 
-    // 构造持久化数据（仅保存快捷键和输入替换）
     markers['shortcuts'] = {
       shortcuts: data.shortcuts,
       inputReplacements: data.inputReplacements,
@@ -181,9 +172,7 @@ export class ShortcutService {
    * 设置临时输入替换
    * 格式：原文本@目标文本#原文本2@目标文本2
    * 例如 "a@b#c@d" 表示 a→b 和 c→d
-   * @param userId 玩家用户ID
    * @param raw 原始输入字符串（多组用#分隔，每组用@分隔原文本和目标文本）
-   * @returns 设置结果的描述文本
    */
   async setTempInput(userId: number, raw: string): Promise<string> {
     const data = await this.loadShortcuts(userId);
@@ -206,7 +195,6 @@ export class ShortcutService {
       return '临时输入替换格式错误，正确格式：原文本@目标文本#原文本2@目标文本2';
     }
 
-    // 更新内存中的临时输入和时间戳
     data.tempInputs = tempInputs;
     data.tempTime = Date.now();
     this.cache.set(userId, data);
@@ -217,10 +205,8 @@ export class ShortcutService {
   /**
    * 添加快捷键
    * 快捷键需要完全匹配原文本才会触发替换
-   * @param userId 玩家用户ID
    * @param original 原文本
    * @param target 目标文本
-   * @returns 操作结果描述
    */
   async addShortcut(userId: number, original: string, target: string): Promise<string> {
     if (!original || !target) {
@@ -229,7 +215,6 @@ export class ShortcutService {
 
     const data = await this.loadShortcuts(userId);
 
-    // 检查是否已存在相同的原文本
     const existing = data.shortcuts.findIndex(s => s.original === original);
     if (existing !== -1) {
       // 覆盖已有快捷键
@@ -245,9 +230,7 @@ export class ShortcutService {
 
   /**
    * 删除快捷键
-   * @param userId 玩家用户ID
    * @param original 要删除的快捷键原文本
-   * @returns 操作结果描述
    */
   async removeShortcut(userId: number, original: string): Promise<string> {
     if (!original) {
@@ -270,10 +253,8 @@ export class ShortcutService {
   /**
    * 添加输入替换
    * 输入替换是左边匹配，只要输入文本以原文本开头即触发替换
-   * @param userId 玩家用户ID
    * @param original 原文本
    * @param target 目标文本
-   * @returns 操作结果描述
    */
   async addInputReplacement(userId: number, original: string, target: string): Promise<string> {
     if (!original || !target) {
@@ -282,7 +263,6 @@ export class ShortcutService {
 
     const data = await this.loadShortcuts(userId);
 
-    // 检查是否已存在相同的原文本
     const existing = data.inputReplacements.findIndex(r => r.original === original);
     if (existing !== -1) {
       data.inputReplacements[existing].target = target;
@@ -297,9 +277,7 @@ export class ShortcutService {
 
   /**
    * 删除输入替换
-   * @param userId 玩家用户ID
    * @param original 要删除的输入替换原文本
-   * @returns 操作结果描述
    */
   async removeInputReplacement(userId: number, original: string): Promise<string> {
     if (!original) {
@@ -319,18 +297,13 @@ export class ShortcutService {
     return `输入替换已删除：${original}`;
   }
 
-  /**
-   * 查看当前玩家的所有快捷输入设置
-   * @param userId 玩家用户ID
-   * @returns 格式化的快捷输入列表文本
-   */
+  /** 查看当前玩家的所有快捷输入设置（格式化列表文本） */
   async viewShortcuts(userId: number): Promise<string> {
     const data = await this.loadShortcuts(userId);
     const lines: string[] = [];
 
     lines.push('╔══════════════ 快捷输入 ═══════════════');
 
-    // 快捷键列表
     lines.push('║ 【快捷键】（完全匹配）');
     if (data.shortcuts.length === 0) {
       lines.push('║   暂无快捷键');
@@ -340,7 +313,6 @@ export class ShortcutService {
       }
     }
 
-    // 输入替换列表
     lines.push('║ 【输入替换】（左边匹配）');
     if (data.inputReplacements.length === 0) {
       lines.push('║   暂无输入替换');
@@ -367,12 +339,8 @@ export class ShortcutService {
   }
 
   /**
-   * 处理快捷指令子命令
-   * 统一入口，根据子命令分发到对应的操作
-   * @param userId 玩家用户ID
+   * 处理快捷指令子命令（统一入口，按子命令分发）
    * @param subCmd 子命令（查看/添加/删除/临时/输入替换/删除输入替换）
-   * @param subArgs 子命令参数
-   * @returns 操作结果文本
    */
   async handleShortcutCmd(userId: number, subCmd: string, subArgs: string): Promise<string> {
     switch (subCmd) {

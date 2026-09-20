@@ -1,21 +1,13 @@
 /**
- * 移动/载具指令域服务（game 模块化重构 P3-6a 内核聚类 A，策略 B）
- *
- * 职责：移动/传送/飞行（延时到达排程与到达触发链：经验/事件/狐狸突袭/幼崽剪切/
- * 资产迁移）、载具全生命周期（生产/组装/驾驶/脱出/接管/命名/维修/架炮/呼叫/
- * 查看/部件安装与超限）、移动载具联动（开采、载具部件采集）。
- * 聚类依据（§3.4 策略 B）：movement↔vehicle 双向边最强，合并后依赖图无环。
- * 依赖方向：依赖 Player、Map、Prisma、CombatState、CombatSystem、Shortcut、
- * Achievement、Task、DelayedTaskService、StaticData、Chat、SystemConfig、
- * FamiliarSystemService 与支撑层；跨簇调用（panel/rescue/shop/home）直接注入兄弟
- * 子服务——movement↔panel、movement↔home、movement↔rescue 为真实互调，用
- * forwardRef 断 DI 环（残余环兜底，§4 原则 4）。
+ * 移动/载具指令域服务：移动/传送/飞行（延时到达排程与到达触发链：经验/事件/狐狸突袭/幼崽剪切/
+ * 资产迁移）、载具全生命周期（生产/组装/驾驶/脱出/接管/命名/维修/架炮/呼叫/查看/部件安装与超限）、
+ * 移动载具联动（开采、载具部件采集）。
  * 单一真相源：载具运行态/存储态互转 toRuntimeVehicle/toStoredVehicle；
  * 到达结算唯一入口 performArrival（dts settle，自串行）。
  * 对口原版：_主程序.ecode 移动/载具分支。
  */import { forwardRef, Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { asJsonValue } from '../../../common/utils/json-value.util';
-import { formatSecondsDurationText, roundItemQuantity } from '../../../common/utils/game-text.util';
+import { CARD_DIVIDER, formatSecondsDurationText, roundItemQuantity } from '../../../common/utils/game-text.util';
 import { tagMarkerKind } from '.././expire-time.util';
 import { normalizeVehicleEntry, readMarkerValue } from '.././field-contract.util';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -57,7 +49,7 @@ export class MovementVehicleService {
     private readonly taskService: TaskService,
     private readonly shortcutService: ShortcutService,
     private readonly combatState: CombatStateService,
-    // 跨域兄弟直连（P4 清理：原过渡期经门面引用）。三对互调边用 forwardRef 断环。
+    // movement↔panel、movement↔home、movement↔rescue 为真实互调，三对边用 forwardRef 断 DI 环。
     @Inject(forwardRef(() => GatherPanelService))
     private readonly panel: GatherPanelService,
     @Inject(forwardRef(() => HomeBuildService))
@@ -228,10 +220,9 @@ export class MovementVehicleService {
     // 目的地图编号 >2（医疗室/走廊之外）时拦截，并预置临时输入 1→观察附近。
     // 副本入口在原版分支中早于该锁，不受限。
     // 补充出生区作用域（当前地图 ≤2 才生效）：原版世界结构上不存在「人在外地且无召唤白」
-    // 的玩家（新号出生医疗室，外出本身被此锁挡住）；但本项目存在迁移存量老玩家
+    // 的玩家（新号出生医疗室，外出本身被此锁挡住）；但本项目存在存量老玩家
     // （如人在地图66、标记无召唤白），无作用域时锁退化为全图禁行——走回出生区途经的
-    // 每张图 id>2 同样被拦，且引导的「观察附近→打开休眠仓」只在医疗室存在，形成死循环
-    // （2026-09-09 玩家无法移动事故）。
+    // 每张图 id>2 同样被拦，且引导的「观察附近→打开休眠仓」只在医疗室存在，形成死循环。
     if (!isDungeonEntry
       && Number(currentMap.id) <= 2
       && (Number(this.playerService.getMarkerValue(asJsonValue(player.markers, {}), '召唤白')) || 0) < 1
@@ -431,7 +422,7 @@ export class MovementVehicleService {
       await this.playerService.savePlayer(player);
       return `${name}${cooldownText.value}`;
     }
-    // 刚写入的「传送冷却」补类型标签（方案B：面板据此显示「传送 · 冷却中」而非兜底的「武器冷却中」）
+    // 刚写入的「传送冷却」补类型标签（面板据此显示「传送 · 冷却中」而非兜底的「武器冷却中」）
     tagMarkerKind(markers2, '传送冷却', 'act-cd');
     // 原版 L1744：传送查目的地图的前往需求（动态能力判定：vehicle 为 null=徒步持天蓝吊坠）
     const travelCheck = this.mapService.checkCanTravel(currentMap, targetMap, player, { mode: 'teleport', vehicle });
@@ -650,7 +641,7 @@ export class MovementVehicleService {
       await this.playerService.savePlayer(player);
       return `${playerName}${cooldownText.value}`;
     }
-    // 刚写入的「飞行冷却」补类型标签（方案B：面板据此显示「飞行 · 冷却中」，并与「移动中」读条去重）
+    // 刚写入的「飞行冷却」补类型标签（面板据此显示「飞行 · 冷却中」，并与「移动中」读条去重）
     tagMarkerKind(markers2, '飞行冷却', 'act-cd');
 
     // 原版 L1620：飞到查目的地图的前往需求（动态能力判定）
@@ -736,11 +727,7 @@ export class MovementVehicleService {
   }
 
   /**
-   * 调度延时到达
-   * 在 travelTime 秒后调用 performArrival 真正完成移动
-   * @param userId 用户ID
-   * @param targetMapId 目标地图ID
-   * @param targetMapName 目标地图名
+   * 调度延时到达：travelTime 秒后由延时任务调 performArrival 真正完成移动。
    * @param travelTime 耗时（秒）
    */
 
@@ -757,11 +744,8 @@ export class MovementVehicleService {
   /**
    * 真正完成移动（到达目的地）
    * 更新玩家位置、应用地图增益、记录探索成就，并向世界频道广播到达消息。
-   * @param userId 用户ID
-   * @param targetMapId 目标地图ID
-   * @param targetMapName 目标地图名
+   * 到达结算唯一入口：dts settle 与指令路径都走这里，内部自串行。
    */
-  /** 跨子服务 API（§10.2）：QuestDialogue/RescueWhite 经 DI 直连调用；dts 到达结算唯一入口（自串行）。 */
 
   async performArrival(
     userId: number,
@@ -838,11 +822,10 @@ export class MovementVehicleService {
     // 会把刚完成的任务“复活”并回滚奖励。
     player = (await this.playerService.getPlayerData(userId)).player;
 
-    // 到达不再"懒刷新"怪物（对齐原版）：原版 IS 不在地图到达处刷新怪物
-    // （`刷新地图` 仅在服务器读档 接口1.ecode L1374 与副本刷新 后台运作 L1066 调用）。
-    // 怪物补充完全由「刷新怪物」标记驱动：击杀登记 120 秒标记 → 到期后后台补 1 只
-    // （`MapService.refillResidentMonstersByMarker` / `ScheduleService.respawnMonsters`）。
-    // 旧实现「0 怪即整批满刷」会跳过原版的空窗期，并可能把其他玩家正在打的怪一并替换。
+    // 到达不在地图落地处刷新怪物（对齐原版）：`刷新地图` 仅在服务器读档 接口1.ecode L1374
+    // 与副本刷新 后台运作 L1066 调用。怪物补充完全由「刷新怪物」标记驱动：击杀登记 120 秒标记
+    // → 到期后后台补 1 只（`MapService.refillResidentMonstersByMarker` / `ScheduleService.respawnMonsters`）。
+    // 若改成「0 怪即整批满刷」，会跳过原版的空窗期，并可能把其他玩家正在打的怪一并替换。
 
     // 探索成就：记录玩家首次到达的地图
     try {
@@ -859,7 +842,7 @@ export class MovementVehicleService {
 
     this.logger.log(`玩家 ${userId} 移动到达：${fromMapId} → ${targetMap.name}`);
 
-    // ========== 到达触发（对齐原版 来倒目的 _主程序.ecode L6694-6712）==========
+    // ===== 到达触发（对齐原版 来倒目的 _主程序.ecode L6694-6712）=====
     // 观测地图产出(通用段) / 四圣祭坛刷麒麟 / 普拉娜幼崽剪毛。
     let triggerText = '';
     try {
@@ -979,8 +962,6 @@ export class MovementVehicleService {
    *    开拓地(家园)的完整观测（建筑/作物）由「家园产出」命令的 collectHomeOutput 结算，此处跳过避免双重记账。
    * 2) 四圣祭坛：其余四祭坛怪物清空后刷出神兽麒麟（L6697-6712）。
    * 3) 普拉娜幼崽剪毛（使魔技能.ecode L14-70）：带剪刀的普拉娜幼崽召唤物为地图动物剪毛。
-   * @param player 到达玩家
-   * @param targetMap 目标地图行
    * @returns 附加文本（无则空串）
    */
 
@@ -1006,7 +987,7 @@ export class MovementVehicleService {
           if (!(qty > 0)) return;
           const found = items.find((it: any) => it && it.name === name);
           if (found) {
-            // 数量累加统一过 roundItemQuantity 三道闸（比例产出会累出浮点长尾）
+            // 数量累加统一过 roundItemQuantity（比例产出会累出浮点长尾）
             found.quantity = roundItemQuantity(readNum(found.quantity) + qty);
           } else {
             items.push({ name, quantity: roundItemQuantity(qty) });
@@ -1200,9 +1181,7 @@ export class MovementVehicleService {
    * - 召唤物驾驶的载具：行走方式≠0(无行走机构)且≠4(坐地)时迁移
    * - 跟随召唤物：标记中"跟随"熟练度<1 的召唤物迁移到目标地图
    * - 风月入墨增益：离开地图时从玩家增益列表中移除
-   * @param fromMapId 原地图ID
-   * @param toMapId 目标地图ID
-   * @param player 玩家对象（含 vehicle/qq/buffs 等字段）
+   * @param player 玩家对象（读 vehicle/qq/buffs 等字段）
    */
 
   async migratePlayerAssetsOnMove(
@@ -1470,7 +1449,8 @@ export class MovementVehicleService {
   }
 
   /**
-   * 处理查看信息命令
+   * 「生产 …」：载具生产线总入口——无参出帮助，0 看产线，1 及配方名/排序/限产/配平/组装燃料各分支。
+   * 对应原版 _主程序.ecode L10929-11222，以及物品操作.ecode L2612-2954。
    */
 
   async handleVehicleProduction(userId: number, argument = ''): Promise<string> {
@@ -1733,9 +1713,7 @@ export class MovementVehicleService {
     return `${playerName}为${runtime.name}设置了${recipeName}\n它当前占用的生产力为${this.support.round2Text(currentValue)}\n${runtime.name}当前产出:${this.formatVehicleItems(currentOutput)}`;
   }
 
-  /**
-   * 原版“安装”统一入口：生产建筑放院子，功能建筑放屋内；非建筑则安装到载具。
-   */
+  /** 部件类型的槽位与上限：0=核心 1=防御 2=行走 3=武器 4=功能。 */
 
   getSlotLimit(vehicle: any, partType: number): { slots: number; max: number; name: string } {
     switch (partType) {
@@ -1748,21 +1726,11 @@ export class MovementVehicleService {
     }
   }
 
-  /**
-   * 计算载具的总加成
-   * 载具基础加成 + 所有已安装部件的加成之和
-   * @param vehicle 载具对象
-   * @returns 合并后的总加成对象
-   */
-  /** 跨子服务 API（§10.2）：HomeBuild 经 DI 直连调用。 */
+  /** 载具总加成 = 载具基础加成 + 所有已安装部件的加成之和。 */
 
   calcVehicleTotalBonus(vehicle: any): any {
-    // 解析载具基础加成
     const baseBonus = asJsonValue<any>(vehicle.bonus, {});
-    // 解析已安装的部件列表
     const parts = asJsonValue<any[]>(vehicle.parts, []);
-
-    // 合并所有部件的加成
     let totalBonus = { ...baseBonus };
     for (const part of parts) {
       if (part.bonus && typeof part.bonus === 'object') {
@@ -1845,8 +1813,7 @@ export class MovementVehicleService {
 
   /**
    * 落库 / 写回地图用的载具对象（载具域规范键）。
-   * 与 toRuntimeVehicle 同口径：只产出英文规范键，不再写中英双份镜像。
-   * 跨子服务 API（§10.2）：DungeonChallenge 经 DI 直连调用。
+   * 与 toRuntimeVehicle 同口径：只产出英文规范键，不写中英双份镜像。
    */
   toStoredVehicle(runtime: any): any {
     const parts = ((runtime?.parts as any[]) || []).map((item: any) => ({
@@ -2091,10 +2058,7 @@ export class MovementVehicleService {
     return formatSecondsDurationText(seconds, 'fullUnits');
   }
 
-  /**
-   * 载具生产命令。
-   * 对应原版 _主程序.ecode L10929-11222，以及物品操作.ecode L2612-2954。
-   */
+  /** 「载具状态」：重算加成后输出当前驾驶/接管载具的详情。 */
 
   async handleVehicleStatus(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -2118,12 +2082,12 @@ export class MovementVehicleService {
     return this.formatVehicleDetail(vehicle);
   }
 
-  // ========== 基础战斗命令 ==========
+  // ===== 载具组装与部件 =====
 
   /**
-   * 处理开始战斗命令
+   * 「组装 部件名 [数量|新名称]」：往当前载具装/拆部件（数量可为负=取出），
+   * 建筑转交 homeBuild，「组装核心 新名称」则以此核心建一辆新载具。
    * 对应原版 _主程序.ecode L2077-2163：在家园前线生成一轮地精攻势，
-   * 写入 GameMonster，生成/刷新前线防御召唤物，并开启前线活动状态。
    */
 
   async handleAssembleVehicle(userId: number, partName: string, count = 1, newVehicleName?: string): Promise<string> {
@@ -2576,7 +2540,7 @@ export class MovementVehicleService {
     }
 
     const vehicleId = String(runtime.vehicleId || `V${index}`);
-    // ========== 首次唤醒：只展示确认，不扣材料、不刷怪 ==========
+    // ===== 首次唤醒：只展示确认，不扣材料、不刷怪 =====
     if (!confirmed) {
       const menu = await this.support.buildNumberedMenu(
         userId,
@@ -2629,11 +2593,7 @@ export class MovementVehicleService {
     return `${playerName}开始唤醒${runtime.name}！献祭了凭证x${cost.vouchers}与${cost.vitality}点活力。\n${autoBattle}`;
   }
 
-  /**
-   * 处理驾驶载具命令
-   * 驾驶或切换到指定的载具
-   * 对应原版：驾驶 命令
-   */
+  /** 「驾驶 载具名」：驾驶或切换到指定载具（对应原版 驾驶 命令）。 */
 
   async handleDriveVehicle(userId: number, vehicleName: string): Promise<string> {
     if (!vehicleName) {
@@ -2872,7 +2832,7 @@ export class MovementVehicleService {
           ...row,
           name,
           type,
-          // 数量只读规范键 quantity（count 为历史遗留同义键，静态数据已统一为 quantity）
+          // 数量只读规范键 quantity（不读同义旧键 count）
           quantity: Number(row?.quantity ?? 0),
         };
       }).filter((row: any) => row.name && Number.isFinite(row.quantity));
@@ -3044,11 +3004,7 @@ export class MovementVehicleService {
     }));
   }
 
-  /**
-   * 处理载具命名命令
-   * 给当前驾驶的载具命名
-   * 对应原版：载具命名 命令
-   */
+  /** 「载具命名 旧名 新名」：改当前地图中自己名下载具的名字（对应原版 载具命名 命令）。 */
 
   async handleNameVehicle(userId: number, argument: string): Promise<string> {
     // 原版 L10355-10381：「载具命名 旧名 新名」——按当前地图归属匹配，不依赖驾驶状态。
@@ -3086,16 +3042,11 @@ export class MovementVehicleService {
     vehicles[index] = this.toStoredVehicle(runtime);
     await this.mapService.updateDynamicFields(map.id, { vehicles });
 
-    // 若该载具正在被驾驶，同步 player.vehicle 键（编号不变，通常无需改）
     this.logger.log(`玩家 ${userId} 将载具 ${oldName} 更名为 ${newName}`);
     return `${player.name || '冒险者'},${oldName}名称修改为${newName}`;
   }
 
-  /**
-   * 处理载具模拟命令
-   * 模拟载具装配后的性能表现
-   * 对应原版：载具模拟 命令
-   */
+  /** 「载具模拟」：按零件清单试算载具装配后的性能，不落库（对应原版 载具模拟 命令）。 */
 
   async handleSimulateVehicle(userId: number, targetName: string): Promise<string> {
     // 原版 _主程序.ecode L10385-10395 + 数据分析.ecode L114-156 载具模拟：
@@ -3180,7 +3131,7 @@ export class MovementVehicleService {
       const reqs = asJsonValue<any[]>(recipe.requirements, []);
       for (const req of reqs) {
         const reqName = String(req?.name ?? '');
-        // 需求数量只读规范键 quantity（count 为历史遗留同义键）
+        // 需求数量只读规范键 quantity（不读同义旧键 count）
         const reqQuantity = Number(req?.quantity ?? 0);
         if (!reqName || !Number.isFinite(reqQuantity)) continue;
         acc.set(reqName, (acc.get(reqName) ?? 0) + reqQuantity * Number(p.quantity || 1));
@@ -3350,7 +3301,7 @@ export class MovementVehicleService {
         if (timesLeft === 0) break;
         for (const out of outputs) {
           const name = String(out?.name ?? '');
-          // 产出数量只读规范键 quantity（count 为历史遗留同义键）
+          // 产出数量只读规范键 quantity（不读同义旧键 count）
           const qty = Number(out?.quantity ?? 0);
           const chance = Number(out?.chance ?? 100);
           if (!name || qty <= 0) continue;
@@ -3577,11 +3528,7 @@ export class MovementVehicleService {
     return '';
   }
 
-  /**
-   * 处理脱出载具命令
-   * 从当前驾驶的载具中脱出
-   * 对应原版：脱出 命令
-   */
+  /** 「脱出」：离开当前驾驶的载具，清掉载具 driver 与玩家 vehicle（对应原版 脱出 命令）。 */
 
   async handleExitVehicle(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -3638,11 +3585,7 @@ export class MovementVehicleService {
     return `${player.name}离开了${vehicle.name}(${vehicle.type})`;
   }
 
-  /**
-   * 处理接管载具命令
-   * 接管其他玩家的载具
-   * 对应原版：接管 命令
-   */
+  /** 「接管 载具名」：接管自己名下载具，无需驾驶即可拆装部件/设置生产（对应原版 接管 命令）。 */
 
   async handleTakeoverVehicle(userId: number, targetName: string): Promise<string> {
     if (!targetName) {
@@ -3701,11 +3644,7 @@ export class MovementVehicleService {
     return `${player.name || '冒险者'}已对${vehicleName}进行接管，现在无需驾驶即可拆装部件、设置生产\n“接管停止”可停止接管\n“驾驶”也可以中止接管`;
   }
 
-  /**
-   * 处理架炮命令
-   * 架设载具火炮
-   * 对应原版：架炮 命令
-   */
+  /** 「接管停止」：清掉 sets.takeVehicle / sets.接管载具。 */
 
   async handleStopTakeover(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -3728,10 +3667,7 @@ export class MovementVehicleService {
     return `${player.name || '冒险者'}停止了对${vehicleName}的接管`;
   }
 
-  /**
-   * 确认还原植入体等级
-   * 对应原版：确认还原植入体等级 命令
-   */
+  /** 「架炮 / 收炮」：恶毒专属，切换 套装.攻击模式 0/1（对应原版 架炮 命令）。 */
 
   async handleDeployCannon(_userId: number, _targetName?: string): Promise<string> {
     // 原版 _主程序.ecode L9796-L9808：架炮=恶毒专属，切换 套装.攻击模式 0/1。
@@ -3770,11 +3706,7 @@ export class MovementVehicleService {
     return `${name}收好了炮击阵地`;
   }
 
-  /**
-   * 处理模式转换命令
-   * 载具模式转换（如战斗模式、移动模式等）
-   * 对应原版：模式转换 命令
-   */
+  /** 「呼叫 目标」：把名下的宠物/载具召到身边；有通讯台时还可呼叫行商、神之工匠。 */
 
   async handleCallVehicle(userId: number, vehicleName: string): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -4094,11 +4026,10 @@ export class MovementVehicleService {
     return result;
   }
 
-  /**
-   * 安装全部不占用位置的建筑。
-   * 对应原版 _主程序.ecode L1859-1931；这里的“部件”是原版建筑资源，
-   * 与「安装」命令的载具部件分支不同。
-   */
+   /**
+    * 「查看载具」：列出当前地图载具，并生成「查看载具 名称」编号菜单。
+    * 对应原版 _主程序.ecode L1859-1931；这里的“部件”是原版建筑资源，
+    */
 
   async handleViewVehicles(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -4107,7 +4038,7 @@ export class MovementVehicleService {
     if (!map) return '你不在任何地图上！';
 
     const vehicles = asJsonValue<any[]>(map.vehicles, []);
-    const lines: string[] = [`🚗 【${map.name}】的载具:`, `━━━━━━━━━━━━━━━`];
+    const lines: string[] = [`🚗 【${map.name}】的载具:`, CARD_DIVIDER];
     const options: { label: string; cmd: string }[] = [];
 
     if (vehicles.length === 0) {
@@ -4121,7 +4052,7 @@ export class MovementVehicleService {
     }
 
     if (options.length > 0) {
-      lines.push(`━━━━━━━━━━━━━━━`);
+      lines.push(CARD_DIVIDER);
       const menu = await this.support.buildNumberedMenu(userId, options, '💡 发送编号数字即可查看详情');
       lines.push(...menu);
     }
@@ -4165,7 +4096,7 @@ export class MovementVehicleService {
       return `${player.name || '冒险者'}你名下没有任何载具`;
     }
 
-    const lines: string[] = [`🚗 ${player.name || '冒险者'}名下共 ${owned.length} 辆载具:`, '━━━━━━━━━━━━━━━'];
+    const lines: string[] = [`🚗 ${player.name || '冒险者'}名下共 ${owned.length} 辆载具:`, CARD_DIVIDER];
     const options: { label: string; cmd: string }[] = [];
     owned.forEach((v, index) => {
       const moveTag = v.moveType === 0 || v.moveType === 4 ? '坐地' : v.moveType === 2 ? '飞行' : v.moveType === 3 ? '跃迁' : '陆地';
@@ -4173,7 +4104,7 @@ export class MovementVehicleService {
       lines.push(`  ${index + 1}. ${v.name} @${v.mapName} (${moveTag})${statusTag}`);
       options.push({ label: `${v.name}(${v.mapName})`, cmd: `呼叫载具${v.key}` });
     });
-    lines.push('━━━━━━━━━━━━━━━');
+    lines.push(CARD_DIVIDER);
     const menu = await this.support.buildNumberedMenu(userId, options, '💡 发送编号数字可呼叫该载具到身边');
     lines.push(...menu);
     return lines.join('\n');
@@ -4532,13 +4463,12 @@ export class MovementVehicleService {
     }
   }
 
-  /**
-   * 处理查看作物命令（对应原版 _主程序.ecode L5466）
-   * 列出当前地图资源2中可产出（产出2非空）的作物，并生成编号快捷。
-   */
+   /**
+    * 「载具操作」帮助文本（对应原版 _主程序.ecode L10875-10886）。
+    * 处理查看作物命令（对应原版 _主程序.ecode L5466）
+    */
 
   async handleVehicleOps(userId: number): Promise<string> {
-    // 原版 _主程序.ecode L10875-10886 载具操作帮助
     return [
       `“组装轻型装甲2”安装2块轻型装甲`,
       `“组装轻型装甲-2”拆下2块轻型装甲`,
@@ -4556,18 +4486,11 @@ export class MovementVehicleService {
     ].join('\n');
   }
 
-  /**
-   * 处理增幅器说明命令
-   * 查看增幅器使用说明，展示增幅器系统的功能与用法
-   * 对应原版：增幅器 命令
-   */
+  /** 载具字段取值容错：已是对象/数组直接返回，JSON 字符串才解析，空值回落 fallback。 */
 
   parseVehicleValue<T>(value: any, fallback: T): T {
     if (Array.isArray(value) || (value && typeof value === 'object')) return value as T;
     if (typeof value !== 'string' || !value.trim()) return fallback;
     return asJsonValue<T>(value, fallback);
   }
-
-  /** 将 DB/地图载具转换为原版中文字段运行时结构。 */
-  /** 跨子服务 API（§10.2）：DungeonChallenge 经 DI 直连调用。 */
 }

@@ -20,7 +20,7 @@ import { roundItemQuantity } from '../../common/utils/game-text.util';
 interface TaskRequirement {
   [key: string]: any;
   name: string;
-  /** 需求数量：规范键 quantity（同义旧键 count 已废弃） */
+  /** 需求数量：规范键 quantity */
   quantity: number;
 }
 
@@ -34,7 +34,7 @@ interface PlayerTask {
 
 interface TaskReward {
   name: string;
-  /** 奖励数量：规范键 quantity（同义旧键 count 已废弃） */
+  /** 奖励数量：规范键 quantity */
   quantity: number;
   type?: string;
 }
@@ -95,7 +95,6 @@ export class TaskService {
    * - 自动领取的后续任务 → task-accept
    * 与 formatCompletionMessage 共用同一份 completed 数据，保证公屏文本与
    * 高光弹窗展示的内容一致。
-   * @param userId 玩家 ID
    * @param completed 本轮结算出的任务列表
    */
   private emitTaskHighlight(userId: number, completed: SettledTask[]): void {
@@ -517,7 +516,7 @@ export class TaskService {
     backpack.push({
       ...equipment,
       type: '装备',
-      // 数量只写规范键 quantity（count 镜像已废弃）
+      // 数量只写规范键 quantity
       quantity: 1,
       durability: Number(equipment?.durability || 0),
     });
@@ -529,7 +528,7 @@ export class TaskService {
     if (existing) {
       // ADD 语义：命中同名条目（含物化货币条目「钻石/召唤券」）一律累加，绝不
       // 整条替换——吞掉存量余额（4.02+1050.6≠1050.6）就是 SET 语义的历史事故。
-      // 数量只有一个规范键 quantity（count 双字段镜像已删除），无歧义可读。
+      // 数量只有规范键 quantity，无歧义可读。
       // 累加结果过 roundItemQuantity 闸（数值三道闸），防浮点尾巴入库。
       const next = roundItemQuantity((Number(existing.quantity) || 0) + qty);
       existing.quantity = next;
@@ -1064,7 +1063,7 @@ export class TaskService {
       if (snapshot && snapshot[field] !== undefined
         && snapshot[field] === this.stableStringify(player[field])) continue;
       // Json 列字段（tasks/markers/backpack/recipes 等）保持对象/数组原样透传；
-      // 数值字段原样透传。此前对 object 做 stringify 会导致 Json 列双重编码。
+      // 数值字段原样透传。对 object 做 stringify 会导致 Json 列双重编码。
       data[field] = player[field];
     }
     if (Object.keys(data).length === 0) return;
@@ -1186,7 +1185,7 @@ export class TaskService {
 
   /** 把流入物品的数量增量叠加到活态条目上，并覆盖其它业务字段。 */
   private overlayBackpackItem(liveItem: any, incoming: any, base?: any): void {
-    // 数量只认规范键 quantity（count 镜像已废弃）
+    // 数量只认规范键 quantity
     if (incoming.quantity !== undefined) {
       const inVal = Number(incoming.quantity);
       if (base && base.quantity !== undefined && liveItem.quantity !== undefined) {
@@ -1297,7 +1296,7 @@ export class TaskService {
         if (typeof item === 'string') return this.parseNameCountToken(item);
         return {
           name: this.cleanName(item?.name ?? ''),
-          // 需求数量只读规范键 quantity（同义旧键 count 已废弃，存量数据由迁移脚本收敛）
+          // 需求数量只读规范键 quantity
           quantity: Number(item?.quantity ?? 0),
         };
       })
@@ -1309,7 +1308,7 @@ export class TaskService {
     return parsed
       .map((item: any) => ({
         name: this.cleanName(item?.name ?? ''),
-        // 奖励数量只读规范键 quantity（同义旧键 count 已废弃）
+        // 奖励数量只读规范键 quantity
         quantity: Number(item?.quantity ?? 0),
         type: item?.type,
       }))

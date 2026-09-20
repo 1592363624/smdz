@@ -3,7 +3,7 @@
     <!-- 顶栏：前线名 / 关键指标 / 状态与刷新 -->
     <header class="fl-top">
       <button class="fl-back" title="返回聊天" @click="router.push('/chat')">←</button>
-      <!-- 家园系统内面板切换：院子 ↔ 前线互相跳转（前线入口已从聊天侧栏移到这里） -->
+      <!-- 家园系统内面板切换：院子 ↔ 前线互相跳转 -->
       <div class="fl-switch">
         <button class="fl-switch-btn" title="返回家园院子" @click="router.push('/home')">🏡 家园</button>
         <span class="fl-switch-btn on">🛡️ 前线</span>

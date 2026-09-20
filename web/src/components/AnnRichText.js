@@ -1,12 +1,9 @@
 /**
  * 系统公告富文本渲染组件（函数式组件）
- *
- * 输入公告原文（Markdown 子集，见 utils/annRich.js），
- * 通过 h() 渲染结构化 VNode：
- * - 不经过 v-html / innerHTML，天然免疫 XSS
- * - 链接新窗口打开（rel=noopener）；非白名单协议的链接降级为纯文本并提示
- * - 图片懒加载，点击触发 image-click 事件（供父级做放大预览）
- *
+ * 输入公告原文（Markdown 子集，解析见 utils/annRich.js），用 h() 渲染结构化 VNode，
+ * 不经过 v-html / innerHTML，天然免疫 XSS。
+ * 链接新窗口打开（rel=noopener）；非白名单协议降级为纯文本并提示；图片懒加载，
+ * 点击触发 image-click 事件（供父级做放大预览）。
  * 用法：<AnnRichText :content="text" @image-click="onZoom" />
  */
 import { h, computed } from 'vue';

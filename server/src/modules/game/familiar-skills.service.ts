@@ -1,11 +1,6 @@
 /**
- * 使魔技能服务
+ * 使魔技能服务：使魔专属技能、通用技能与装备技能。
  * 对应原版易语言：使魔技能.ecode
- * 完整实现所有使魔专属技能、通用技能和装备技能
- *
- * 技能列表：
- * 使魔专属技能 - 绑定特定使魔，需要当前使魔类型匹配
- * 通用/装备技能 - 需要特定装备或条件触发
  */
 
 import { forwardRef, Inject, Injectable, Logger } from '@nestjs/common';
@@ -76,27 +71,17 @@ export class FamiliarSkillsService {
     private readonly systemConfig: SystemConfigService,
     private readonly staticData: StaticDataService,
     private readonly taskService: TaskService,
-    /**
-     * 玩家状态写入的唯一推荐入口。技能链路的读-改-写应全部包在
-     * `mutateService.mutate(userId, ctx => ...)` 里：它持锁、保证一条链只有一份
-     * 快照、并统一落库。禁止在技能方法里裸调 getPlayerData + savePlayer。
-     */
+    /** 玩家状态写入的唯一推荐入口；禁止在技能方法里裸调 getPlayerData + savePlayer。 */
     private readonly mutateService: PlayerMutateService,
   ) {}
 
-  // ==================== 通用辅助方法 ====================
+  // ===== 通用辅助方法 =====
 
   /**
-   * 技能执行入口
-   * 根据技能名称路由到对应的方法
-   * @param userId 用户ID
-   * @param skillName 技能名称
-   * @param target 可选目标参数
-   * @param opts.skipUseSkillTask 成功时不推进「使用技能」任务。
-   *        仅用于原版本就不计「使用技能」的技能（如「模式转换」——_主程序.ecode
-   *        L9810-9821 只切 a模式，没有任何 添加成就("使用技能")，而「教程-技能」恰以
-   *        「使用技能」为完成条件，误计会污染教程进度）。
-   * @returns 技能执行结果文本
+   * 技能执行入口：按技能名路由到对应方法（内部持用户级锁）。
+   * @param opts.skipUseSkillTask 成功时不推进「使用技能」任务，仅用于原版本就不计
+   *        「使用技能」的技能（如「模式转换」——_主程序.ecode L9810-9821 只切 a模式，
+   *        没有 添加成就("使用技能")，而「教程-技能」恰以「使用技能」为完成条件）。
    */
   async executeSkill(
     userId: number,
@@ -194,18 +179,14 @@ export class FamiliarSkillsService {
   }
 
   /**
-   * 检查技能冷却
+   * 检查技能冷却。
    *
    * 文本口径对齐原版：`标记要求` 产出剩余时间文本（数据分析.ecode L772）→
    * `时间间隔要求` 前缀「还需要」（L1021）→ 调用方再前缀玩家名
    * （使魔技能.ecode L1976 `w = 玩家.名称 + w`），即「{玩家名}还需要N秒」。
-   * 格式化唯一实现 `expire-time.util.formatDurationText`（原版 数字到时间），
-   * 禁用自造措辞（历史实现为「技能冷却中，剩余N秒」，与原版不一致）。
+   * 格式化唯一实现 `expire-time.util.formatDurationText`（原版 数字到时间），禁用自造措辞。
    *
-   * @param player 玩家对象
-   * @param cooldownName 冷却标记名称
    * @param defaultCooldown 默认冷却时间（秒，调用方成功时自行写入，见 setCooldown）
-   * @returns 是否冷却中，以及剩余冷却文本
    */
   private checkCooldown(player: any, cooldownName: string, defaultCooldown: number): { isOnCooldown: boolean; text: string } {
     const parsedMarkers2 = asJsonValue<any>(player.markers2, []);
@@ -218,16 +199,13 @@ export class FamiliarSkillsService {
     if (cooldownMarker && expireAtMs > 0 && isActive(cooldownMarker, nowMs)) {
       return { isOnCooldown: true, text: `还需要${formatDurationText(remainMs(cooldownMarker, nowMs))}` };
     }
-    // defaultCooldown is retained for the source-compatible signature. The original
-    // interval helper only checks state here; callers write the interval on success.
+    // 冷却判定只看标记到期时刻；defaultCooldown 仅为兼容原版签名保留，此处不参与计算。
     void defaultCooldown;
     return { isOnCooldown: false, text: '' };
   }
 
   /**
    * 设置技能冷却
-   * @param player 玩家对象
-   * @param cooldownName 冷却标记名称
    * @param duration 冷却持续时间（秒）
    */
   private setCooldown(player: any, cooldownName: string, duration: number): void {
@@ -252,7 +230,6 @@ export class FamiliarSkillsService {
    * 否则释放玩家特有技能；非兰音直接释放特有技能。
    * 与 autoCastSkill（纯白之翼，指令后触发）不同：本方法不做纯白之翼装备检查、
    * 不写 自动训练/纯白cd 标记，由技能自身的类型/冷却/好感门禁兜底。
-   * @param userId 用户ID
    * @returns 释放结果文本；未配置可自动释放的技能时返回空串
    */
   async autoReleaseFamiliarSkill(userId: number): Promise<string> {
@@ -277,12 +254,7 @@ export class FamiliarSkillsService {
     }
   }
 
-  /**
-   * 检查使魔类型是否匹配
-   * @param player 玩家对象
-   * @param expectedType 期望的使魔类型
-   * @returns 是否匹配
-   */
+  /** 检查使魔类型是否匹配。 */
   private checkFamiliarType(player: any, expectedType: string): boolean {
     return player.type === expectedType;
   }
@@ -290,9 +262,6 @@ export class FamiliarSkillsService {
   /**
    * 检查已装备物品中是否有指定物品。
    * 原版「装备要求」只检查玩家当前装备；背包中的同名物品不能满足技能装备门禁。
-   * @param player 玩家对象
-   * @param itemName 物品名称
-   * @returns 是否有该物品
    */
   private hasItem(player: any, itemName: string): boolean {
     const equipment = this.safeParse<any[]>(player.equipment, []);
@@ -301,23 +270,14 @@ export class FamiliarSkillsService {
     );
   }
 
-  /**
-   * 获取好感度数值
-   * @param player 玩家对象
-   * @param markers 标记对象
-   * @param familiarName 使魔名称
-   * @returns 好感度数值
-   */
+  /** 读取使魔好感度（标记键为「{使魔名}好感」）。 */
   private getAffinity(markers: any, familiarName: string): number {
     return this.playerService.getMarkerValue(markers, `${familiarName}好感`);
   }
 
   /**
-   * 添加增益效果到玩家
-   * @param player 玩家对象
-   * @param buffName 增益名称
+   * 添加增益效果到玩家（buffs 按名去重后追加）。
    * @param duration 持续时间（秒）
-   * @param extraData 额外数据
    */
   private addBuff(player: any, buffName: string, duration: number, extraData?: Record<string, any>): void {
     const buffs = asJsonValue<any[]>(player.buffs, []);
@@ -331,22 +291,16 @@ export class FamiliarSkillsService {
     player.buffs = newBuffs; // Player buffs 为 Json 列，直接写数组
   }
 
-  /**
-   * 获取技能效果倍率（基于好感度）
-   * @param affinity 好感度
-   * @returns 效果倍率
-   */
+  /** 获取技能效果倍率（基于好感度）。 */
   private getSkillEffect(affinity: number): number {
     return this.familiarSystem.getSkillEffect(affinity);
   }
 
   /**
-   * 获取技能冷却时长（秒）
-   * 对应原版：主动技能默认冷却=60秒，装备「冷却核心」时降为50秒（即 -10）。
+   * 获取技能冷却时长（秒）：主动技能默认60秒，装备「冷却核心」时降为50秒（即 -10）。
    * 基准值与「冷却核心」削减量均从 SystemConfig 读取，便于在线调整（配置项）。
-   * @param player 玩家对象（用于检测是否装备冷却核心）
-   * @param base 原版基准冷却（默认60；个别技能如兰音用 60+a2、斩反向等由调用方传入已含修正的 base）
-   * @returns 实际冷却秒数
+   * @param player 用于检测是否装备「冷却核心」
+   * @param base 调用方按原版算出的基准冷却；实际取值以 SystemConfig 为准，此参数不参与计算。
    */
   private async getSkillCooldown(player: any, base: number): Promise<number> {
     const baseCd = await this.systemConfig.get<number>('game.skillCooldownBase', 60);
@@ -359,10 +313,7 @@ export class FamiliarSkillsService {
   /**
    * 好感度门槛检查
    * 对应原版多处「玩家.好感 < N → 需要N好感」拦截逻辑（斩<60、炮冠<80、兰音系<20/40/60/80/100）。
-   * @param markers 玩家标记
    * @param familiarName 使魔名（用于读取「使魔名好感」）
-   * @param required 所需最低好感度
-   * @returns 是否达标
    */
   private checkAffinity(markers: any, familiarName: string, required: number): boolean {
     const affinity = this.getAffinity(markers, familiarName);
@@ -373,7 +324,6 @@ export class FamiliarSkillsService {
    * 增益持续时间（含库洛牌+25%修正）
    * 对应原版使魔技能中统一的「a3 = 装备要求(玩家,#库洛牌) ? 1.25 : 1」逻辑：
    * 库洛牌使增益/标记时长放大25%。
-   * @param player 玩家对象（用于检测是否装备库洛牌）
    * @param base 基础持续秒数
    * @returns 实际持续秒数（已含库洛牌放大）
    */
@@ -456,12 +406,8 @@ export class FamiliarSkillsService {
   }
 
   /**
-   * 读取使魔套装模式（兰音模式）
-   * 对应原版 玩家.套装.兰音模式（1=标准, 2=友方召唤物同步增益）。
-   * 后端将套装信息存于玩家 markers 的「套装_兰音模式」字段（无则默认1）。
-   * @param markers 玩家标记
-   * @param familiarName 使魔名
-   * @returns 兰音模式值（1/2）
+   * 读取使魔套装模式，存于玩家 markers 的「套装_{使魔名}模式」（无则默认1）。
+   * 对应原版 玩家.套装.X模式（1=标准, 2=友方召唤物同步增益）。
    */
   private getFamiliarSetMode(markers: any, familiarName: string): number {
     return this.playerService.getMarkerValue(markers, `套装_${familiarName}模式`) || 1;
@@ -470,7 +416,6 @@ export class FamiliarSkillsService {
   /**
    * 给当前地图施加一个"地图增益"（对应原版 获得增益(地图列表[地图].标记3, ...)）。
    * 地图增益作用于该地图全部使魔/宠物，离开地图时由 applyMapBuffs 的 source 清理。
-   * @param mapId 地图ID
    * @param buff 增益数据（name/value/duration/expireAt/source）
    */
   private async applyMapBuff(mapId: number, buff: Record<string, any>): Promise<void> {
@@ -487,10 +432,6 @@ export class FamiliarSkillsService {
    * 给当前地图的常驻怪物（spawnMonsters = 原版怪物2）施加麻醉。
    * 对应原版 形神合一/梦倾天下：把「等级*(10+技能等级)」累加到怪物当前麻醉，
    * 满麻醉上限则获得「麻醉」增益（一小时内可捕捉）。
-   * @param mapId 地图ID
-   * @param playerLevel 玩家等级
-   * @param skillLevel 技能等级
-   * @returns 逐怪物麻醉文本行
    */
   private async applyMapMonstersAnesthesia(
     mapId: number,
@@ -504,7 +445,7 @@ export class FamiliarSkillsService {
     const add = playerLevel * (10 + skillLevel);
     const lines: string[] = [];
     for (const m of monsters) {
-      // 原版当前麻醉属于「套装」运行时字段；bonus.当前麻醉是早期迁移留下的兼容字段。
+      // 当前麻醉的规范字段是「套装」运行时字段，bonus 侧为兼容读取的副本。
       const setData: any = this.safeParse(m.set, {});
       const bonus: any = this.safeParse(m.bonus, {});
       const maxAnes = Number(bonus.麻醉上限 ?? bonus.maxAnesthesia ?? bonus.麻醉 ?? 0);
@@ -565,14 +506,12 @@ export class FamiliarSkillsService {
   /**
    * 获取当前地图的友方召唤物名称列表（玩家归属的临时召唤物）。
    * 对应原版 地图列表[地图].召唤物（归属=玩家QQ，且基础生命>0）。
-   * @param mapId 地图ID
    * @param ownerId 归属标识（玩家QQ或userId字符串）
-   * @returns 友方召唤物名称数组
    */
   private async getAllySummons(mapId: number, ownerId: string): Promise<string[]> {
     const map = await this.mapService.getMapById(mapId);
     if (!map) return [];
-    // 友方召唤物存于 GameMap.summons（tempMonsters 字段已废弃，怪物统一进 GameMonster 表）
+    // 友方召唤物存于 GameMap.summons（怪物统一进 GameMonster 表）
     const summons: any[] = this.safeParse(map.summons, []);
     return summons
       .filter((s: any) => (s.ownerQQ === ownerId || s.owner === ownerId) && (s.基础?.生命 || s.base?.hp || s.hp || 0) > 0)
@@ -583,14 +522,10 @@ export class FamiliarSkillsService {
    * 给指定友方召唤物施加"下次攻击"标记（必中/穿透蓄势）。
    * 对应原版 兰音模式2 时友方召唤物也获得 心无所扰/月落寸光 效果。
    * 数据落在该召唤物的 buffs 中，由攻击引擎在下次攻击时消费。
-   * @param mapId 地图ID
-   * @param summonName 召唤物名称
-   * @param next 下次攻击标记
    */
   private async applySummonNextAttack(mapId: number, summonName: string, next: Record<string, any>): Promise<void> {
     const map = await this.mapService.getMapById(mapId);
     if (!map) return;
-    // 友方召唤物存于 GameMap.summons
     const summons: any[] = this.safeParse(map.summons, []);
     const found = summons.find((s: any) => s.name === summonName);
     if (!found) return;
@@ -605,8 +540,6 @@ export class FamiliarSkillsService {
    * 给玩家施加"下次攻击"型标记 buff（一次性消费）。
    * 对应原版 心无所扰(下次攻击必中)/月落寸光(下次攻击穿透蓄势)/反转童话(下次攻击反转属性)。
    * 这些不是持续增益，而是"下一次攻击生效"的标记；由战斗引擎 weaponAttack 在攻击时读取并消费清除。
-   * @param player 玩家对象
-   * @param name 标记名
    * @param data 标记数据（mustHitNext / nextPenetration / reverseResist 等）
    */
   private setNextAttackBuff(player: any, name: string, data: Record<string, any>): void {
@@ -627,7 +560,6 @@ export class FamiliarSkillsService {
    *
    * 搜索不是一个玩家主动指令，而是玩家每次操作收尾时的后台效果：
    * 先让当前地图中属于玩家的麒麟尝试，再让高好感宠物尝试，最后遍历全部宠物。
-   * @param userId 玩家 ID
    * @param timestamp 当前时间（毫秒），测试和后台补偿可传入固定值
    * @param random 随机源，保留原版数组重复项带来的权重
    */
@@ -909,12 +841,9 @@ export class FamiliarSkillsService {
    * 对应原版使魔技能调用「武器攻击(..., 倍率转换(玩家, 基础倍率), "攻击文本", ...)」的链路：
    * 后端 strength 为已修正的三层战斗引擎，技能只负责传入倍率与攻击文本，由引擎统一计算三层穿透伤害。
    * 封装：调用 weaponAttack 真正扣怪物三层血 + 设置冷却 + 记录熟练度/活跃度，返回伤害结果文本。
-   * @param userId 用户ID
-   * @param opts.cooldownName 冷却标记名
    * @param opts.baseCooldown 基础冷却秒（会经 getSkillCooldown 应用冷却核心-10）
    * @param opts.damageMultiplier 伤害倍率%（对普通攻击的百分比，对应原版 倍率转换 结果）
    * @param opts.attackText 攻击文本（对应原版 武器攻击 第9参数，用于切换特效/暴击逻辑）
-   * @param opts.allAttack 是否全体攻击
    * @param opts.familiarType 使魔类型（用于记录熟练度）
    * @param opts.extraPenetrationFlat 本次攻击附加三层穿透百分比（原版 施放时增加穿透(N)），仅本次生效
    * @param opts.burnSeconds 命中后给目标施加的灼烧标记时长秒（原版"sa"标记30秒），不传则不施加
@@ -939,7 +868,6 @@ export class FamiliarSkillsService {
     const { player } = playerData;
     const resultLines: string[] = [];
 
-    // 冷却检查
     const cooldownCheck = this.checkCooldown(player, opts.cooldownName, opts.baseCooldown);
     if (cooldownCheck.isOnCooldown) {
       return {
@@ -996,7 +924,7 @@ export class FamiliarSkillsService {
     };
   }
 
-  // ==================== 使魔专属技能 ====================
+  // ===== 使魔专属技能 =====
 
   /**
    * 冥鱼 - 六道轮回（洗背包装备属性）
@@ -1005,9 +933,7 @@ export class FamiliarSkillsService {
    * 按装备品质随机生成若干条候选属性，「六道轮回选择M」把选中项写回装备。
    * 冥鱼腿环提升刷出条数（普通6/精良史诗7/传说8/神迹11，无腿环5）；
    * 先发送「攻击属性名」（如"攻击闪避"）可锁定本次只刷该属性的不同数值。
-   * @param userId 用户ID
    * @param param 指令参数（如 "1攻击"；空参返回帮助文本）
-   * @returns 技能效果文本
    */
   async sixPaths(userId: number, param = ''): Promise<string> {
     if (!String(param || '').trim()) {
@@ -1022,7 +948,7 @@ export class FamiliarSkillsService {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 检查使魔类型（原版 L668 特殊序号 != #冥鱼）
+    // 原版 L668：特殊序号 != #冥鱼
     if (!this.checkFamiliarType(player, '冥鱼')) {
       return '需要冥鱼才能使出六道轮回';
     }
@@ -1146,13 +1072,13 @@ export class FamiliarSkillsService {
     const ringIdx = equipped.findIndex((eq: any) => String(eq?.type ?? '') === '腿环');
     let rolls = 5;
     if (ringIdx >= 0) {
-      // 品质码读取走统一实现（equipment-ref.util），不再各处自读首字符
+      // 品质码读取走统一实现 equipment-ref.util
       const ringCode = qualityCodeFromData(equipped[ringIdx]?.data);
       rolls = ringCode === 'x' ? 11 : ringCode === 's' ? 8 : (ringCode === 'a' || ringCode === 'b') ? 7 : 6;
     }
 
     // 词条倍率按被洗装备品质（原版 L1202-1217）；倍率表统一在 equipment-ref.util.affixMultiplier。
-    // 品质码缺失（异常数据）保持旧行为 1 倍，不按「未列举码 = 神迹 12 倍」处理。
+    // 品质码缺失（异常数据）按 1 倍处理，不按「未列举码 = 神迹 12 倍」处理。
     const prefix = qualityCodeFromData(item.data);
     const mult = prefix ? affixMultiplier(prefix) : 1;
     const lowerIncPct = 10;
@@ -1221,7 +1147,7 @@ export class FamiliarSkillsService {
     player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
 
-    // 品质中文名走统一实现（equipment-ref.util），不再自建映射 + 回落「神迹」
+    // 品质中文名走统一实现 equipment-ref.util
     const qualityName = equipmentQualityName(prefix);
     let text = `${player.name || '冒险者'}${item.name}（${qualityName}）的属性被修改了，选择你中意的项目:`;
     options.forEach((opt, i) => {
@@ -1237,9 +1163,7 @@ export class FamiliarSkillsService {
   /**
    * 六道轮回选择（对应原版 使魔技能.ecode L670-769）
    * 把选中的候选项写入待洗装备；「六道轮回选择」不带序号则重新展示选项。
-   * @param userId 用户ID
    * @param choiceParam 序号参数（如 "2"；空参重显列表）
-   * @returns 结果文本
    */
   async sixPathsChoice(userId: number, choiceParam = ''): Promise<string> {
     // 待洗装备与背包整包写回，同样持用户级共享锁。
@@ -1307,8 +1231,6 @@ export class FamiliarSkillsService {
    * 龙姬 - 怒吼
    * 提升攻击力，降低防御力
    * 对应原版：怒吼()
-   * @param userId 用户ID
-   * @returns 技能效果文本
    */
   async roar(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -1353,14 +1275,11 @@ export class FamiliarSkillsService {
    * 军姬/军姬2 - 万象
    * 传送/特殊效果
    * 对应原版：万象()
-   * @param userId 用户ID
-   * @returns 技能效果文本
    */
   async myriadVisions(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 检查使魔类型
     if (!this.checkFamiliarType(player, '军姬') && !this.checkFamiliarType(player, '军姬2')) {
       return `${player.name || '冒险者'}这是军姬的技能`; // 原版 L1342
     }
@@ -1384,7 +1303,6 @@ export class FamiliarSkillsService {
       });
       // 原版 L1381：置成就熟练度("jj2", 1)；L1383-1387 死亡使用置 jj3=1（击杀刷新冷却）、
       // 存活置 jj3=0；L1378-1377 好感≥20 → jj2hg1=取整(3+技能等级*0.05)（抵挡N次伤害）。
-      // （好感≥60 回血 50% 属军姬本体分支，误挂在此处已移除。）
       this.playerService.setMarker(liveMarkers, 'jj2', 1);
       let extra = '';
       if (isDead) {
@@ -1440,14 +1358,11 @@ export class FamiliarSkillsService {
    * Saber - 誓约胜利之剑
    * 高伤害，需要装备圣剑
    * 对应原版：誓约胜利之剑()
-   * @param userId 用户ID
-   * @returns 技能效果文本
    */
   async excalibur(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 检查使魔类型
     if (player.type !== 'Saber' && player.type !== 'saber') {
       return '需要Saber才能使出誓约胜利之剑';
     }
@@ -1477,16 +1392,16 @@ export class FamiliarSkillsService {
     // 以下增益一律写在 castCombatSkill 返回的最新快照上：内部已重新读档并落库，
     // 本方法开头那份 player 的 version 已过期，用它保存必然并发冲突。
     // 原版：添加标记 ("ex", 15*a3, 玩家.增益) —— a3=装备库洛牌?1.25:1
-    // "ex"标记消费者（均已存在）：好感≥40受击免伤（combat-system L812/L1652）、
-    // 好感≥80 物伤2+50+技能 / ≥100 全属性+15+技能/2（combat-system L5611 saber case）
+    // "ex"标记消费者（均已存在）：好感≥40受击免伤（combat-system 受击免伤分支）、
+    // 好感≥80 物伤2+50+技能 / ≥100 全属性+15+技能/2（combat-system 的 saber 加成 case）
     const a3 = this.hasItem(livePlayer, '库洛牌') ? 1.25 : 1;
     this.addBuff(livePlayer, 'ex', Math.floor(15 * a3));
     // addBuff 只改内存对象，必须落库否则 15 秒免伤增益不会生效
 
-    // ========== 好感分层被动（对应原版 _decoded_original.txt [saber] 好感2/4/5） ==========
+    // ===== 好感分层被动（对应原版 _decoded_original.txt [saber] 好感2/4/5）=====
     // 原版语义是「使用主动技能后15秒内…」——即施放 #ex 时写入 15 秒窗口增益。
     // 好感1/3/ex全属性层是常驻属性，已在 combat-system _计算玩家 saber case（原版加成计算 L2107-2132）实现，此处不重复。
-    // 好感键与好感写入键保持一致：数据权威名小写 "saber"（原 L1479 'Saber' 导致好感恒 0）
+    // 好感键与写入键保持一致：用数据权威名小写 "saber"，写成 'Saber' 会读不到好感（恒 0）。
     const affinity = this.getAffinity(liveMarkers, 'saber');
     const buffDur = 15; // 原版固定15秒窗口，不受库洛牌 a3 放大影响
     let affinityBuffText = '';
@@ -1519,8 +1434,6 @@ export class FamiliarSkillsService {
    * 恶毒 - 鹰眼
    * 提升命中，降低闪避
    * 对应原版：鹰眼()
-   * @param userId 用户ID
-   * @returns 技能效果文本
    */
   async hawkEye(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -1561,14 +1474,11 @@ export class FamiliarSkillsService {
    * 阿尔缇娜 - 歼灭
    * 冰系伤害
    * 对应原版：歼灭()
-   * @param userId 用户ID
-   * @returns 技能效果文本
    */
   async annihilate(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 检查使魔类型
     if (!this.checkFamiliarType(player, '阿尔缇娜')) {
       return `${player.name || '冒险者'}这是阿尔缇娜的技能`; // 原版 L1472
     }
@@ -1610,8 +1520,6 @@ export class FamiliarSkillsService {
    * 伊卡洛斯 - 歼灭模式
    * 高伤害模式
    * 对应原版：歼灭模式()
-   * @param userId 用户ID
-   * @returns 技能效果文本
    */
   async annihilationMode(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -1655,8 +1563,6 @@ export class FamiliarSkillsService {
    * 战斗女仆 - 绝对守护
    * 无敌护盾，类似安乐天使
    * 对应原版：绝对守护()
-   * @param userId 用户ID
-   * @returns 技能效果文本
    */
   async absoluteGuard(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -1687,7 +1593,6 @@ export class FamiliarSkillsService {
     const guardDuration = a3 * (10 + skillLevel / 2);
     this.addBuff(player, '守护1', guardDuration);
 
-    // 原版 置成就熟练度("沉着", 2)：沉着标记存时间锚点，供攻击时消耗减半（战斗相关 L1107-1117）
     if (this.checkAffinity(markers, '战斗女仆', 100)) {
       markers['守护3'] = 1;
       markers['守护4'] = 1;
@@ -1695,7 +1600,7 @@ export class FamiliarSkillsService {
 
     // 原版 L1551 技能经验 / L1554 活跃度+1（“使用技能”成就由 executeSkill 收尾统一推进）
     const gainedExp = this.gainSkillExperience(player, markers, 1);
-    // 原版 置成就熟练度("沉着", 2)（使魔技能.ecode L1555）
+    // 原版 置成就熟练度("沉着", 2)（使魔技能.ecode L1555）：沉着标记存时间锚点，供攻击时消耗减半（战斗相关 L1107-1117）
     this.playerService.setMarker(markers, '沉着', 2);
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
     this.setCooldown(player, `${player.type}技能冷却`, cooldownSeconds);
@@ -1712,8 +1617,6 @@ export class FamiliarSkillsService {
    * 星尘 - 斗转星移
    * 反弹伤害
    * 对应原版：斗转星移()
-   * @param userId 用户ID
-   * @returns 技能效果文本
    */
   async stellarShift(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -1787,8 +1690,6 @@ export class FamiliarSkillsService {
    * 普拉娜 - 火力全开
    * 提升攻击力
    * 对应原版：火力全开()
-   * @param userId 用户ID
-   * @returns 技能效果文本
    */
   async fullFirepower(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -1812,12 +1713,10 @@ export class FamiliarSkillsService {
     const firstAidLines: string[] = [];
     this.applyFirstAid(player, firstAidLines);
 
-    // 原版 L1631-1638：压制增益（标记2）——无活动压制时新写（时长 19.5 秒、
-    // 强度 28.5+1.9×技能等级）；已活动则叠加（+5 秒 / 强度 +15+技能等级）。
-    const now = Date.now();
-    const markers2List = asJsonValue<any[]>(player.markers2, []);
     // 原版 L1631-1638 获得增益（叠加时间/叠加强度均为真）：无活动压制 → 时长 19.5 秒、
     // 强度 28.5+1.9×技能等级；已活动 → 时长 +5 秒、强度 +15+技能等级。
+    const now = Date.now();
+    const markers2List = asJsonValue<any[]>(player.markers2, []);
     let suppression = markers2List.find((m: any) => m?.name === '压制');
     if (!suppression || Number(suppression?.expireAt ?? 0) <= now) {
       suppression = { name: '压制', expireAt: now + 19.5 * 1000, strength: 28.5 + skillLevel * 1.9 };
@@ -1865,8 +1764,6 @@ export class FamiliarSkillsService {
    * 花园猫 - 啾啾猫猫
    * 猫爪攻击，多段伤害
    * 对应原版：啾啾猫猫()
-   * @param userId 用户ID
-   * @returns 技能效果文本
    */
   async meowAttack(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -1943,8 +1840,6 @@ export class FamiliarSkillsService {
    * 古月娜 - 银龙附体
    * 提升全属性
    * 对应原版：银龙附体()
-   * @param userId 用户ID
-   * @returns 技能效果文本
    */
   async silverDragonPossession(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -2038,8 +1933,6 @@ export class FamiliarSkillsService {
    * 剑圣 - 斩
    * 高伤害单体攻击
    * 对应原版：斩()
-   * @param userId 用户ID
-   * @returns 技能效果文本
    */
   async slash(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -2081,8 +1974,6 @@ export class FamiliarSkillsService {
    * 剑圣 - 会心一击
    * 暴击攻击
    * 对应原版：会心一击()
-   * @param userId 用户ID
-   * @returns 技能效果文本
    */
   async criticalHit(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -2158,7 +2049,7 @@ export class FamiliarSkillsService {
     });
 
     // 原版 L1775-1781：隐匿模式豁免（标记要求("隐匿模式") → 不拉怪物回合）。
-    // 豁免由 triggerMapBattleLoop 内部统一判定（hasActive，毫秒口径），此处不再手工比较。
+    // 豁免由 triggerMapBattleLoop 内部统一判定（hasActive，毫秒口径），此处勿再手工比较。
     await (this.combatSystem as any).triggerMapBattleLoop(player.userId, 3, { player: livePlayer });
 
     return [prefix, result, ...firstAidLines].filter(Boolean).join('\n');
@@ -2168,8 +2059,6 @@ export class FamiliarSkillsService {
    * 长萌 - 全弹发射
    * 范围攻击
    * 对应原版：全弹发射()
-   * @param userId 用户ID
-   * @returns 技能效果文本
    */
   async fullSalvo(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -2203,16 +2092,8 @@ export class FamiliarSkillsService {
   }
 
   /**
-   * 绝灭天使 - 光翼
-   * 提升速度和闪避
-   * 对应原版：光翼()
-   *
-   * 【玩家状态写入的示范写法】外层只负责包一层 mutate，读-改-写全部下沉到
-   * applyLightWings(ctx)：不自己读档、不自己保存、不手动 stringify markers。
-   * 新写的代码照这个模板来；存量代码按同样形状渐进迁移。
-   *
-   * @param userId 用户ID
-   * @returns 技能效果文本
+   * 绝灭天使 - 光翼：提升速度和闪避。对应原版：光翼()
+   * 外层只包一层 mutate，读-改-写全部下沉到 applyLightWings(ctx)：不自己读档、不自己保存、不手动 stringify markers。
    */
   async lightWings(userId: number): Promise<string> {
     return this.mutateService.mutate(userId, async (ctx) => this.applyLightWings(ctx));
@@ -2257,8 +2138,6 @@ export class FamiliarSkillsService {
    * 绝灭天使 - 炮冠
    * 远程攻击
    * 对应原版：炮冠()
-   * @param userId 用户ID
-   * @returns 技能效果文本
    */
   async cannonCrown(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -2304,8 +2183,6 @@ export class FamiliarSkillsService {
    * 绝灭天使 - 日轮
    * 持续伤害光环
    * 对应原版：日轮()
-   * @param userId 用户ID
-   * @returns 技能效果文本
    */
   async solarWheel(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -2376,8 +2253,6 @@ export class FamiliarSkillsService {
    * 安克雷奇 - 安宝加油
    * 辅助增益
    * 对应原版：安宝加油()
-   * @param userId 用户ID
-   * @returns 技能效果文本
    */
   async anchorBoost(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -2477,8 +2352,6 @@ export class FamiliarSkillsService {
    * 伊芙利特 - 灼烂歼鬼
    * 火焰伤害
    * 对应原版：灼烂歼鬼()
-   * @param userId 用户ID
-   * @returns 技能效果文本
    */
   async scorchedFinger(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -2543,8 +2416,6 @@ export class FamiliarSkillsService {
    * 四糸乃 - 冻结傀儡
    * 冰冻控制
    * 对应原版：冻结傀儡()
-   * @param userId 用户ID
-   * @returns 技能效果文本
    */
   async freezePuppet(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -2605,8 +2476,6 @@ ${result}`;
    * 小樱 - 封印解除
    * 解除封印，全属性提升
    * 对应原版：封印解除()
-   * @param userId 用户ID
-   * @returns 技能效果文本
    */
   async sealRelease(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -2661,8 +2530,6 @@ ${result}`;
    * 古月娜 - 召唤银龙
    * 召唤银龙协助战斗
    * 对应原版：召唤银龙()
-   * @param userId 用户ID
-   * @returns 技能效果文本
    */
   async summonSilverDragon(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -2739,14 +2606,12 @@ ${result}`;
    * 兰音 - 形神合一
    * 高伤害
    * 对应原版：形神合一()
-   * @param userId 用户ID
-   * @returns 技能效果文本
    */
   async spiritUnity(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 检查使魔类型（原版 L2365：特殊序号 != 兰音 → "这是兰音的技能"，无好感门槛）
+    // 原版 L2365：特殊序号 != 兰音 → "这是兰音的技能"，无好感门槛
     if (!this.checkFamiliarType(player, '兰音')) {
       return '这是兰音的技能';
     }
@@ -2827,7 +2692,7 @@ ${result}`;
     }
 
     // 原版 L2424/L2429：使用技能成就（原版重复计两次，统一记一次）；L2430：活跃度+1。
-    // 原版形神合一无技能经验/技能熟练度调用，不再自创。
+    // 原版形神合一无技能经验/技能熟练度调用，勿自加。
     markers['使用技能'] = this.playerService.getMarkerValue(markers, '使用技能') + 1;
     markers['活跃度'] = this.playerService.getMarkerValue(markers, '活跃度') + 1;
     player.markers = markers; // Player markers 为 Json 列，直接写对象
@@ -2848,14 +2713,11 @@ ${result}`;
    * 兰音 - 风月入墨
    * 持续伤害
    * 对应原版：风月入墨()
-   * @param userId 用户ID
-   * @returns 技能效果文本
    */
   async windMoonInk(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 检查使魔类型
     if (!this.checkFamiliarType(player, '兰音')) {
       return '需要兰音才能使出风月入墨';
     }
@@ -2918,14 +2780,11 @@ ${result}`;
    * 兰音 - 心无所扰
    * 清除负面状态
    * 对应原版：心无所扰()
-   * @param userId 用户ID
-   * @returns 技能效果文本
    */
   async heartUnperturbed(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 检查使魔类型
     if (!this.checkFamiliarType(player, '兰音')) {
       return '需要兰音才能使出心无所扰';
     }
@@ -2981,14 +2840,11 @@ ${result}`;
    * 兰音 - 梦倾天下
    * 范围伤害
    * 对应原版：梦倾天下()
-   * @param userId 用户ID
-   * @returns 技能效果文本
    */
   async dreamWorld(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 检查使魔类型
     if (!this.checkFamiliarType(player, '兰音')) {
       return '需要兰音才能使出梦倾天下';
     }
@@ -3041,14 +2897,11 @@ ${result}`;
    * 兰音 - 反转童话
    * 反转属性
    * 对应原版：反转童话()
-   * @param userId 用户ID
-   * @returns 技能效果文本
    */
   async reverseFairytale(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 检查使魔类型
     if (!this.checkFamiliarType(player, '兰音')) {
       return '需要兰音才能使出反转童话';
     }
@@ -3097,14 +2950,11 @@ ${result}`;
    * 下次攻击计算护盾/装甲/生命抗性时，根据目标对应状态的平均抗性获得穿透增益
    * 平均值越高增益越高【(2~20)x(1+技能等级/100)%】
    * 对应原版：月落寸光()
-   * @param userId 用户ID
-   * @returns 技能效果文本
    */
   async moonlightInch(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 检查使魔类型
     if (!this.checkFamiliarType(player, '兰音')) {
       return '需要兰音才能使出月落寸光';
     }
@@ -3159,7 +3009,7 @@ ${result}`;
       .filter(Boolean).join('\n');
   }
 
-  // ==================== 通用/装备技能 ====================
+  // ===== 通用/装备技能 =====
 
   /**
    * 读取原版「战斗力」所需的最终属性。
@@ -3173,8 +3023,7 @@ ${result}`;
       if (playerData && typeof combatSystem?.buildAttackerBonus === 'function') {
         bonus = combatSystem.buildAttackerBonus(actor, playerData, map);
       } else if (!playerData && typeof combatSystem?.buildMonsterBonus === 'function') {
-        // buildMonsterBonus is private in TypeScript but is the same source-of-truth
-        // runtime builder used by combat; invoking it here keeps the formula aligned.
+        // buildMonsterBonus 为 TS private，但与战斗引擎同一真相源构建器，直接调用以保持口径一致。
         const restored = {
           ...actor,
           hp: actor.maxHp ?? actor.hp,
@@ -3219,15 +3068,12 @@ ${result}`;
   /**
    * 洗脑 - 需要洗脑装置
    * 对应原版：洗脑()
-   * @param userId 用户ID
-   * @param target 目标名称
-   * @returns 技能效果文本
+   * @param target 目标怪物名，与当前地图常驻怪按名称精确匹配
    */
   async brainwash(userId: number, target?: string): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 检查是否有洗脑装置
     if (!this.hasItem(player, '洗脑装置')) {
       return `${player.name}需要洗脑装置`;
     }
@@ -3289,8 +3135,6 @@ ${result}`;
   /**
    * 砸瓦鲁多 - 需要女仆套装4件以上
    * 对应原版：砸瓦鲁多()
-   * @param userId 用户ID
-   * @returns 技能效果文本
    */
   async zaWarudo(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -3427,8 +3271,6 @@ ${result}`;
    * 时间以内即删除（= CD 清空）。本项目技能 CD 拆为每技能一个标记（setCooldown
    * 统一打 kind:'skill-cd' 标签），故同时按原版机制递减「类型+技能冷却」与全部
    * 在冷却中的技能标记，效果等价于原版"清空当前使魔技能冷却"。
-   * @param userId 用户ID
-   * @returns 技能效果文本
    */
   async timeControl(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -3478,9 +3320,6 @@ ${result}`;
   /**
    * 召唤 - 需要次元手环
    * 对应原版：召唤()
-   * @param userId 用户ID
-   * @param target 召唤目标
-   * @returns 技能效果文本
    */
   async summon(userId: number, target?: string): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -3567,9 +3406,7 @@ ${result}`;
   /**
    * 纳米生化装模式 - 需要纳米生化装6件套
    * 对应原版：力量/速度/装甲/隐匿模式()
-   * @param userId 用户ID
-   * @param mode 模式名称（power/speed/armor/stealth）
-   * @returns 技能效果文本
+   * @param mode 模式名：力量/速度/装甲/隐匿，增益名即「{mode}模式」
    */
   async nanoMode(userId: number, mode: string): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -3608,43 +3445,34 @@ ${result}`;
     return `${player.name || '冒险者'}（${modeTextMap[mode] ?? mode}）`;
   }
 
-  // ==================== 新增缺失技能 ====================
+  // ===== 新增缺失技能 =====
 
   /**
    * 安乐天使 - 装备技能
    * 创造护盾保护自己，回复全部生命
    * 对应原版：安乐天使()
-   * @param userId 用户ID
-   * @returns 技能效果文本
    */
   async easeAngel(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 检查是否有安乐天使装备
     if (!this.hasItem(player, '安乐天使')) {
       return '需要「安乐天使」装备才能使用此技能';
     }
 
-    // 检查冷却
     const cooldownCheck = this.checkCooldown(player, '安乐天使', 300);
     if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
 
-    // 获取好感度
     const affinity = player.type ? this.getAffinity(markers, player.type) : 0;
     const effect = this.getSkillEffect(affinity);
 
-    // 回复全部生命
     const maxHp = player.maxHp || 100;
     player.hp = maxHp;
 
-    // 创造护盾（持续20秒）
     this.addBuff(player, '安乐天使·护盾', 20, { invincible: true, 护盾: Math.floor(500 * effect) });
 
-    // 设置冷却
     this.setCooldown(player, '安乐天使', 300);
 
-    // 增加活跃度
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
 
     player.markers = markers; // Player markers 为 Json 列，直接写对象
@@ -3657,27 +3485,21 @@ ${result}`;
    * 福音书 - 装备技能
    * 增益效果，增加全属性抗性
    * 对应原版：福音书()
-   * @param userId 用户ID
-   * @returns 技能效果文本
    */
   async gospel(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 检查是否有福音书装备
     if (!this.hasItem(player, '福音书')) {
       return '需要「福音书」装备才能使用此技能';
     }
 
-    // 检查冷却
     const cooldownCheck = this.checkCooldown(player, '福音书', 600);
     if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
 
-    // 获取好感度
     const affinity = player.type ? this.getAffinity(markers, player.type) : 0;
     const effect = this.getSkillEffect(affinity);
 
-    // 增加全属性抗性
     const resistBonus = Math.floor(30 * effect);
 
     this.addBuff(player, '福音书·加护', 300, {
@@ -3687,10 +3509,8 @@ ${result}`;
       strength: Math.floor(10 * effect),
     });
 
-    // 设置冷却
     this.setCooldown(player, '福音书', 600);
 
-    // 增加活跃度
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
 
     player.markers = markers; // Player markers 为 Json 列，直接写对象
@@ -3703,14 +3523,11 @@ ${result}`;
    * 启示录 - 装备技能
    * 攻击/暴击大幅提升，持续一定时间后进入虚弱状态
    * 对应原版：启示录()
-   * @param userId 用户ID
-   * @returns 技能效果文本
    */
   async apocalypse(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 检查是否有启示录装备
     if (!this.hasItem(player, '启示录')) {
       return `${player.name}需要启示录`;
     }
@@ -3724,8 +3541,7 @@ ${result}`;
     if (!map) return `${player.name}不在任何地图上`;
 
     // 原版逻辑 L1099 疑似笔误：启示录写入“福音书”，战斗 AI 同时兼容两种名称。
-    // 走 mutateMapFields 锁内读改写（不再按本方法早先加载的快照整组回写）：
-    // 整组回写会抹掉期间其他写路径新增的标记（击杀登记的「刷新怪物」等）。
+    // 走 mutateMapFields 锁内读改写：整组回写会抹掉期间其他写路径新增的标记（击杀登记的「刷新怪物」等）。
     await this.mapService.mutateMapFields(player.mapId, ['markers2'], (fields) => {
       const markers2 = Array.isArray(fields.markers2) ? fields.markers2 : [];
       const nextMarkers2 = markers2.filter((entry: any) =>
@@ -3747,22 +3563,17 @@ ${result}`;
    * 铠甲合体 - 通用技能
    * 召唤铠甲合体，大幅提升防御和攻击，持续一定时间
    * 对应原版：铠甲合体()
-   * @param userId 用户ID
-   * @returns 技能效果文本
    */
   async armorCombine(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 检查冷却
     const cooldownCheck = this.checkCooldown(player, '铠甲合体', 300);
     if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
 
-    // 获取好感度
     const affinity = player.type ? this.getAffinity(markers, player.type) : 0;
     const effect = this.getSkillEffect(affinity);
 
-    // 大幅提升防御和攻击（持续60秒）
     const defenseBonus = Math.floor(100 * effect);
     const attackBonus = Math.floor(80 * effect);
     const duration = Math.floor(45 + 15 * effect); // 45~60秒
@@ -3773,10 +3584,8 @@ ${result}`;
       armor: Math.floor(50 * effect),
     });
 
-    // 设置冷却
     this.setCooldown(player, '铠甲合体', 300);
 
-    // 增加活跃度
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
 
     player.markers = markers; // Player markers 为 Json 列，直接写对象
@@ -3789,9 +3598,7 @@ ${result}`;
    * 切换模式 - 通用技能
    * 使魔模式切换（攻击/防御/速度等），不同模式提供不同加成
    * 对应原版：切换模式()
-   * @param userId 用户ID
-   * @param mode 模式名称（attack/defense/speed/balance）
-   * @returns 技能效果文本
+   * @param mode 模式名：攻击模式/防御模式/速度模式/平衡模式（空参返回可用模式列表）
    */
   async switchMode(userId: number, mode?: string): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -3801,11 +3608,9 @@ ${result}`;
       return '请指定模式：攻击模式、防御模式、速度模式、平衡模式';
     }
 
-    // 检查冷却
     const cooldownCheck = this.checkCooldown(player, '切换模式', 120);
     if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
 
-    // 获取好感度
     const affinity = player.type ? this.getAffinity(markers, player.type) : 0;
     const effect = this.getSkillEffect(affinity);
 
@@ -3840,10 +3645,8 @@ ${result}`;
 
     this.addBuff(player, buffName, 60, buffData);
 
-    // 设置冷却
     this.setCooldown(player, '切换模式', 120);
 
-    // 增加活跃度
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
 
     player.markers = markers; // Player markers 为 Json 列，直接写对象
@@ -3860,8 +3663,6 @@ ${result}`;
    * 使魔挑战 - 通用技能
    * 进入使魔挑战模式，连续战斗获得奖励
    * 对应原版：使魔挑战()
-   * @param userId 用户ID
-   * @returns 技能效果文本
    */
   async familiarChallenge(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -3871,15 +3672,12 @@ ${result}`;
       return '请先选择使魔才能进入挑战模式';
     }
 
-    // 检查冷却
     const cooldownCheck = this.checkCooldown(player, '使魔挑战', 600);
     if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
 
-    // 获取好感度
     const affinity = player.type ? this.getAffinity(markers, player.type) : 0;
     const effect = this.getSkillEffect(affinity);
 
-    // 设置使魔挑战模式标记
     const markers2 = asJsonValue<any[]>(player.markers2, []);
     const now = Date.now() / 1000;
     const newMarkers2 = markers2.filter((m: any) => m.name !== '使魔挑战');
@@ -3891,10 +3689,8 @@ ${result}`;
     });
     player.markers2 = newMarkers2; // Player markers2 为 Json 列，直接写数组
 
-    // 设置冷却
     this.setCooldown(player, '使魔挑战', 600);
 
-    // 增加活跃度
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
 
     player.markers = markers; // Player markers 为 Json 列，直接写对象
@@ -3909,14 +3705,11 @@ ${result}`;
    * 开始挑战 - 通用技能
    * 开始使魔挑战，生成挑战怪物
    * 对应原版：开始挑战()
-   * @param userId 用户ID
-   * @returns 技能效果文本
    */
   async startChallenge(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 检查是否在挑战模式中
     const markers2 = asJsonValue<any[]>(player.markers2, []);
     const challengeMarker = markers2.find((m: any) => m.name === '使魔挑战');
     const now = Date.now() / 1000;
@@ -3925,44 +3718,36 @@ ${result}`;
       return '你不在挑战模式中，请先使用「使魔挑战」进入挑战模式';
     }
 
-    // 获取当前波次
     const currentWave = challengeMarker.wave || 1;
     const maxWaves = 10;
 
     if (currentWave > maxWaves) {
-      // 挑战完成，结算奖励
       const score = challengeMarker.score || 0;
       const rewardExp = Math.floor(50 + score * 2);
 
-      // 清除挑战标记
       const newMarkers2 = markers2.filter((m: any) => m.name !== '使魔挑战');
       player.markers2 = newMarkers2; // Player markers2 为 Json 列，直接写数组
 
-      // 发放奖励
       await this.playerService.addExp(userId, rewardExp);
 
-      // 增加活跃度
-      markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
+        markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
       player.markers = markers; // Player markers 为 Json 列，直接写对象
       await this.playerService.savePlayer(player);
 
       return `【挑战完成】你成功击败了全部 ${maxWaves} 波敌人！\n最终得分: ${score}\n获得经验: ${rewardExp}`;
     }
 
-    // 生成挑战怪物（根据波次增加难度）
     const monsterLevel = currentWave * 5;
     const monsterHp = 100 + currentWave * 50;
     const monsterAttack = 10 + currentWave * 8;
     const monsterDefense = 5 + currentWave * 3;
 
-    // 更新波次
     challengeMarker.wave = currentWave + 1;
     challengeMarker.score = (challengeMarker.score || 0) + currentWave * 10;
     const newMarkers2 = markers2.filter((m: any) => m.name !== '使魔挑战');
     newMarkers2.push(challengeMarker);
     player.markers2 = newMarkers2; // Player markers2 为 Json 列，直接写数组
 
-    // 增加活跃度
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
     player.markers = markers; // Player markers 为 Json 列，直接写对象
     await this.playerService.savePlayer(player);
@@ -3974,8 +3759,6 @@ ${result}`;
    * 大召唤术 - 通用技能
    * 批量召唤使魔，消耗资源
    * 对应原版：大召唤术()
-   * @param userId 用户ID
-   * @returns 技能效果文本
    */
   async massSummon(userId: number): Promise<string> {
     // 读券→扣券→写回必须全程持用户级共享锁，理由同兑换/召唤。
@@ -3987,11 +3770,9 @@ ${result}`;
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 检查冷却
     const cooldownCheck = this.checkCooldown(player, '大召唤术', 3600);
     if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
 
-    // 检查消耗资源（需要10张召唤券）
     const backpack = this.playerService.getBackpackItems(player);
     const ticketItem = backpack.find((item: any) => item.name === '召唤券');
     const ticketCount = ticketItem ? (Number(ticketItem.quantity ?? 0) || 0) : 0;
@@ -4007,7 +3788,6 @@ ${result}`;
       return '没有可召唤的使魔';
     }
 
-    // 批量召唤：消耗10张召唤券，召唤5次
     const summonCount = 5;
     const summonedItems: string[] = [];
 
@@ -4020,7 +3800,6 @@ ${result}`;
       summonedItems.push(chosenFamiliar.name);
     }
 
-    // 扣除召唤券
     const newTicketCount = ticketCount - 10;
     if (newTicketCount <= 0) {
       const idx = backpack.findIndex((item: any) => item.name === '召唤券');
@@ -4036,7 +3815,6 @@ ${result}`;
     // 设置冷却（1小时）
     this.setCooldown(player, '大召唤术', 3600);
 
-    // 增加活跃度
     markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
 
     player.markers = markers; // Player markers 为 Json 列，直接写对象

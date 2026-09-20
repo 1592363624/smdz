@@ -15,8 +15,8 @@ const TUTORIAL_TEXTS: Record<string, string> = {
   // 引导只讲用法、不描述"背包里有哪些物品"——正文已列出真实背包，引导再列举具体物品会自相矛盾
   viewBag: '📖 发送「查看背包1」查看第1个物品的详情；发送「装备 物品名」穿戴装备，发送「丢弃 物品名」丢弃物品。',
   pickup: '📖 你注意到地上有个闪闪发光的东西！\n使用「拾取 物品名」拾取指定物品\n使用「拾取 全部」拾取所有物品\n\n地上的物品可能是怪物掉落的，也可能是其他玩家留下的。',
-  // 装备类引导只讲用法、不描述"你拿起了某件具体物品"——装备的具体物品由装备结算文案给出，
-  // 引导若指名道姓（旧文案写死石制工具），穿上别的东西时会自相矛盾（2026-09-12 用户实测）。
+  // 装备类引导只讲用法、不描述"你拿起了某件具体物品"——具体物品由装备结算文案给出，
+  // 引导若指名道姓会在玩家穿上别的装备时自相矛盾。
   equipWeapon: '📖 只有当前手持武器的属性生效，可以发送「切换武器」来切换。\n发送「卸下 武器名」来卸下身上的武器。',
   equipArmor: '📖 同部位的装备会自动替换。\n发送「卸下 装备名」来卸下身上对应部位的装备。',
   familiarData: '📖 使魔是你的战斗伙伴！\n使用「召唤使魔」来召唤使魔，使用「选择使魔」切换当前使魔。\n使魔拥有独特的技能，使用「使魔技能」查看详情。',
@@ -36,23 +36,17 @@ export class TutorialService {
   constructor(private readonly playerService: PlayerService) {}
 
   /**
-   * 获取新手指引文本
-   * 检查玩家是否开启了新手指引（markers.指引 == 0 表示开启）
-   * 如果已关闭或已完成指引，返回空字符串
+   * 获取新手指引文本（已关闭指引或该操作已引导过时返回空字符串）
    * @param type 操作类型：viewBag, pickup, equipWeapon, equipArmor, familiarData, attack, info, map
-   * @param markers 玩家标记对象
-   * @returns 引导文本（空字符串表示不需要引导）
    */
   getTutorial(type: string, markers: any): string {
-    // 检查玩家是否开启了新手指引
-    // markers.指引 == 0 表示开启，== 1 表示已关闭
+    // markers.指引 == 0（或从未写过）表示开启，== 1 表示已关闭
     const guideValue = markers['指引'];
     if (guideValue !== 0 && guideValue !== undefined) {
       return '';
     }
 
-    // 检查该操作是否已有对应的完成标记
-    // 格式：指引_操作类型，存在表示已引导过
+    // 该操作是否已有完成标记（格式：指引_操作类型）
     const tutorialMarker = `指引_${type}`;
     if (markers[tutorialMarker] !== undefined) {
       return '';
@@ -67,12 +61,7 @@ export class TutorialService {
     return tutorialText;
   }
 
-  /**
-   * 标记某操作类型的新手指引已完成
-   * 设置 markers.指引_操作类型 = 1，下次不再显示该操作的引导
-   * @param markers 玩家标记对象
-   * @param type 操作类型
-   */
+  /** 标记某操作类型的新手指引已完成：设置 markers.指引_操作类型 = 1 */
   markTutorialDone(markers: any, type: string): void {
     const tutorialMarker = `指引_${type}`;
     markers[tutorialMarker] = 1;
@@ -81,11 +70,9 @@ export class TutorialService {
   /**
    * 取出引导文本并标记该类型引导已消费（写入 markers 的「指引_类型」并落库）。
    *
-   * 唯一消费入口：各指令 handler 必须在**动作执行之后**调用（对齐原版"引导只追加、不拦截"：
-   * 原版 _主程序.ecode L4262/L4289 装备引导、物品操作.ecode L811 查看背包引导均在正文之后拼接）。
-   * 旧实现在 GameCommandHandler 内私有一份 checkTutorial，且部分分支在动作前拦截 return，
-   * 导致「首次操作被引导吞掉」（2026-09-12 装备事故）；现收敛到本方法，禁止各处再自写一套。
-   * @param userId 用户ID
+   * 唯一消费入口：各指令 handler 必须在**动作执行之后**调用，且不得在动作前拦截 return
+   * （否则「首次操作会被引导吞掉」）。对齐原版"引导只追加、不拦截"：原版
+   * _主程序.ecode L4262/L4289 装备引导、物品操作.ecode L811 查看背包引导均在正文之后拼接。
    * @param type 操作类型（viewBag/pickup/equipWeapon/equipArmor/familiarData/attack/info/map）
    * @returns 引导文本（空字符串表示无需引导）
    */
@@ -102,40 +89,25 @@ export class TutorialService {
     return text;
   }
 
-  /**
-   * 关闭新手指引
-   * 设置 markers.指引 = 1，不再显示任何引导
-   * @param markers 玩家标记对象
-   */
+  /** 关闭新手指引：设置 markers.指引 = 1，不再显示任何引导 */
   disableTutorial(markers: any): void {
     markers['指引'] = 1;
   }
 
-  /**
-   * 开启新手指引
-   * 设置 markers.指引 = 0，重新显示引导
-   * @param markers 玩家标记对象
-   */
+  /** 开启新手指引：设置 markers.指引 = 0，重新显示引导 */
   enableTutorial(markers: any): void {
     markers['指引'] = 0;
   }
 
-  /**
-   * 检查新手指引是否开启
-   * @param markers 玩家标记对象
-   * @returns true=指引开启, false=指引关闭
-   */
+  /** 检查新手指引是否开启（未写过「指引」标记视为开启） */
   isTutorialEnabled(markers: any): boolean {
     const guideValue = markers['指引'];
     return guideValue === 0 || guideValue === undefined;
   }
 
   /**
-   * 处理新手教程命令
-   * 显示当前新手指引状态，或开启/关闭新手指引
-   * @param userId 用户ID
+   * 处理新手教程命令：显示当前新手指引状态，或开启/关闭新手指引
    * @param action 操作类型（空=查看状态，on=开启，off=关闭）
-   * @returns 提示文本
    */
   async handleTutorial(userId: number, action: string): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);

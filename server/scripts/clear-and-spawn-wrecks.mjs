@@ -3,8 +3,11 @@
  * 1) 清空正式/测试库地图 vehicles 中的无主废弃载具
  * 2) 各生成 1 个带封印字段的遗迹（验证等级门槛/唤醒）
  *
+ * 注意：第 2 步不幂等，每跑一次都会多生成一个遗迹。
+ *
  * 用法（在 server 目录）：
- *   node scripts/clear-and-spawn-wrecks.mjs
+ *   node scripts/clear-and-spawn-wrecks.mjs            # 默认 test + prod 两库
+ *   node scripts/clear-and-spawn-wrecks.mjs test|prod  # 只处理单库
  */
 import { PrismaClient } from '@prisma/client';
 import { readFileSync } from 'node:fs';
@@ -64,7 +67,7 @@ function buildSealedWreck(wreck, levelOffset = 0) {
   const parts = (wreck.parts ?? []).map((part) => {
     const partName = String(part?.name ?? '').trim();
     if (!partName) return null;
-    // wrecks.json 的零件数量键已统一为 quantity（count 为历史旧键，保留兜底）
+    // 零件数量规范键 quantity，count 仅作旧键兜底
     const qty = Number(part?.quantity ?? part?.count ?? 1) || 1;
     return {
       名称: partName,

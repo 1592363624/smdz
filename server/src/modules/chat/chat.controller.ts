@@ -1,8 +1,6 @@
 /**
  * 聊天控制器
  * 提供公屏历史消息查询、频道信息、可@玩家列表，以及世界红包相关 API。
- *
- * 说明：游戏内「私聊」功能已下线（原 private/* 接口随功能一并移除）。
  */
 
 import { Body, Controller, Get, Param, ParseIntPipe, Post, Query, Req, UseGuards } from '@nestjs/common';
@@ -44,9 +42,6 @@ export class ChatController {
     return { success: true, data };
   }
 
-  /**
-   * 获取默认频道信息
-   */
   @Get('channel')
   @ApiOperation({ summary: '获取默认频道信息' })
   async getChannel() {

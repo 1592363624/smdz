@@ -60,25 +60,10 @@
 
 <script setup>
 /**
- * 游戏高光时刻动画层
- *
- * 触发方式（由父组件调用 push）：
+ * 游戏高光时刻动画层：父组件调用 push 播放全屏冲击波 + 卡片入场动画。
  *   highlightRef.value.push({ type: 'task-complete', title: '任务达成', names: [...], rewards: [...] })
- *
- * 视觉构成（对应下方 <style> 同名动画）：
- *   - gh-flash  全屏径向冲击波，0.75s 一次，营造"屏幕被点亮"的瞬时感
- *   - gh-pop    卡片弹性入场/退场（cubic-bezier 回弹，带轻微 Z 轴翻转）
- *   - gh-sheen  斜向白色流光横扫卡片，模拟金属/水晶反光
- *   - gh-beam   卡片顶部能量条由中间向两侧展开
- *   - gh-halo   徽章背后的呼吸光晕
- *   - gh-ring   徽章外圈锥形渐变光环，持续旋转
- *   - gh-spark  8 枚粒子按圆周角度向外迸发（--a 角度 / --d 距离）
- *   - gh-label  主标题渐变文字 + 微光泽流动
- *
- * 无障碍与性能：
- *   - 图层 pointer-events: none，绝不遮挡聊天区与输入框
- *   - 命中 prefers-reduced-motion 时关闭全部动画，仅做淡入淡出
- *   - 卡片上限 3 条，超出即淘汰最旧一条，避免刷屏堆积
+ * 图层 pointer-events: none，绝不遮挡聊天区与输入框；命中 prefers-reduced-motion 时关闭全部动画只留淡入淡出；
+ * 同屏卡片数受 MAX_ITEMS 限制，超出淘汰最旧一条（各段动画细节见下方同名 gh-* 关键帧）。
  */
 import { ref, onUnmounted } from 'vue';
 import { highlightMeta } from '../utils/gameHighlight';

@@ -16,7 +16,7 @@ export const ACTOR_RUNTIME_OPTIONS = Symbol('ACTOR_RUNTIME_OPTIONS');
  *
  * 每个实体（type:id）对应一个 ActorCell：
  * - mailbox：一条 per-key 的 Promise 链，保证同实体所有写操作严格串行、单时刻一条
- *   （与旧 enqueueUserWrite 同构，但承载的是「内存态」而非每次打库）。
+ *   （与 PlayerService.enqueueUserWrite 同构，但承载的是「内存态」而非每次打库）。
  * - state：实体内存态，激活时由 type.load 载入，之后复用，不再每次打库。
  * - dirty：被修改过、待落库。
  * - 单激活：同一 type:id 在进程内只有一个 cell（Map 唯一键），天然无并发写。
@@ -146,7 +146,7 @@ export class ActorRuntime implements OnModuleDestroy {
 
   /**
    * 只读查看（不激活）：实体 Actor 已在内存中则返回其「浅冻结 + 深克隆」的快照，
-   * 调用方随意改也不会污染内存态（正确性风险 #1 的根因）。未激活返回 undefined。
+   * 调用方随意改也不会污染内存态。未激活返回 undefined。
    * 深克隆用 structuredClone；若运行时引擎不支持则退化为 JSON 往返。
    */
   peek<S = any>(type: EntityType, id: EntityId): S | undefined {
@@ -297,7 +297,7 @@ export class ActorRuntime implements OnModuleDestroy {
 
   /**
    * 周期落库 + 空闲回收：把空闲超过 idleEvictMs 的 cell 落库（若脏）并驱逐。
-   * 无论脏净都回收——干净空闲 cell 不再长期占用内存（健壮性缺口修复）。
+   * 无论脏净都回收——干净空闲 cell 也不长期占用内存。
    */
   private async flushIdle(): Promise<void> {
     const now = Date.now();
@@ -359,9 +359,8 @@ export class ActorRuntime implements OnModuleDestroy {
     try {
       const result = await fn(cell.state as S);
       // run 是「单一写入口」：fn 成功后按策略落库。
-      // - 仅当 dirty（fn 内或 save 路径调用过 markDirty）才落库：
-      //   纯只读 run 不再白吞一次 DB 写（性能修复）。
-      // - writeThrough：每次写后立刻落库（等价于原 savePlayer 行为，最安全）
+      // - 仅当 dirty（fn 内或 save 路径调用过 markDirty）才落库：纯只读 run 不会白吞一次 DB 写。
+      // - writeThrough：每次写后立刻落库（等价于 savePlayer 的直接落库行为，最安全）
       // - deferred：仅标脏，交给周期落库 / 停用 / LRU 驱逐统一落库（真正的异步批量）
       const policy = this.policyOf(cell.type);
       if (cell.state !== undefined && cell.dirty) {

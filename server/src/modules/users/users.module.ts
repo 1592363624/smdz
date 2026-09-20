@@ -1,7 +1,4 @@
-/**
- * 用户模块
- * 负责用户账号的注册、查询、绑定QQ号等操作。
- */
+/** 用户模块：账号注册、查询、绑定 QQ 号。 */
 
 import { Module } from '@nestjs/common';
 import { UsersService } from './users.service';

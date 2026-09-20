@@ -31,16 +31,14 @@ export class RolesGuard implements CanActivate {
       return true;
     }
 
-    // 读取接口上标注的角色要求
     const requiredRoles = this.reflector.getAllAndOverride<string[]>(ROLES_KEY, [
       context.getHandler(),
       context.getClass(),
     ]);
-    // 未标注 @Roles 则放行
     if (!requiredRoles || requiredRoles.length === 0) {
       return true;
     }
-    // 从请求中取用户(由 JwtAuthGuard 注入 req.user)
+    // req.user 由 JwtAuthGuard 注入
     const { user } = context.switchToHttp().getRequest();
     if (!user) {
       throw new ForbiddenException('未登录');

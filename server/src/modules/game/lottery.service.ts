@@ -1,7 +1,7 @@
 /**
  * 每日抽奖服务
  *
- * 规则（当前实现，后续次数/奖池可扩展）：
+ * 规则：
  * - 奖池 = items.json 全部资源/物品 + equipments.json 全部武器（排除模板类）；
  * - 每人每天 0 点重置，当日限 1 次；
  * - 消耗背包中的「凭证」x1（物品名与数量均可在系统配置中心调整）；
@@ -11,7 +11,7 @@
  */
 
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import { formatDisplayNumber, roundItemQuantity } from '../../common/utils/game-text.util';
+import { CARD_DIVIDER, formatDisplayNumber, roundItemQuantity } from '../../common/utils/game-text.util';
 import { asJsonValue } from '../../common/utils/json-value.util';
 import { SystemConfigService } from '../system-config/system-config.service';
 import { PlayerMutateService } from './player-mutate.service';
@@ -95,7 +95,7 @@ export class LotteryService {
 
   /**
    * 构建奖池：资源/物品（items.json）+ 武器（equipments.json 中 isWeapon）。
-   * 数量在展示层用 rollCount 现场摇；这里只给名字与种类。
+   * 只给名字与种类，条目数量恒为 1。
    */
   buildPool(exclude: string[]): LotteryPoolEntry[] {
     const excludeSet = new Set(exclude);
@@ -249,7 +249,7 @@ export class LotteryService {
             const idx = backpack.indexOf(row);
             if (idx >= 0) backpack.splice(idx, 1);
           } else {
-            // 数量只写规范键 quantity（count 镜像已废弃）
+            // 数量只写规范键 quantity
             row.quantity = next;
           }
         }
@@ -326,11 +326,11 @@ export class LotteryService {
     const status = await this.getStatus(userId);
     const lines = [
       '🎰 每日抽奖',
-      '━━━━━━━━━━━━━━━',
+      CARD_DIVIDER,
       `📅 今日剩余次数: ${status.remaining}/${status.dailyLimit}`,
       `🎫 所需凭证: ${status.ticketItem}×${status.ticketCost}（持有 ${status.ticketCount}）`,
       `🎁 奖池规模: ${status.poolSize} 件（资源 + 武器）`,
-      '━━━━━━━━━━━━━━━',
+      CARD_DIVIDER,
       status.canDraw
         ? '输入「抽奖」即可参与，中奖自动入包'
         : status.remaining <= 0

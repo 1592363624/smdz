@@ -135,7 +135,7 @@ describe('任务相关制造入口', () => {
     };
     const gameService = {
       handleEquip: jest.fn(async () => '冒险者装备了石斧'),
-      // 背包展示契约（2026-09-09）：消耗品在前、装备在后；装备 N 的编号=展示列表序号
+      // 背包展示契约：消耗品在前、装备在后；装备 N 的编号=展示列表序号
       getBackpackDisplayItems: jest.fn(() => [playerData.backpack[1], playerData.backpack[0]]),
     };
     const playerService = {
@@ -144,7 +144,7 @@ describe('任务相关制造入口', () => {
     const itemSystem = {
       isWeaponItem: jest.fn(() => true),
     };
-    // 引导消费已收敛到 TutorialService.consumeTutorial（2026-09-13）
+    // 引导消费走 TutorialService.consumeTutorial
     const tutorialService = {
       consumeTutorial: jest.fn(async () => ''),
     };
@@ -450,7 +450,7 @@ describe('原版任务动作收尾', () => {
       handleDialogueYongxing: jest.fn(async () => '咏星愿意跟随你了！'),
       handleSignalGun: jest.fn(async () => '冒险者发射了信号枪……'),
       handleSimulateVehicle: jest.fn(async () => '载具模拟完成'),
-      // 维修成就已并入 GameService（原版 L10445：即时修好与延时结算都推进），handler 不再推进。
+      // 维修成就由 GameService 推进（原版 L10445：即时修好与延时结算都推进），handler 不推进。
       handleRepairVehicle: jest.fn(async () => {
         await taskService.advance(42, '维修载具');
         return '冒险者用0载具零件修好了越野车（载具）';
@@ -513,7 +513,7 @@ describe('原版任务动作收尾', () => {
     expect(fixture.taskService.advance).not.toHaveBeenCalledWith(42, '制造', 2);
     expect(fixture.taskService.advance).toHaveBeenCalledWith(42, '融合');
     expect(fixture.taskService.advance).toHaveBeenCalledWith(42, '拐妹子');
-    // 信号枪的成就推进已并入 GameService.handleSignalGun（原版 L6293），handler 只分发。
+    // 信号枪成就由 GameService.handleSignalGun 推进（原版 L6293），handler 只分发。
     expect(fixture.gameService.handleSignalGun).toHaveBeenCalledWith(42, '2');
     expect(fixture.taskService.advance).toHaveBeenCalledWith(42, '载具模拟');
     expect(fixture.taskService.advance).toHaveBeenCalledWith(42, '维修载具');
@@ -702,7 +702,7 @@ describe('装备指令新手指引（2026-09-12：不再吞掉首次装备）', 
     const gameService: any = {
       handleEquip: jest.fn(async () => options.equipResult || '剑圣把麻醉枪[史诗]拿在手中'),
     };
-    // 引导消费统一走 TutorialService.consumeTutorial（2026-09-13 起 handler 内不再自写一套）
+    // 引导消费统一走 TutorialService.consumeTutorial（handler 内不自写一套）
     const tutorialService: any = {
       consumeTutorial: jest.fn(async () => options.tutorialText ?? '📖 只有当前手持武器的属性生效。'),
     };

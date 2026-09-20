@@ -1,12 +1,12 @@
 /**
  * 命中率口径 + 击杀参与者结算 回归用例
  *
- * 背景（2026-09-07 玩家实测反馈「很难打得过、经常被怪闪避」）：
+ * 背景（玩家实测「很难打得过、经常被怪闪避」）：
  * 1. calcHitRate 只读英文 dodge/dodge2，怪物反击玩家链路传入的中文 {闪避,闪避2}
  *    包装完全失效 → defDodge 恒 1 → 玩家被怪 95% 封顶近乎必中（原版 口径 L1607-1611）。
  * 2. defDodge < 1 分支漏乘 ×100（原版判定用 a1*100）。
  * 3. calcDamage 缺失防御方新人减伤 ×(1-防御差距)（原版 L3290-3297）。
- * 4. 击杀结算「参与者」名单（原版 后台运作.ecode L488-680）此前完全未实装。
+ * 4. 击杀结算「参与者」名单（原版 后台运作.ecode L488-680）。
  */
 import { CombatSystemService } from '../src/modules/game/combat-system.service';
 import { PrismaService } from '../src/prisma/prisma.service';

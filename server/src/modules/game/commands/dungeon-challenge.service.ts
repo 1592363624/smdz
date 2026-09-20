@@ -1,13 +1,9 @@
 /**
- * 副本/挑战/刷怪指令域服务（game 模块化重构 P3-4 抽出）
+ * 副本/挑战/刷怪指令域服务
  *
  * 职责：开战、扫荡（含需求文本与解析）、闪避、进入副本、刷新/清除副本、
  * 使魔挑战（逐层）、生成工匠/残骸/NPC、刷新怪物、删除怪物。
- * 依赖方向：依赖 Player、Map、CombatSystem、Achievement、Task、DungeonService、
- * Prisma、Vitality、CombatState、StaticData、Shortcut、DelayedTaskService、
- * FamiliarSkills、ItemSystem 与支撑层（setMarkers2/hasEquip/mutatePlayer 等）；
- * 跨域直接注入兄弟子服务 GatherPanel（handleLookAround）与 MovementVehicle
- * （toRuntimeVehicle/toStoredVehicle），单向边无环。
+ * 跨域只直连兄弟子服务 GatherPanel 与 MovementVehicle，保持单向无环。
  * 单一真相源：副本标记写入统一 normalizeDungeonMarkers2（combatState.normalizeBuffItem 同源）。
  * 对口原版：_主程序.ecode 副本/扫荡/挑战分支。
  */import { Injectable, Logger, Optional } from '@nestjs/common';
@@ -267,7 +263,7 @@ export class DungeonChallengeService {
       });
     }
     // 原版扫荡同样添加击败成就（L9314-L9315）：写入玩家标记，
-    // 否则扫荡产出的击杀不累计「击败X」，扫荡需求无法推进（Issue #11）。
+    // 否则扫荡产出的击杀不累计「击败X」，扫荡需求无法推进。
     const sweepMarkers = playerData.markers || asJsonValue<Record<string, number>>(player.markers, {});
     sweepMarkers['击败怪物'] = (Number(sweepMarkers['击败怪物']) || 0) + totalMonsterCount;
     for (const [monsterName, count] of defeatedByName) {
@@ -347,8 +343,7 @@ export class DungeonChallengeService {
       .sort((a, b) => b[1] - a[1])
       .map(([monsterName, weight]) => {
         let required = Math.round(weight / totalWeight * 25);
-        // 原版 数据显示.ecode L3793-3799：需求 = 四舍五入(权重/总权重×25)，上限5、下限1；
-        // 此前误写成 max(5, min(100, …))，把任何怪物的需求都抬高到至少 5 次
+        // 原版 数据显示.ecode L3793-3799：需求 = 四舍五入(权重/总权重×25)，上限5、下限1
         required = Math.max(1, Math.min(5, required));
         const completed = typeof this.playerService.getMarkerValue === 'function'
           ? Number(this.playerService.getMarkerValue(markers, `击败${monsterName}`)) || 0
@@ -373,11 +368,11 @@ export class DungeonChallengeService {
 
   async handleDodge(userId: number): Promise<string> {
     // 读改写整体进用户写队列、基于活态执行（见 mutatePlayer 注释）。
-    // 原先「锁外裸读档 + 一条指令内连写 3 次 savePlayer（闪避击成就 / 闪避熟练度成就 /
-    // buffs+markers2）」的形态，第 2 次起会被自己刚推进的 version 判成旧快照，strict
-    // 模式下静默丢弃（实测：闪避冷却标记没写进去 → 冷却判定失效 → 可无限连发闪避；
-    // 闪避增益与闪避熟练度成就一并丢失）。迁入 mutate 后全部改动合并进同一份 ctx 快照，
-    // 由最外层统一落库、只推进一次版本；内层 savePlayer 退化为「合并 + 标脏」。
+    // 锁外裸读档、一条指令内连写多次 savePlayer（闪避击成就 / 闪避熟练度成就 /
+    // buffs+markers2）时，第 2 次起会被自己刚推进的 version 判成旧快照，strict
+    // 模式下静默丢弃——闪避冷却标记没写进去会导致冷却判定失效、可无限连发闪避。
+    // mutate 内全部改动合并进同一份 ctx 快照，由最外层统一落库、只推进一次版本；
+    // 内层 savePlayer 只是「合并 + 标脏」。
     return this.support.mutatePlayer(userId, async (ctx: any) => {
     const { player } = ctx;
     const markers: Record<string, number> = ctx.markers
@@ -522,9 +517,7 @@ export class DungeonChallengeService {
   }
 
   /**
-   * 判断玩家是否装备指定名称的装备（对应原版 装备要求）
-   * @param player 玩家对象
-   * @param name 装备名称
+   * 开启副本：无参数时列出可选副本，带名称时消耗副本券并在当前地图追加入口。
    */
 
   async handleStartDungeon(userId: number, dungeonName = ''): Promise<string> {
@@ -587,12 +580,7 @@ export class DungeonChallengeService {
     return `${player.name}在“${currentMap.name}”开启了副本${group.name}`;
   }
 
-  /**
-   * 刷新副本怪物
-   * 重新生成当前副本的怪物
-   * @param userId 用户ID
-   * @returns 刷新结果
-   */
+  /** 刷新副本怪物：重新生成当前副本的怪物。 */
 
   async handleRefreshDungeon(userId: number, dungeonName = ''): Promise<string> {
     // 1. 获取玩家数据
@@ -717,8 +705,6 @@ export class DungeonChallengeService {
    *   _初始化怪物(玩家2, , 玩家.地图); 加入成员(地图.怪物2, 玩家2)
    *   观察附近 + 提示
    * 说明：原版"怪物2"对应本框架 tempMonsters（副本/挑战专用临时怪数组）。
-   * @param userId 用户ID
-   * @returns 结果文本
    */
 
   async familiarChallengeNextLayer(userId: number): Promise<string> {
@@ -914,7 +900,7 @@ export class DungeonChallengeService {
     // 只写英文规范键：载具条目落库前统一过 normalizeVehicleEntry，别名（名称/编号/归属…）会被收敛删除
     runtime.name = String(wreck.name ?? '废弃载具').replace(/[0-9]/g, '');
     runtime.vehicleId = `V${seq}`;
-    // 无主载具必须显式写 owner 字符串，留空会让「归属/owner」判读短路（2026-09-15 [!]标记缺失根因）
+    // 无主载具必须显式写 owner 字符串，留空会让「归属/owner」判读短路
     runtime.owner = '无主';
     runtime.driver = '';
     // 远古遗迹封印盖戳：requireLevel/guardWaves/sealCost 来自 wrecks.json，
@@ -959,7 +945,7 @@ export class DungeonChallengeService {
           ...(equip.data ? { data: equip.data } : {}),
         });
       } else {
-        // 零件数量只读规范键 quantity（同义旧键 count 已废弃，wrecks.json 已改名）
+        // 零件数量只读规范键 quantity
         const qty = Number(part?.quantity ?? 1) || 1;
         runtime.parts.push({
           name: partName,

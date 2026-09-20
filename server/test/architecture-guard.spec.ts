@@ -10,7 +10,7 @@ import * as path from 'path';
  *
  * 因此把规范固化成自动化门禁：**文档会丢，测试不会丢。**
  *
- * 两条规则：
+ * 三条规则：
  * 1. 裸调 savePlayer 的处数只减不增 —— 新增代码必须走 mutate / enqueueUserWrite。
  * 2. mutate 的调用数只增不减 —— 迁移是单向的，不允许回退。
  * 3. 裸调 prisma.player.update（绕过邮箱的直接写库）必须收敛到只剩「落库 sink」
@@ -74,54 +74,20 @@ function countPattern(files: string[], pattern: RegExp): [number, Array<[string,
 }
 
 describe('架构门禁：玩家状态写入口收口', () => {
-  // ===== 基线（2026-08-30 记录，收口方式升级为"基础设施层安全网 + 串行邮箱"）=====
-  // 演进：早期做法是逐个把写入口迁到 mutate（裸写只减不增）。现升级为在
-  // getPlayerData / savePlayer 自身加"上下文感知"安全网——任何在 mutate 上下文内
-  // 的裸写都自动复用唯一快照 / 合并回上下文 / 由最外层统一落库，旧快照覆盖类事故
-  // 在基础设施层被根除；指令入口之外、由定时器驱动的写（ScheduleService 的
-  // settlePendingMoves / cleanupExpiredBuffs）则收口到 PlayerService 的 per-user
-  // 串行邮箱（enqueueUserWrite → savePlayer），同样单用户串行、无竞态、无 CAS。
-  // - 单点收口：指令总入口 CommandService.executeDispatch 已用 mutate 包住整条指令，
-  //   因此 game/familiar/combat 等裸写都被纳入同一快照。
-  // - 基线 217 → 219：ScheduleService 两条定时器裸写（prisma.player.update）已合规
-  //   收口为 enqueueUserWrite → savePlayer，属预期增量（它们本就绕开指令漏斗，现经
-  //   串行邮箱获得同等安全保证）。其余 217 处裸写维持不变（安全网已保护）。
-  // - 基线 219 → 266（2026-08-30 全局迁移）：将 item-system(24)/item(8)/admin(5)/
-  //   game(3+1 updateMany)/familiar(2)/dungeon(2)/task(1)/schedule(1 updateMany)/
-  //   player.service(4) 共 51 处绕过邮箱的裸 prisma.player.update 全部收口为
-  //   enqueueUserWrite → getPlayerData → 改 → savePlayer（单写者）。这些 savePlayer
-  //   是「邮箱内的落库 sink」，属预期增量；真正的硬门禁见下方 raw prisma.player.update 检查。
-  // - 基线 273 → 275（2026-09-06 逐技能第四批复刻）：召唤/召唤银龙/冻结傀儡/
-  //   封印解除/纳米模式/全弹发射按原版重写，指令路径内的落库 sink 净增 2 处
-  //   （同 266 批次口径）。
-  // - 基线 272 → 273（2026-09-06 逐技能第三批复刻）：啾啾猫猫/银龙附体/光翼/炮冠/
-  //   安宝加油/砸瓦鲁多按原版重写，指令路径内的落库 sink 净增 1 处（同 266 批次口径）。
-  // - 基线 270 → 272（2026-09-06 保存图片链复刻）：保存图片开始（写“tk”增益 120 秒）
-  //   与保存图片停止（移除 tk）各 +1 落库 sink，属预期增量（同 266 批次口径）。
-  // - 基线 269 → 270（2026-09-06 狐自动攻击复刻）：到达触发狐攻击（原版 L6762-6776）
-  //   写入「狐」60秒冷却标记 + 活跃度落库 sink +1，属预期增量（同 266 批次口径）。
-  // - 基线 268 → 269（2026-09-06 出口分支复刻）：前往「出口」（原版 L6549-6576）
-  //   写入 markers2「移动」标记（原版 L6574 添加标记("移动",b)）时落库 sink +1，
-  //   属预期增量（同 266 批次口径）。
-  // - 基线 266 → 268（2026-09-05 复刻批次）：召唤货舱延时结算（applyCargoSummon，
-  //   原「召h货1藏」）与维修延时结算（applyCompleteVehicleRepair，原「维修wcc1」）
-  //   两个 dts tick 直调入口按支柱二收口为 enqueueUserWrite → savePlayer，
-  //   各新增 1 处邮箱内落库 sink，属预期增量（同 266 批次口径）。
-  // - 基线 275 → 276（2026-09-08 RVW04 修复轮实测校准）：HEAD 存量裸写实测已为
-  //   276 处（前序提交未同步基线，门禁在干净工作树上即红）；本轮 P1-3（CAS 默认
-  //   strict）/ P2-7（static-data 校验+索引）两项修复零新增 savePlayer，按实测校准。
-  // - 基线 276 → 284（2026-09-15 实测校准）：工作区未提交改动（载具/技能指令轮）
-  //   零新增 savePlayer，HEAD 存量裸写实测 284 处（前序 3 个未推送提交未同步基线，
-  //   门禁在干净工作树上即红），按实测校准。
-  // - 基线 284 → 292（2026-09-17 实测校准）：HEAD 存量裸写实测 292 处（前序提交
-  //   未同步基线，干净工作树上即红）；「字段口径统一」重构零新增 savePlayer
-  //   （HEAD 与重构后实测一致），按实测校准。
+  // ===== 基线 =====
+  // 收口方式：在 getPlayerData / savePlayer 自身加「上下文感知」安全网——任何在 mutate
+  // 上下文内的裸写都自动复用唯一快照 / 合并回上下文 / 由最外层统一落库；指令入口之外、
+  // 由定时器驱动的写（ScheduleService 的 settlePendingMoves / cleanupExpiredBuffs）收口到
+  // PlayerService 的 per-user 串行邮箱（enqueueUserWrite → savePlayer），同样单用户串行、
+  // 无竞态、无 CAS。指令总入口 CommandService.executeDispatch 已用 mutate 包住整条指令，
+  // game/familiar/combat 等裸写都被纳入同一快照。
+  // 基线值 = HEAD 存量裸 savePlayer 处数，含邮箱内的「落库 sink」（它们本就是单写者的
+  // 唯一出口，属预期存量而非违规）；真正的硬门禁见下方 raw prisma.player.update 检查。
   const RAW_SAVEPLAYER_BASELINE = 292;
   const MUTATE_CALL_BASELINE = 4;
   // 业务代码（非 excluded 文件）不得再出现任何裸 prisma.player.update——
   // 唯一允许的落库 sink 在 PlayerService.persistPlayerData（已 excluded，不计入）。
-  // 基线 0 → 1（2026-09-17 实测校准）：map.service.ts 存量裸写 1 处为 HEAD 既有
-  // （前序提交引入未同步门禁），重构零新增；口径仍为只减不增，
+  // 当前基线 1 = map.service.ts 的 HEAD 既有存量裸写，口径仍为只减不增：
   // 该处收敛到 mutate / enqueueUserWrite 后应立即下调回 0。
   const RAW_PLAYER_UPDATE_BASELINE = 1;
   // 批量写也必须走 per-user 邮箱，禁止 updateMany 直接落库。
@@ -153,7 +119,7 @@ describe('架构门禁：玩家状态写入口收口', () => {
 
   it('裸调 prisma.player.update 必须为 0（全量单写者，业务代码禁止绕过邮箱）', () => {
     // 匹配 update( 但排除 updateMany(；唯一允许的落库 sink 在 excluded 的
-    // PlayerService.persistPlayerData 内，不计入本统计，故业务代码须严格为 0。
+    // PlayerService.persistPlayerData 内，不计入本统计，故只允许基线登记的存量。
     const [count, perFile] = countPattern(targetFiles, /prisma\.player\.update(?!Many)/g);
     if (count > RAW_PLAYER_UPDATE_BASELINE) {
       const top = perFile.slice(0, 8).map(([f, c]) => `  ${String(c).padStart(4)}  ${f}`).join('\n');
@@ -306,9 +272,9 @@ describe('架构门禁：玩家状态写入口收口', () => {
   });
 
   it('PlayerService 必须是 Actor 单路径（legacy 邮箱 fallback 已删除，禁止回归）', () => {
-    // 2026-09-08 起 enqueueUserWrite 只有一条实现：actorRuntime.run。构造器对未注入
-    // runtime 的测试桩自动内置实例——「测试验证的路径 = 生产运行的路径」。曾因
-    // 双轨并存（生产 legacy、Actor 悬空）出现 markPlayerDirty 静默 no-op 事故。
+    // enqueueUserWrite 只有一条实现：actorRuntime.run。构造器对未注入
+    // runtime 的测试桩自动内置实例——「测试验证的路径 = 生产运行的路径」。双轨并存
+    // （生产 legacy、Actor 悬空）会让 markPlayerDirty 静默 no-op，禁止回归。
     const playerSrc = fs.readFileSync(
       path.join(SRC_DIR, 'modules/game/player.service.ts'),
       'utf8',
@@ -339,8 +305,6 @@ describe('架构门禁：玩家状态写入口收口', () => {
     // 允许的落库 sink：map.service.ts 内部（mutateMapFields/updateDynamicFields/
     // refreshExpiredMapResources 等封装了锁内闭环/缓存失效）。其余业务文件若再出现裸
     // prisma.gameMap.update / updateMany 写聚合列即判违规。
-    // （RVW04 P1-4：actor/builtin-types.ts 的 map Actor load→save 路径已随悬空注册
-    // 删除，不再作为豁免 sink——任何新文件直写 gameMap 聚合列都会被本门禁拦下。）
     const MAP_SINK_FILES = ['map.service.ts'];
     const business = targetFiles.filter(
       (f) => !MAP_SINK_FILES.some((name) => f.endsWith(name)),
@@ -378,8 +342,8 @@ describe('架构门禁：玩家状态写入口收口', () => {
   // 「读档→改→写回」窗口与邮箱内操作并发就会互相覆盖（旧快照覆盖族事故）。
   // 规则：注册给 DelayedTaskService 的每个玩家级结算入口，函数体内必须出现
   // enqueueUserWrite（指令路径调用时邮箱重入放行，无双锁）。
-  // P3 改造（重构方案 §6 G2）：模块化拆分后结算入口迁入 game/commands/*.service.ts，
-  // 扫描目标改为可配置——按方法名在门面与各指令域子服务文件中定位真实实现体。
+  // 结算入口现已迁入 game/commands/*.service.ts，故扫描目标 = 门面 + 各指令域子服务文件，
+  // 按方法名定位真实实现体。
   it('延时任务结算入口必须自串行（dts tick 直调，不得依赖调用方持锁）', () => {
     const scanTargets = [
       path.join(SRC_DIR, 'modules/game/game.service.ts'),
@@ -396,8 +360,8 @@ describe('架构门禁：玩家状态写入口收口', () => {
       'completeReload',       // reload
       'settleManualMine',     // mine
       'completeRefill',       // refill
-      'completeCargoSummon',  // cargo（原「召h货1藏」，2026-09-05 补）
-      'completeVehicleRepair', // repair（原「维修wcc1」，2026-09-05 补）
+      'completeCargoSummon',  // cargo（原版名「召h货1藏」）
+      'completeVehicleRepair', // repair（原版名「维修wcc1」）
     ];
     for (const fn of settleEntries) {
       // 在门面与子服务中定位真实实现体（一行委托不是实现体，继续查找）
@@ -409,7 +373,7 @@ describe('架构门禁：玩家状态写入口收口', () => {
         const next = rest.search(/\r?\n  (private )?async /);
         const body = rest.slice(0, next < 0 ? undefined : next);
         if (body.includes('enqueueUserWrite')) { found = true; break; }
-        // 一行委托（过渡清理 B 批后委托目标为必选注入的子服务字段，不再带 Svc 后缀）
+        // 一行委托：实现体在注入的子服务字段上
         if (!/return this\.\w+\./.test(body)) {
           throw new Error(
             `延时结算入口 ${fn} 未自串行（${path.relative(SRC_DIR, file)}，函数体内无 enqueueUserWrite）。\n` +
@@ -482,16 +446,15 @@ describe('架构门禁：玩家状态写入口收口', () => {
     expect(offenders.length).toBe(0);
   });
 
-  // ===== 行数 / 方法数体积冻结门禁：已按需求移除（G1 / G5 / G6 / G9）=====
-  // 历史上这几条门禁长期「基线追不上 HEAD 实测、干净工作树上即红」，改为不做行数/方法数冻结。
-  // 结构类门禁（写入口收口、Actor 单路径、地图闭环、货币统一入口、支撑层出度 G7、
-  // 门面状态字段 G8）保持不变。
+  // ===== 行数 / 方法数体积冻结门禁：刻意不做（G1 / G5 / G6 / G9，勿加回）=====
+  // 这类门禁的基线追不上 HEAD 实测、干净工作树上即红，没有可守住的不变量。
+  // 保留的是结构类门禁（写入口收口、Actor 单路径、地图闭环、货币统一入口、
+  // 支撑层出度 G7、门面状态字段 G8）。
 
   // ===== G7：支撑层零回边（game.service.ts 模块化重构方案 §6 / §4 原则 2）=====
   // 背景：GameSupportService 是被全部指令域共用的共享支撑层。它一旦注入/导入任何
-  // 指令域子服务（P2/P3 将拆出的 game/commands/*.service），依赖图立刻成环——
-  // 正是本次重构要消解的 SCC。断言标准：支撑层出度边 = 0（对指令域子服务的
-  // import 语句数 = 0，注释提及不算）。
+  // 指令域子服务（game/commands/*.service），依赖图立刻成环——正是要消解的 SCC。
+  // 断言标准：支撑层出度边 = 0（对指令域子服务的 import 语句数 = 0，注释提及不算）。
   it('GameSupportService 不得 import 任何指令域子服务（G7：支撑层出度边=0）', () => {
     const supportSrc = fs.readFileSync(
       path.join(SRC_DIR, 'modules/game/game-support.service.ts'),
@@ -506,11 +469,8 @@ describe('架构门禁：玩家状态写入口收口', () => {
   });
 
   // ===== G8：门面类体内不得残留业务状态字段（§4.1 / C6）=====
-  // 背景：实例状态必须与使用它的方法族同批、同目标迁移；状态留在门面会破坏
-  // 「门面仅委托」。推送子系统 3 字段暂留门面（C7），P3 拆 panel 后白名单清空；
-  // 其余 4 个字段随各自归属批迁出（P2-1 ranking / P2-8 shop / P3 gather），
-  // 迁出时同步把该字段从白名单删除——白名单只减不增。
-  // P3-6b 后推送 3 字段与 gatherStartInflight 已随簇迁出：白名单清空（任何业务状态字段回到门面即红）
+  // 实例状态必须与使用它的方法族同批、同目标迁移；状态留在门面会破坏「门面仅委托」。
+  // 白名单只减不增，现已清空——任何业务状态字段回到门面即红。
   const FACADE_STATE_FIELD_WHITELIST = new Set<string>([]);
 
   it('game.service.ts 门面类体内不得新增业务状态 Map/Set/Timer 字段（G8）', () => {

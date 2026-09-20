@@ -69,8 +69,6 @@ export class VitalityService {
   /**
    * 判断一批击杀采用何种活力奖励。
    * 强制开关优先级高于玩家的“使用活力”设置；扫荡永远不进入普通双倍路径。
-   * GM 的“消耗不奖励”开关只取消双倍倍率，不改变活力扣除规则：
-   * 玩家该扣的活力照扣，但经验/资源保持普通值。
    */
   async decide(player: any, markers: Record<string, any>, context: VitalityRewardContext = {}): Promise<VitalityRewardDecision> {
     const mode = context.mode || 'normal';
@@ -89,7 +87,6 @@ export class VitalityService {
     const cost = enabled && available >= 1 ? Math.min(Math.floor(available), requested) : 0;
     return {
       vitalityCost: cost,
-      // 消耗不奖励开关只压制倍率；活力扣除与否完全遵循原有强制/个人开关规则。
       rewardMultiplier: cost > 0 && !noBonus ? 2 : 1,
       forced,
       enabled,

@@ -64,7 +64,7 @@ describe('生成神之工匠/生成废弃载具 语义还原 + 耗时公式复�
       },
       staticData: {
         loadRaw: jest.fn((key: string) => key === 'wrecks' ? [
-          // 零件数量走规范键 quantity（对齐 wrecks.json 真实数据，旧键 count 已废弃）
+          // 零件数量走规范键 quantity（对齐 wrecks.json 真实数据，不读旧键 count）
           { name: '废弃的骑士', chance: 2, parts: [{ name: '骑士核心', quantity: 1 }, { name: '残骸', quantity: 100 }] },
         ] : []),
       },
@@ -74,7 +74,7 @@ describe('生成神之工匠/生成废弃载具 语义还原 + 耗时公式复�
       },
       logger: { log: jest.fn(), warn: jest.fn() },
     });
-    // P3-4：dungeon 域已迁出，经门面引用调用 vehicle 域 toRuntimeVehicle/toStoredVehicle——桩自挂门面
+    // dungeon 域在子服务上，经门面引用调用 vehicle 域 toRuntimeVehicle/toStoredVehicle——桩自挂门面
     return { service, player, map, wreckMapVehicles, summonsStore };
   }
 

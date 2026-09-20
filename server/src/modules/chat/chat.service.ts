@@ -33,8 +33,7 @@ export class ChatService {
   private server: Server | null = null;
 
   /**
-   * 注入 Socket.IO 服务端实例
-   * 由 ChatGateway.afterInit 调用，使本服务具备实时广播能力
+   * 注入 Socket.IO 服务端实例（由 ChatGateway.afterInit 调用，使本服务具备实时广播能力）
    * @param server Socket.IO 服务端实例
    */
   setServer(server: Server): void {
@@ -48,11 +47,9 @@ export class ChatService {
    * @param content 消息内容
    * @param senderId 发送者ID（可选）
    *
-   * 机器人转发（2026-09-08 修订）：仅当该玩家「最后一次发指令的渠道是 QQ」时
-   * 才向 bot 房间推 bot:push（按来源归属判定，无时间窗口——QQ 发的指令其延时
-   * 结果无论多久都推；玩家切回网页端发指令后立即停止回推）。判定依据来自
-   * CommandSourceRegistry（CommandService.dispatch 入口统一登记）。
-   * 此前仅凭「绑定了 QQ 号」就推，导致网页端操作的延时结果被错推到 QQ 群。
+   * 机器人转发按「来源归属」判定：仅当该玩家最后一次发指令的渠道是 QQ 时才向 bot 房间
+   * 推 bot:push，无时间窗口——QQ 发的指令其延时结果无论多久都推；玩家切回网页端发指令后
+   * 立即停止回推。判定依据来自 CommandSourceRegistry（CommandService.dispatch 入口统一登记）。
    */
   async broadcastSystem(channelName: string, content: string, senderId?: number) {
     const channel = await this.ensureDefaultChannel();
@@ -134,8 +131,8 @@ export class ChatService {
 
   /**
    * 拉取频道历史消息（用于页面刷新后加载）
-   * 保留 type='command' 的指令原文消息：让玩家刷新页面后仍能看到自己发出的指令，
-   * 与实时广播保持一致（实时显示包含指令原文，历史也包含，避免"刷新后自己的指令消失"）。
+   * 保留 type='command' 的指令原文消息：与实时广播口径一致（历史也含指令原文），
+   * 否则玩家刷新页面后会看到"自己的指令消失"。
    * @param channelId 频道ID
    * @param limit 拉取条数（取最近 limit 条，由调用方传入较大值以容纳指令+系统消息）
    */
@@ -148,13 +145,12 @@ export class ChatService {
       take: limit,
       include: { sender: { select: { id: true, username: true, nickname: true } } },
     });
-    // 私密消息脱敏：历史加载时，非本人发送的私密消息内容替换为占位文本，
-    // 保证刷新页面/新连接也无法看到他人的探测雷达等情报（与实时广播口径一致）。
     return this.maskPrivateMessages(rows, viewerId);
   }
 
   /**
    * 私密消息脱敏：visibility='private' 且发送者非查看者本人的消息，内容替换为占位文本。
+   * 历史加载与实时广播共用此口径，保证刷新页面/新连接也看不到他人的探测雷达等情报。
    * @param rows 原始消息行
    * @param viewerId 查看者用户ID（未登录/未知时不放行任何私密内容）
    */

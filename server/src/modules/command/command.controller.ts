@@ -1,7 +1,4 @@
-/**
- * 指令控制器
- * 暴露指令执行的 HTTP API（供外部/AstrBot 通过 REST 调用）。
- */
+/** 指令控制器：指令执行的 HTTP API（供外部/AstrBot 通过 REST 调用）。 */
 
 import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
@@ -21,10 +18,7 @@ export class CommandController {
     private readonly shortcutService: ShortcutService,
   ) {}
 
-  /**
-   * 执行指令（需登录，来自网页）
-   * 与公屏聊天不同，这里是显式 REST 调用指令。
-   */
+  /** 与公屏聊天不同：这里是显式 REST 调用指令（需登录，来源记为 WEB）。 */
   @Post('execute')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
@@ -46,9 +40,6 @@ export class CommandController {
     return { success: true, data: result };
   }
 
-  /**
-   * 获取可用指令列表
-   */
   @Get('list')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()

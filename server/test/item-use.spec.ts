@@ -380,7 +380,7 @@ describe('打开箱子（使用物品）', () => {
     const text = await service.useAllItems(42, '箱');
     console.log('[使用全部箱]', text);
 
-    // 每箱类型一行，各开全部数量（量词已优化为「个」）
+    // 每箱类型一行，各开全部数量（量词用「个」）
     expect(text).toContain('测试玩家使用了2个精良装备补给箱');
     expect(text).toContain('测试玩家使用了3个资源箱');
     // 装备数量少时展开具体名称（含品质前缀），不再只显示件数
@@ -448,7 +448,7 @@ describe('打开箱子（使用物品）', () => {
       // 挑战资源箱已消耗
       expect(backpack.find((it: any) => it.name === '挑战资源箱')).toBeUndefined();
       // 倒序处理：挑战资源箱(末尾)先成功 → 主线补给箱 #错误 → 优秀武器补给箱(队首)最后成功
-      // 优化后不再互相覆盖，三箱各一行完整保留
+      // 三行互不覆盖，各箱一行完整保留
       const splited = text.split('\n');
       expect(splited[0]).toContain('测试玩家使用了2个挑战资源箱');
       expect(splited[1]).toBe('#错误：主线补给箱在物品列表不存在(必须先在物品列表里面定义才可以被使用)');

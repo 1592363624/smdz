@@ -1,18 +1,10 @@
 /**
- * 世界红包服务
- *
- * 业务语义（对齐需求）：
- * 1. 发红包：读取发送者背包里的道具 → 玩家挑选种类与数量 → 发送时立即从背包扣除；
- * 2. 领红包：其他玩家在公屏红包卡片上点击领取，先到先得，每个红包每人限领 1 次；
- * 3. 过期退回：有效期（默认 24 小时，配置化）内没被领完的份额，自动退回到发送者背包。
- *
- * 实现要点：
- * - 背包读写统一走 PlayerService（内部走 Actor 串行邮箱），不在本服务里直接改 Player JSON；
- * - 领取份额用「条件更新（claimedQuantity < quantity）」抢占，杜绝并发超发；
- * - 状态机：ACTIVE（可领取）→ FINISHED（领完）/ EXPIRED（过期已退回）。
- *
- * 配置来源：默认值见 config/red-packet.config.ts，运行期由系统配置中心 chat.redPacket 覆盖
- * （管理员在线可调：有效期、份数上限、是否开放专属/口令玩法、口令长度等）。
+ * 世界红包服务：玩家挑背包道具发红包（发送时立即扣除）→ 其他玩家公屏点击领取，先到先得、
+ * 每个红包每人限领 1 次 → 有效期（默认 24 小时，可配置）内没领完的份额自动退回发送者背包。
+ * 背包读写统一走 PlayerService（内部 Actor 串行邮箱），本服务不直接改 Player JSON；
+ * 领取份额用条件更新（claimedQuantity < quantity）抢占，杜绝并发超发；
+ * 状态机：ACTIVE（可领取）→ FINISHED（领完）/ EXPIRED（过期已退回）。
+ * 配置默认值见 config/red-packet.config.ts，运行期由系统配置中心 chat.redPacket 覆盖（管理员在线可调）。
  */
 
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
@@ -125,7 +117,6 @@ export class RedPacketService {
    * - 数量为 0 的条目不展示；
    * - 默认排除装备类（装备为独立实例，红包按名发放会丢词条）；
    * - 默认排除硬通货（钻石/召唤券/数据核心，其增减需走货币审计）。
-   * @param userId 当前用户ID
    */
   async listSendableItems(userId: number) {
     const cfg = await this.getConfig();
@@ -141,7 +132,7 @@ export class RedPacketService {
       .map((it: any) => ({
         name: String(it.name),
         type: String(it.type || ''),
-        // 数量只读规范键 quantity（同义旧键 count 已废弃）
+        // 数量只读规范键 quantity：别名键在读写档边界已归一，此处读同义键 count 会拿到 undefined
         quantity: Math.floor(Number(it.quantity ?? 0)),
       }))
       .filter((it) => Number.isFinite(it.quantity) && it.quantity > 0)
@@ -155,9 +146,6 @@ export class RedPacketService {
    * - NORMAL：谁都能领（默认）
    * - TARGET（专属红包）：解析指定领取人（支持 用户名/昵称/数字用户ID），不能指定自己
    * - PASSCODE（口令红包）：校验口令长度；玩法开关与长度上限均由系统配置控制
-   * @param userId 发送者用户ID
-   * @param input 发红包入参
-   * @param cfg 生效配置
    */
   private async resolvePacketType(
     userId: number,
@@ -214,9 +202,7 @@ export class RedPacketService {
 
   /**
    * 发红包：校验 → 扣背包 → 落库 → 公屏广播（type=redpacket 消息 + 红包视图）
-   * @param userId 发送者用户ID
-   * @param input { greeting, items, packetType?, target?, passcode? }
-   * @returns { packet, message } packet=红包视图，message=已广播的公屏消息
+   * @returns packet=红包视图，message=已广播的公屏消息（含 redPacket 字段）
    */
   async createPacket(userId: number, input: RedPacketCreateInput) {
     const cfg = await this.getConfig();
@@ -343,8 +329,6 @@ export class RedPacketService {
    * 领取红包：先到先得，每人每个红包限领 1 份。
    * 名额用「条件更新」在事务内抢占，抢到后再把道具打进领取者背包；
    * 背包写入失败时回滚名额，避免「记录说领到了但背包没有」。
-   * @param userId 领取者用户ID
-   * @param packetId 红包ID
    */
   async claimPacket(userId: number, packetId: number, inputPasscode?: string) {
     const cfg = await this.getConfig();
@@ -458,7 +442,6 @@ export class RedPacketService {
    * 退回明细不额外建表：红包过期时已把「剩余份额」一次性退回到发送者背包，
    * 而剩余份额 = Σ(quantity - claimedQuantity)，且状态变为 EXPIRED 后份额不再变动，
    * 因此可直接由条目快照精确还原「退回了什么、退了多少」。
-   * @param userId 当前用户ID
    */
   async getMyRedPackets(userId: number) {
     const cfg = await this.getConfig();
@@ -551,8 +534,8 @@ export class RedPacketService {
   }
 
   /**
-   * 过期红包扫描：每 5 分钟一次（间隔为代码常量，如需调整可改 cron 表达式）。
-   * 处理：状态占用（ACTIVE→EXPIRED 的条件更新保证只处理一次）→ 退还剩余份额 → 通知发送者。
+   * 过期红包扫描（cron 每 5 分钟一轮，单轮最多 SWEEP_BATCH_SIZE 个）：
+   * 状态抢占（ACTIVE→EXPIRED 的条件更新保证只处理一次）→ 退还剩余份额 → 通知发送者并广播卡片状态。
    */
   @Cron('0 */5 * * * *')
   async sweepExpired(): Promise<void> {
@@ -658,7 +641,7 @@ export class RedPacketService {
   /**
    * 组装红包视图：把 DB 行转成前端直接可渲染的结构。
    * @param row 红包行（需含 items；sender/claims 可选，缺省时按需补查）
-   * @param viewerId 查看者用户ID（用于 myClaim）
+   * @param viewerId 查看者用户ID，决定 myClaim 与口令回显；0=中立视图（广播用）
    */
   private async buildView(row: any, viewerId: number): Promise<RedPacketView> {
     let sender = row.sender;

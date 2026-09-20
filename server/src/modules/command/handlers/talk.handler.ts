@@ -1,16 +1,13 @@
 /**
- * 对话指令处理器
- * 委托 GameService 处理与NPC对话逻辑。
+ * 对话指令处理器：与地图上的 NPC 对话。
+ * 用法：对话 <NPC名>
  */
 
 import { Inject } from '@nestjs/common';
 import { GameService } from '../../game/game.service';
 import { CommandContext, CommandHandler, CommandResult } from '../interfaces/command.interface';
+import { failCommand, okCommand } from '../command-result.util';
 
-/**
- * 与地图上的NPC对话指令
- * 用法：对话 <NPC名>
- */
 export class TalkHandler implements CommandHandler {
   key = 'talk';
   module = 'game';
@@ -19,10 +16,10 @@ export class TalkHandler implements CommandHandler {
 
   async handle(ctx: CommandContext, args: string[]): Promise<CommandResult> {
     if (!ctx.userId) {
-      return { success: false, content: '未登录', broadcast: false, durationMs: 0 };
+      return failCommand('未登录');
     }
     const npcName = args.join(' ');
     const result = await this.gameService.handleTalk(ctx.userId, npcName);
-    return { success: true, content: result, broadcast: false, durationMs: 0 };
+    return okCommand(result);
   }
 }

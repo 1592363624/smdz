@@ -1,16 +1,13 @@
 /**
  * 玩家 mutate 上下文登记处（无业务依赖）
  *
- * 存在的唯一理由：**打破循环依赖**。
+ * 存在的理由：**打破循环依赖**。PlayerService（读档/保存/加经验）需要知道「当前异步链
+ * 是不是已经在某个玩家的 mutate 里」，以便复用同一份快照、不再自己读档保存；而
+ * PlayerMutateService 又依赖 PlayerService，两边直接互注会成环。抽成这个不依赖业务的
+ * 中立服务，两边都注入它即可。
  *
- * `PlayerService`（读档/保存/加经验等基础能力）需要知道「当前异步链是不是已经
- * 在某个玩家的 mutate 里」，以便在被 mutate 包住时复用同一份快照、不再自己读档
- * 与保存。但 `PlayerMutateService` 又依赖 `PlayerService`，两边直接互相注入会成环。
- *
- * 因此把「上下文存取」抽成这个不依赖任何业务的服务，两边都注入它即可。
- *
- * 用 AsyncLocalStorage 而非普通字段：它会贯穿整条 async 链（await 之后依然可读），
- * 且天然按请求隔离，不会在并发请求之间互相污染。
+ * 用 AsyncLocalStorage 而非普通字段：它贯穿整条 async 链（await 之后依然可读），
+ * 且天然按请求隔离，并发请求之间不会互相污染。
  */
 
 import { Injectable } from '@nestjs/common';

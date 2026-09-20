@@ -5,13 +5,12 @@
 import axios from 'axios';
 import { showMaintenanceOverlay, reportNetworkFailure } from '../utils/maintenanceGuard';
 
-// 创建 axios 实例，基础路径为 /api(开发环境由 Vite 代理到后端)
+// 基础路径 /api（开发环境由 Vite 代理到后端）
 const http = axios.create({
   baseURL: '/api',
   timeout: 15000,
 });
 
-// 请求拦截：自动携带 JWT
 http.interceptors.request.use((config) => {
   const token = localStorage.getItem('token');
   if (token) {
@@ -31,36 +30,31 @@ http.interceptors.response.use(
         window.location.href = '/login';
       }
     }
-    // 服务器处于部署维护状态（后端返回 503 + code=MAINTENANCE）：
-    // 原地盖全屏维护遮罩并轮询版本接口，维护结束后自动刷新进游戏。
-    // 注意：禁止整页跳转 '/'——生产环境页面由 nginx 静态托管，跳转拿到的仍是
-    // SPA，路由会弹回 /chat 形成 /chat ↔ / 无限刷新乒乓（2026-09-08 实证）。
+    // 503 + code=MAINTENANCE：原地盖维护遮罩（见 utils/maintenanceGuard），不整页跳转——
+    // 生产环境页面由 nginx 静态托管，跳 '/' 拿到的仍是 SPA，路由弹回 /chat 形成无限刷新乒乓。
     if (err.response?.status === 503 && err.response?.data?.code === 'MAINTENANCE') {
       showMaintenanceOverlay();
     } else if (!err.response) {
-      // 网络层失败（部署 cutover 端口关闭窗口的 ECONNREFUSED 等）：
-      // 连续失败达阈值后显示断线遮罩并轮询，恢复后自动刷新。
+      // 网络层失败（cutover 窗口 ECONNREFUSED 等）：连续达阈值后显示断线遮罩并轮询
       reportNetworkFailure();
     }
     return Promise.reject(err);
   },
 );
 
-/// 认证接口
-/// 注：登录仅通过 QQ 互联完成，前端不再调用用户名+密码的自注册/自登录接口。
+/// 认证接口：登录只走 QQ 互联，无用户名+密码接口
 export const authApi = {};
 
 /// 用户接口
 export const userApi = {
   me: () => http.get('/users/me'),
   updateNickname: (nickname) => http.post('/users/nickname', { nickname }),
-  // 获取我的常用指令列表
   getFavorites: () => http.get('/users/favorite-commands'),
-  // 设置（全量覆盖）我的常用指令列表
+  // 全量覆盖我的常用指令列表
   setFavorites: (commands) => http.post('/users/favorite-commands', { commands }),
 };
 
-/// 聊天接口（游戏内私聊功能已下线，相关接口随功能一并移除）
+/// 聊天接口（世界频道公屏 + 世界红包）
 export const chatApi = {
   getMessages: (channelId = 1, limit = 50) =>
     http.get('/chat/messages', { params: { channelId, limit } }),
@@ -91,13 +85,10 @@ export const feedbackApi = {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
   },
-  // 提交反馈工单
   create: (data) => http.post('/feedback', data),
-  // 我的反馈工单列表
   mine: () => http.get('/feedback/mine'),
-  // 反馈工单详情（含完整消息）
+  // 工单详情（含完整消息）
   detail: (id) => http.get(`/feedback/${id}`),
-  // 回复反馈工单
   reply: (id, data) => http.post(`/feedback/${id}/messages`, data),
 };
 
@@ -110,17 +101,14 @@ export const commandApi = {
 
 /// 游戏接口
 export const gameApi = {
-  // 获取玩家信息（等级、HP、位置等）
   playerInfo: () => http.get('/game/player/info'),
-  // 获取增益定义清单（状态面板增益悬浮提示用：名称/描述/时长/属性加成）
+  // 增益定义清单（状态面板悬浮提示用：名称/描述/时长/属性加成）
   buffDefinitions: () => http.get('/game/buff-definitions'),
-  // 获取地图连接
   mapConnections: () => http.get('/game/map/connections'),
-  // 获取地图总览（当前区域+全部地图）
+  // 地图总览（当前区域 + 全部地图）
   mapOverview: () => http.get('/game/map/overview'),
-  // 获取当前区域附近玩家列表（同一地图，含在线状态）
+  // 当前区域附近玩家列表（同一地图，含在线状态）
   nearbyPlayers: () => http.get('/game/map/nearby-players'),
-  // 执行游戏内快捷操作
   quickAction: (action) => http.post('/game/player/action', { action }),
   // 玩家自助清除自己的游戏数据(等同管理员GM清除，保留账号，重置为未开始游玩)
   resetMyData: () => http.post('/game/player/reset-data'),
@@ -154,7 +142,7 @@ export const homeApi = {
   finishClear: () => http.post('/game/home/finish-clear'),
   // 队列有货且无读条时主动接龙（刷新后空转救援）
   drainClear: () => http.post('/game/home/drain-clear'),
-  // 家园前线面板视图（防御/火力/敌人/库存，只读不结算；写操作统一走 commandApi.execute）
+  // 家园前线面板视图（防御/火力/敌人/库存，只读不结算）
   frontline: () => http.get('/game/home/frontline'),
 };
 

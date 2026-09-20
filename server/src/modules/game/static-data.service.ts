@@ -1,29 +1,8 @@
 /**
- * 静态数据服务（StaticDataService）
- * ------------------------------------------------------------------
- * 架构改革核心：将"系统配置型固定不变数据"从数据库表中彻底移除，
- * 改为运行时直接读取 server/prisma/data/*.json（单一数据源 single source of truth）。
- *
- * 设计说明：
- * - 数据来源：prisma/data/*.json，由 convert-e-to-json.ts 从易语言配置离线转换而来，
- *   进版本控制、随部署分发。策划改数值直接编辑 JSON 后重启/重载即可生效，无需动数据库。
- * - 加载策略：首次访问时懒加载对应 JSON 到内存，之后走 Map 缓存（O(1) 查询），
- *   避免每次请求都读磁盘。可通过 refresh() 手动重载（热更新，不重启进程）。
- * - 与"动态数据"的分界：本服务只承载固定配置；玩家/频道/聊天/指令日志/地图实时
- *   刷怪状态等动态数据仍走 MySQL（Prisma）。
- *
- * 对应关系（JSON 文件 -> 原数据库表）：
- *   monsters.json  -> GameMonster       items.json     -> GameItem
- *   equipments.json-> GameEquipment     familiars.json -> GameFamiliar
- *   craftings.json -> GameCrafting      tasks.json     -> GameTask
- *   titles.json    -> GameTitle         buildings.json -> GameBuilding
- *   npcs.json      -> GameNpc           vehicles.json  -> GameVehiclePart(定义部分)
- *   blueprints.json-> GameBlueprint     buffs.json     -> GameBuff
- *   shops.json     -> GameShop          resources.json -> GameResource
- *   effects.json   -> GameEffect        attack-texts.json -> GameAttackText
- *   set-effects.json-> GameSetEffect    flavor-texts.json-> GameFlavorText
- *   update-logs.json-> GameUpdateLog
- *   vehicle-recipes.json -> 原版载具生产配方（无配置时保持空数组）
+ * 静态数据服务：「系统配置型固定数据」不入数据库，运行时直接读 server/prisma/data/*.json
+ * （单一数据源）。数据由 convert-e-to-json.ts 从易语言配置离线转换而来，进版本控制、随部署分发，
+ * 策划改数值只需编辑 JSON。首次访问懒加载进 Map 缓存，refresh() 热重载不重启进程。
+ * 玩家/频道/聊天/地图实时刷怪等动态数据仍走 MySQL（Prisma）。
  */
 
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
@@ -64,12 +43,10 @@ const DATA_FILES = {
   seedItems: 'seed-items.json',
   maps: 'maps.json',
   vehicleRecipes: 'vehicle-recipes.json',
-  // 图鉴专用：原版「配方列表」94 条 /「随机载具」11 条，
-  // 由 scripts/extract-recipes-wrecks.js 从 使魔大战.txt 抽取（此前未迁移）。
+  // 图鉴专用：原版「配方列表」/「随机载具」，由 scripts/extract-recipes-wrecks.js 从 使魔大战.txt 抽取
   recipes: 'recipes.json',
   wrecks: 'wrecks.json',
-  // 家园作物分阶段成熟配置（阶段名/时长分级/分作物覆盖），新增玩法：作物种下后
-  // 按阶段生长，成熟后才能收获。详见 crop-growth.json 顶部注释。
+  // 家园作物分阶段成熟配置（阶段名/时长分级/分作物覆盖）；详见 crop-growth.json 顶部注释
   cropGrowth: 'crop-growth.json',
 } as const;
 
@@ -86,8 +63,8 @@ export class StaticDataService implements OnModuleInit {
   private nameIndex = new Map<DataKey, Map<string, any>>();
 
   /**
-   * 启动预载（P2-7 启动校验）：应用启动时全量加载所有静态表。
-   * - 任何 JSON 语法损坏 → loadRaw 抛错 → onModuleInit 失败 → 应用拒绝启动（fail-fast）；
+   * 启动预载（fail-fast）：应用启动时全量加载所有静态表。
+   * - 任何 JSON 语法损坏 → loadRaw 抛错 → 应用拒绝启动；
    * - 内容问题（重复名/空表/负数量）→ 汇总为告警日志，不阻断启动；
    * - 同一文件多别名（vehicles/vehiclesParts 同指 vehicles.json）只预载一次。
    */
@@ -104,7 +81,6 @@ export class StaticDataService implements OnModuleInit {
 
   /**
    * 读取某类 JSON 原始数组（懒加载 + 缓存）
-   * @param key 数据类别
    * @returns 固定配置数组；文件缺失返回 []（warn）；JSON 解析失败抛错（fail-fast）
    */
   loadRaw<T = any>(key: DataKey): T[] {
@@ -125,12 +101,11 @@ export class StaticDataService implements OnModuleInit {
       }
       try {
         rows = JSON.parse(raw) as T[];
-        // 统一归一化：把旧格式文件中双重编码的 JSON 字符串字段解码为真实结构，
-        // 保证下游业务层无论数据文件是新旧格式，拿到的都是对象/数组。
+        // 统一解码：部分文件里的 JSON 字符串字段还原为真实对象/数组，
+        // 保证下游业务层拿到的结构一致。
         rows = decodeJsonStrings(rows);
       } catch (err: any) {
-        // fail-fast（P2-7）：语法损坏若沿旧逻辑 catch 后返回 []，整张表会以空数组
-        // 静默进缓存且无人察觉——这是全库数据级 P0（悬空引用/异常值）无拦截点的根因。
+        // fail-fast：语法损坏若 catch 后返回 []，整张表会以空数组静默进缓存且无人察觉。
         // 静默空表比崩溃更危险：宁可启动失败，也不带着空表对外提供错误数据。
         throw new Error(
           `静态数据 ${DATA_FILES[key]} JSON 解析失败（fail-fast 终止启动）: ${err?.message ?? err}`,
@@ -146,9 +121,9 @@ export class StaticDataService implements OnModuleInit {
   }
 
   /**
-   * 内容校验（P2-7）：对刚加载的表跑一轮静态规则检查，发现的问题**汇总为一条
-   * 告警日志**（不抛错、不阻断启动——避免一条存量脏数据挡死整个服务）。
-   * 规则：空表（文件存在但为空数组）、重复名、明显数值异常（条目数量规范键 quantity 为负）。
+   * 内容校验：对刚加载的表跑一轮静态规则检查，问题**汇总为一条告警日志**
+   * （不抛错、不阻断启动——避免一条存量脏数据挡死整个服务）。
+   * 规则：空表（文件存在但为空数组）、重复名、条目数量规范键 quantity 为负。
    * 非数组顶层（如 seed-items.json 的单对象形状）不在通用规则范围内，跳过避免误报。
    */
   private validateLoadedRows(key: DataKey, rows: unknown, fileExisted: boolean): void {
@@ -157,7 +132,7 @@ export class StaticDataService implements OnModuleInit {
     if (fileExisted && rows.length === 0) {
       issues.push('空表（文件存在但内容为空数组）');
     }
-    // 重复名：findByKey 索引与旧 Array.find 语义一致取首个同名条目，其余记告警
+    // 重复名：与 findByKey 一致取首个同名条目，其余记告警
     const seen = new Map<string, number>();
     rows.forEach((row: any, idx: number) => {
       const name = row?.name;
@@ -170,7 +145,7 @@ export class StaticDataService implements OnModuleInit {
           issues.push(`重复名「${name}」（第 ${first + 1} 条与第 ${idx + 1} 条）`);
         }
       }
-      // 条目数量只认规范键 quantity（同义旧键 count 已废弃，静态数据已全量改名）
+      // 条目数量只读规范键 quantity（静态数据里没有 count 这一键，读它拿到 undefined）
       for (const field of ['quantity'] as const) {
         const value = row?.[field];
         if (typeof value === 'number' && Number.isFinite(value) && value < 0) {
@@ -197,8 +172,8 @@ export class StaticDataService implements OnModuleInit {
 
   /**
    * 按唯一键(name)查一条（懒构建 Map 索引，O(1) 查找）。
-   * 语义与旧线性扫描完全一致：命中返回缓存行**同一引用**（不 clone、不换对象），
-   * 未命中返回 undefined；重复名返回首条（与 Array.find 相同）。
+   * 命中返回缓存行**同一引用**（不 clone、不换对象），未命中返回 undefined；
+   * 重复名返回首条（与 Array.find 相同）。
    */
   private findByKey<T extends { name?: string }>(key: DataKey, name: string): T | undefined {
     const rows = this.loadRaw<T>(key);
@@ -343,12 +318,11 @@ export class StaticDataService implements OnModuleInit {
    * 取对话（1:1 复刻 数据显示.ecode L119-287 取对话(玩家, 对象, 类型)）。
    * 类型：0敌对聊天 1友好聊天 2跟随 3停下 4拾取 5挤奶 6击杀 7补魔开始 8补魔结束
    *       9强化 10被捕捉 11躺下 12起床。
-   * 对象类型归一化（L128-136）：npc1g→神之工匠、小樱2→小樱、去"精英/神兽/深蓝"、巨型宇航兔→宇航兔；
-   * 对应条目缺失或该类台词为空 → 回落"通用对话"（L144-213）；仍为空 → "……"（L282-283）。
-   * 台词随机抽取，类型 3/4 及以上带换行前缀（L221-277），并替换【名称】/【目标】（L285-286）。
+   * 流程：对象类型归一化（L128-136）→ 取该类台词，条目缺失或数组为空则回落"通用对话"
+   * （L144-213）→ 仍取不到返回"……"（L282-283）→ 随机抽一条并替换【名称】/【目标】（L285-286）。
    * @param playerName 玩家名称（替换【名称】）
-   * @param object 对象（召唤物/NPC/宠物行，读取 type/类型 与 name/名称）
-   * @param objectName 对象名称（替换【目标】；缺省用对象自身 name）
+   * @param object 对象行（只读 type 与 qq/QQ 判定对象类型）
+   * @param objectName 对象名称（替换【目标】；缺省时该占位被替换为空串）
    * @param dialogueType 台词类别 0-12
    */
   getDialogue(playerName: string, object: any, objectName: string, dialogueType: number): string {
@@ -375,12 +349,12 @@ export class StaticDataService implements OnModuleInit {
       12: 'wakeUpText',
     };
     const parseLines = (raw: any): string[] => {
-      // NPC 台词字段现已是真实数组；字符串分支兼容旧格式 JSON 文本
+      // 台词字段可能是真实数组，也可能是 JSON 字符串形态，两种都要吃
       const arr = asJsonValue<any[]>(raw, []);
       return Array.isArray(arr) ? arr.filter(Boolean).map(String) : [];
     };
-    // 数据存取.ecode L754：加载时 条目名称 = 节名去掉"对话"后缀（如 [白对话]→名称"白"）。
-    // 本框架 npcs.json 保留了完整节名（"白对话"），此处按两种形态检索对齐原版运行时名称。
+    // 数据存取.ecode L754：原版加载时条目名称 = 节名去掉"对话"后缀（[白对话]→"白"）。
+    // 本框架 npcs.json 保留了完整节名，故两种形态都要检索以对齐原版运行时名称。
     const findEntry = (name: string): any => {
       if (!name) return undefined;
       return this.getNpcByName(name) ?? this.getNpcByName(`${name}对话`) ?? undefined;
@@ -503,7 +477,7 @@ export class StaticDataService implements OnModuleInit {
     dataCore: Array<{ name: string; quantity: number }>;
   } {
     const row = this.loadRaw<any>('shops')[0] || {};
-    // 条目数量只读规范键 quantity（同义旧键 count 已废弃）
+    // 条目数量只读规范键 quantity（无 count 别名）
     const normalize = (value: any): Array<{ name: string; quantity: number }> => (Array.isArray(value) ? value : [])
       .map((item: any) => ({
         name: String(item?.name ?? '').trim(),
@@ -553,8 +527,7 @@ export class StaticDataService implements OnModuleInit {
   /**
    * 作物分阶段成熟配置（crop-growth.json，单对象结构）：
    * - stageNames：阶段名称数组（默认 播种/发芽/生长/开花/成熟）
-   * - rewardScaleDivisor：成熟总收益换算口径（作物基础产出/600 秒，与
-   *   旧版 produceResources 的 consumeRateDivisor=600 一致，保证单位换算统一）
+   * - rewardScaleDivisor：成熟总收益换算口径 = 作物基础产出/600 秒（单位换算统一用）
    * - tiers：按作物「价值分」分级的默认时长（durationSeconds）与阶段数（stages）
    * - crops：分作物覆盖（椰树/活性灵石/豆蔻等长线作物显式指定总时长与阶段数）
    */

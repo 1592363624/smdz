@@ -76,7 +76,7 @@ const active = ref(0);
 const inputEl = ref(null);
 const listEl = ref(null);
 
-/** 根据关键词过滤指令（名称/中文别名/描述，以及拼音全拼 beibao 与首字母 bb） */
+/** 根据关键词过滤指令 */
 const results = computed(() =>
   searchCommands(props.commands || [], q.value, {
     limit: COMMAND_SEARCH_CONFIG.limits.palette,
@@ -86,8 +86,7 @@ const results = computed(() =>
 
 /**
  * 命中来源提示：仅当命中来自别名/拼音时展示（如「别名 打」「首字母 bb」）。
- * 不再无条件展示 item.alias —— 否则搜索结果里会满屏「别名 attack/lock/pickup」这类
- * 与中文检索无关的英文别名，干扰玩家判断（描述命中也不提示，且长文本会挤占布局）。
+ * 名称命中与描述命中都不提示：无条件展示英文别名会满屏刷屏、干扰玩家判断，长描述文本也会挤占布局。
  */
 function matchHint(item) {
   const m = item && item.match;
@@ -114,7 +113,6 @@ watch(
   }
 );
 
-/** 方向键移动高亮 */
 function move(dir) {
   const n = results.value.length;
   if (!n) return;

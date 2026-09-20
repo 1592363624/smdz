@@ -1,7 +1,4 @@
-/**
- * 用户模块 DTO（数据传输对象）
- * 定义接口入参，配合 class-validator 做校验，并生成 OpenAPI 文档。
- */
+/** 用户模块 DTO：接口入参校验（class-validator）+ OpenAPI 文档。 */
 
 import { ApiProperty } from '@nestjs/swagger';
 import { IsString, MaxLength, MinLength, IsArray } from 'class-validator';

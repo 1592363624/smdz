@@ -1,5 +1,5 @@
 /**
- * 玩家写入口收口（P2 增强）+ 货币审计（P4）
+ * 玩家写入口收口 + 货币审计
  *
  * ## 设计定位：Actor 模型的轻量实现
  *
@@ -9,8 +9,8 @@
  * 1. **串行**：全程持 `PlayerService.enqueueUserWrite` 用户级锁，与战斗、后台结算、
  *    其它指令天然互斥，不需要调用方记得加锁。
  * 2. **单一快照**：一条业务链只读取一份快照，嵌套调用复用它（见 currentContext）。
- *    这是本项目并发正确性的基石——历史上反复出现的「旧快照整包覆盖」事故，
- *    根因都是子流程自行重新读档并落库，导致上层快照瞬间过期。
+ *    这是本项目并发正确性的基石：子流程自行重新读档并落库会让上层快照瞬间过期，
+ *    结果是「旧快照整包覆盖」刚落库的改动。
  * 3. **统一落库**：只有最外层负责保存与审计，内层改动自动被收口。
  *
  * ## 为什么嵌套必须复用而不是重读
@@ -70,7 +70,6 @@ export class PlayerMutateService {
    * 嵌套调用（同一 userId）复用外层 ctx，不重复读档、不重复落库、不重复审计，
    * 全交给最外层收口。
    *
-   * @param userId 用户ID
    * @param fn 变更逻辑；通过 ctx.player / ctx.backpack 等直接修改，返回值透传
    */
   async mutate<T>(userId: number, fn: (ctx: MutateContext) => Promise<T> | T): Promise<T> {
@@ -89,7 +88,7 @@ export class PlayerMutateService {
     try {
       const result = await this.mutateContext.run(userId, ctx, () => fn(ctx));
 
-      // 落库判定（彻底根治只读指令自增 version）：
+      // 落库判定（避免只读指令自增 version）：
       // 1) 任意嵌套 savePlayer 被调用 → __mutateDirty 已被置位（最快路径）；
       // 2) 否则比对字段签名：只要本链改过 ctx（哪怕没显式 savePlayer，如光翼/采集开始
       //    这种"纯改 ctx"写法），签名就会变化 → 仍需落库。两者任一命中才写，
@@ -106,7 +105,7 @@ export class PlayerMutateService {
         await this.playerService.savePlayer(ctx.player);
 
         const after = this.readCurrencies(ctx.player);
-        // 审计去重（P4 双层记账收敛）：persistPlayer 的兜底审计在本次落库已记账
+        // 审计去重（双层记账）：persistPlayer 的兜底审计在本次落库已记账
         // （no-Actor / 邮箱路径，meta.currencyAuditDone 置位）→ 本链不再重复记；
         // 未记账（改动并入 Actor 活态、writeThrough 稍后落库）→ 本链先记，
         // 并把写基线推进到本次值，让 writeThrough 的兜底审计看到零增量、不再记账。
@@ -122,7 +121,7 @@ export class PlayerMutateService {
       // 收口：本上下文自此作废（无论成功/抛错）。fn 内调度的定时器（如采集 10~16s
       // 延时结算）会带着本 ALS 快照逃逸出去，若不置为已结束，回调里的 savePlayer 会
       // 误把改动"合并"进这个死上下文并跳过 Actor markDirty，导致结算静默丢失
-      // （医疗箱/休眠仓每人一次永久标记被抹掉、资源可无限重复采集的反复复发根因）。
+      // （医疗箱/休眠仓每人一次永久标记被抹掉、资源可被无限重复采集）。
       this.mutateContext.finish(ctx);
     }
   });

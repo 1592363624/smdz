@@ -66,7 +66,7 @@ function makeServices(rows: any[]) {
   );
   (playerService as any).logger = { warn: jest.fn(), log: jest.fn(), error: jest.fn() };
   const mutateContext = new PlayerMutateContextService();
-  // player 类型由 PlayerService 构造器自动注册（2026-09-08 起无 onModuleInit）
+  // player 类型由 PlayerService 构造器自动注册（无 onModuleInit）
   const mutate = new PlayerMutateService(prisma, playerService, mutateContext);
   (mutate as any).logger = { warn: jest.fn(), log: jest.fn(), error: jest.fn() };
   return { prisma, runtime, playerService, mutate };

@@ -1,8 +1,7 @@
 /**
- * 连接与服务器状态（Pinia）
- * 接管原本散落在 ChatView 的：WebSocket 连接状态、全服人数/在线人数、在线玩家名单，
- * 以及「谁上线/谁离线」的短时提示（状态栏展示 1 分钟，时长见 PRESENCE_CONFIG）。
- * 这些状态 AdminView 等其它视图也会用到，集中到 store 后可避免重复拉取与不一致。
+ * 连接与服务器状态（Pinia）：WebSocket 连接状态、全服人数/在线人数、在线玩家名单，
+ * 以及「谁上线/谁离线」的短时提示（时长见 PRESENCE_CONFIG）。
+ * AdminView 等其它视图共用，集中在此避免重复拉取与不一致。
  */
 import { defineStore } from 'pinia';
 import { PRESENCE_CONFIG } from '../config';
@@ -16,10 +15,7 @@ export const useConnectionStore = defineStore('connection', {
     connected: false,
     /** 服务器统计：总玩家数 / 在线人数 / 在线玩家名单（名单条数上限由后端配置控制） */
     stats: { totalPlayers: 0, onlinePlayers: 0, onlineList: [] },
-    /**
-     * 有效期内的上下线提示（最新在前）
-     * 每条形如 { id, type: 'online'|'offline', name, at }，到期由定时器自动移除
-     */
+    /** 有效期内的上下线提示（最新在前），每条形如 { id, type: 'online'|'offline', name, at }，到期由定时器自动移除 */
     presenceNotices: [],
   }),
   actions: {
@@ -37,7 +33,7 @@ export const useConnectionStore = defineStore('connection', {
       this.stats = {
         totalPlayers: Number(s.totalPlayers ?? s.total ?? 0),
         onlinePlayers: Number(s.onlinePlayers ?? s.online ?? 0),
-        // 部分调用方（如旧的统计响应）不带名单时保留上一次结果，避免悬停面板闪空
+        // 调用方未带名单时保留上一次结果，避免悬停面板闪空
         onlineList: Array.isArray(s.onlineList)
           ? s.onlineList.filter(Boolean).map((n) => String(n))
           : this.stats.onlineList,
@@ -59,7 +55,6 @@ export const useConnectionStore = defineStore('connection', {
       // 同名同类型的重复推送（如重连抖动）直接忽略，避免提示刷屏
       if (this.presenceNotices.some((n) => n.name === notice.name && n.type === notice.type)) return;
       this.presenceNotices.unshift(notice);
-      // 超出上限时丢弃最旧的
       if (this.presenceNotices.length > PRESENCE_CONFIG.noticeMaxStacks) {
         this.presenceNotices.length = PRESENCE_CONFIG.noticeMaxStacks;
       }

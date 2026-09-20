@@ -17,7 +17,6 @@ param(
 [System.Console]::InputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
 $PSDefaultParameterValues['*:Encoding'] = 'utf8'
-# chcp 65001 > $null  # optional, may be removed
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'

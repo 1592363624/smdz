@@ -49,7 +49,7 @@ describe('贸易、购物、求助任务触发', () => {
       houseName: '',
       markers: '{}',
       markers2: '[]',
-      // 背包条目数量只读规范键 quantity（count 旧镜像已废弃）
+      // 背包条目数量只读规范键 quantity（不读 count 旧镜像）
       backpack: JSON.stringify([
         { name: '木头', quantity: 1000 },
         { name: '石头', quantity: 1000 },

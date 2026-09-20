@@ -18,6 +18,8 @@ import { resolveEquipmentRefIndex } from '../../game/equipment-ref.util';
 import { homeBuiltGateText } from '../../game/home-gate.util';
 import { CRAFT_MENU_ARGS } from '../../game/craft-menu.util';
 import { CommandContext, CommandHandler, CommandResult } from '../interfaces/command.interface';
+import { CARD_DIVIDER } from '../../../common/utils/game-text.util';
+import { failCommand } from '../command-result.util';
 
 @Injectable()
 export class GameCommandHandler implements CommandHandler {
@@ -40,10 +42,9 @@ export class GameCommandHandler implements CommandHandler {
 
   async handle(ctx: CommandContext, args: string[]): Promise<CommandResult> {
     if (!ctx.userId) {
-      return { success: false, content: '未登录', broadcast: false, durationMs: 0 };
+      return failCommand('未登录');
     }
 
-    // 从原始消息中提取指令名（去除前缀）
     // 注意：无空格输入（如 `选择使魔伊卡洛斯`）的前缀匹配已由 CommandService.dispatch
     // 统一处理（含别名前缀，改写 rawMessage 为标准"指令 参数"形式），此处只需按空格解析首词。
     const rawMsg = ctx.rawMessage.trim();
@@ -126,7 +127,7 @@ export class GameCommandHandler implements CommandHandler {
   /**
    * 解析“制造XX[数量]”参数。数量缺省时返回 defaultCount：
    * 普通制造传 0（原版 物品操作.ecode L399：数量<1 显示制造需求菜单），
-   * 炼丹/锻造等子用法保持旧行为传 1。
+   * 炼丹/锻造等子用法传 1。
    */
   private parseCraftArguments(args: string[], defaultCount = 1): { recipeName: string; count: number } {
     const input = args.join(' ').trim();
@@ -179,7 +180,7 @@ export class GameCommandHandler implements CommandHandler {
 
     try {
       switch (cmdName) {
-        // ========== 基础指令 ==========
+        // ===== 基础指令 =====
         case '攻击':
         case 'attack':
         case '打':
@@ -204,7 +205,7 @@ export class GameCommandHandler implements CommandHandler {
           // 新手引导：攻击照常执行，引导文本作为附加提示（不拦截，避免"首次攻击被吞"）
           // 对应原版：攻击即攻击，无引导拦截逻辑
           const tutorialText = await this.tutorialService.consumeTutorial(userId, 'attack');
-          return this.wrap(tutorialText ? `${result.result}\n━━━━━━━━━━━━━━━\n💡 ${tutorialText}` : result.result);
+          return this.wrap(tutorialText ? `${result.result}\n${CARD_DIVIDER}\n💡 ${tutorialText}` : result.result);
         }
 
         case '炮击':
@@ -215,7 +216,7 @@ export class GameCommandHandler implements CommandHandler {
           return this.wrap(result);
         }
 
-        // ========== 自动战斗 / 延时攻击（对应原版 自动战斗 / 延时攻击指令） ==========
+        // ===== 自动战斗 / 延时攻击（对应原版 自动战斗 / 延时攻击指令） =====
         case '自动战斗':
         case 'auto': {
           // 取当前装备武器索引，启动每5秒自动攻击循环（死亡/无怪自动停止）
@@ -245,11 +246,11 @@ export class GameCommandHandler implements CommandHandler {
           return this.wrap(ok ? `⏳ 已安排延时攻击（锁定${lockTime}秒后自动出手）` : '延时攻击安排失败');
         }
 
-        // 注意：「信息」指令的 handlerKey 是 info（专属 InfoHandler），引导在那里实现——
-        // 此处原有的分支是永不执行的死代码，已删除。
+        // 「信息」由专属 InfoHandler 处理（handlerKey=info），新手引导也在那里实现，
+        // 本 switch 不设分支——在此加分支永远不会被执行。
 
-        // 注意：「背包」指令的 handlerKey 是 inventory（专属 InventoryHandler），
-        // 引导/task 推进都在那里实现——此处原有的分支是永不执行的死代码，已删除。
+        // 「背包」同理由专属 InventoryHandler 处理（handlerKey=inventory），
+        // 引导与任务推进都在那里，本 switch 不设分支。
 
         case '移动':
         case 'move':
@@ -273,8 +274,7 @@ export class GameCommandHandler implements CommandHandler {
           return this.wrap(result);
         }
 
-        // 注意：「地图」指令的 handlerKey 是 map（专属 MapHandler），引导在那里实现——
-        // 此处原有的分支是永不执行的死代码，已删除。
+        // 「地图」由专属 MapHandler 处理（handlerKey=map），引导在那里实现，本 switch 不设分支。
 
         case '技能':
         case 'skill':
@@ -314,12 +314,12 @@ export class GameCommandHandler implements CommandHandler {
             await this.taskService.advance(userId, action);
             await this.taskService.advance(userId, '装备' + item.name);
           }
-          // 新手引导：装备照常执行、引导仅作附加提示（2026-09-12 修复「首次装备被吞」：旧实现
-          // 装备前拦截并 return 引导文本；对齐原版 _主程序.ecode L4262/L4289，结算后才追加引导）。
+          // 新手引导：装备照常执行、引导只作附加提示，绝不拦截（否则首次装备被吞）。
+          // 对齐原版 _主程序.ecode L4262/L4289：结算后才追加引导。
           const tutorialText = equipped
             ? await this.tutorialService.consumeTutorial(userId, this.itemSystem.isWeaponItem(item) ? 'equipWeapon' : 'equipArmor')
             : '';
-          return this.wrap(tutorialText ? `${result}\n━━━━━━━━━━━━━━━\n💡 ${tutorialText}` : result);
+          return this.wrap(tutorialText ? `${result}\n${CARD_DIVIDER}\n💡 ${tutorialText}` : result);
         }
 
         case '卸下':
@@ -353,7 +353,7 @@ export class GameCommandHandler implements CommandHandler {
           return this.wrap(result);
         }
 
-        // ========== 物品系统 ==========
+        // ===== 物品系统 =====
         case '制造':
         case 'craft':
         case '制作': {
@@ -426,10 +426,9 @@ export class GameCommandHandler implements CommandHandler {
         case 'enhance':
         case '升级': {
           // 原版「强化」（_主程序.ecode L5050-L5153）只有两种分支：
-          // 纯数字=强化背包法宝（祥瑞气息）；部位名=部位强化熟练度（合金，写 部位名+强化 标记）。
+          // 纯数字=强化背包法宝（消耗祥瑞气息）；部位名=部位强化熟练度（消耗合金，写 部位名+强化 标记）。
           // 非部位名一律「不是可以强化的部位。」——原版不存在按装备名消耗水晶强化的路径，
-          // 旧 item-system.enhanceItem 幽灵路径已删除（2026-09-09 诊断：写键与部位强化体系
-          // 不接轨致面板恒 +0，且 mutate 外旧快照整包写回有覆盖并发写入风险）。
+          // 那条路的写键与部位强化体系不接轨（面板恒 +0），不要再加回来。
           const result = await this.gameService.handleEquipEnhance(userId, arg);
           if (this.isSuccessfulAction(result)) {
             const enhancementPart = arg.replace(/\d+/g, '').trim();
@@ -460,7 +459,7 @@ export class GameCommandHandler implements CommandHandler {
         case 'unlock':
           return this.wrap(await this.itemSystem.unlockEquipment(userId, arg));
 
-        // ========== 使魔系统 ==========
+        // ===== 使魔系统 =====
         case '选择使魔':
         case 'select':
         case 'familiar':
@@ -488,7 +487,7 @@ export class GameCommandHandler implements CommandHandler {
           const result = await this.gameService.handleViewFamiliar(userId);
           // 新手引导：查看照常执行、引导仅作附加提示（不拦截，避免「首次查看使魔被吞」）
           const tutorialText = await this.tutorialService.consumeTutorial(userId, 'familiarData');
-          return this.wrap(tutorialText ? `${result}\n━━━━━━━━━━━━━━━\n💡 ${tutorialText}` : result);
+          return this.wrap(tutorialText ? `${result}\n${CARD_DIVIDER}\n💡 ${tutorialText}` : result);
         }
         case '使魔数据':
         case 'familiar-data': {
@@ -521,7 +520,7 @@ export class GameCommandHandler implements CommandHandler {
             return this.wrap(await this.familiarSystem.exchange(userId, itemName, count));
           }
 
-        // ========== 使魔技能系统 ==========
+        // ===== 使魔技能系统 =====
         // 原版 使魔技能.ecode L667-L769：六道轮回支持「六道轮回N属性」洗装与「六道轮回选择M」选择，
         // 无空格输入由 CommandService 前缀路由还原为标准"指令 参数"后进入本分支。
         // 前缀路由会把「六道轮回选择2」还原成 指令=六道轮回 参数=选择2，
@@ -699,7 +698,7 @@ export class GameCommandHandler implements CommandHandler {
         case 'stealth-mode':
           return this.wrap(await this.familiarSkills.executeSkill(userId, '隐匿模式'));
 
-        // ========== 家园系统 ==========
+        // ===== 家园系统 =====
         case '家园':
         case 'home':
           // 家园子命令统一经过此路由；建筑安装/拆卸仍由 GameService
@@ -740,7 +739,7 @@ export class GameCommandHandler implements CommandHandler {
         case '收获':
           return this.wrap(await this.handleHomeCommand(userId, '收获', args));
 
-        // ========== 宠物系统 ==========
+        // ===== 宠物系统 =====
         case '宠物':
         case 'pet':
           return this.wrap(await this.familiarSystem.handlePet(userId, firstArg));
@@ -754,7 +753,7 @@ export class GameCommandHandler implements CommandHandler {
           return this.wrap(result);
         }
 
-        // ========== 地图/探索 ==========
+        // ===== 地图/探索 =====
         // 传送/跃迁走 handleTeleport（原版 L1676 同一分支：立即落地、天蓝吊坠/军姬门禁、
         // 5 秒冷却、分子重组/跃迁文本）；成就“前往X/传送/跃迁”由 handleTeleport 内部推进，
         // 这里不再包 runTaskAction 以免重复计数。
@@ -774,7 +773,7 @@ export class GameCommandHandler implements CommandHandler {
         case 'pickup': {
           const result = await this.gameService.handlePickup(userId, arg);
           const tutorialText = await this.tutorialService.consumeTutorial(userId, 'pickup');
-          return this.wrap(tutorialText ? `${result}\n━━━━━━━━━━━━━━━\n💡 ${tutorialText}` : result);
+          return this.wrap(tutorialText ? `${result}\n${CARD_DIVIDER}\n💡 ${tutorialText}` : result);
         }
 
         case '开采':
@@ -783,7 +782,7 @@ export class GameCommandHandler implements CommandHandler {
           return this.wrap(result);
         }
 
-        // ========== 副本系统 ==========
+        // ===== 副本系统 =====
         case '开启副本':
         case 'start-dungeon': {
           const result = await this.gameService.handleStartDungeon(userId, arg);
@@ -795,7 +794,7 @@ export class GameCommandHandler implements CommandHandler {
         case 'refresh-dungeon':
           return this.wrap(await this.gameService.handleRefreshDungeon(userId, arg));
 
-        // ========== 载具系统 ==========
+        // ===== 载具系统 =====
         case '安装':
         case 'install': {
           const action = this.parseCountedAction(arg);
@@ -828,7 +827,7 @@ export class GameCommandHandler implements CommandHandler {
         case 'my-vehicles':
           return this.wrap(await this.gameService.handleMyVehicles(userId));
 
-        // ========== 任务系统 ==========
+        // ===== 任务系统 =====
         case '领取任务':
         case 'accept-quest':
           return this.wrap(await this.gameService.handleAcceptQuest(userId, arg));
@@ -842,7 +841,7 @@ export class GameCommandHandler implements CommandHandler {
         case 'complete-quest':
           return this.wrap(await this.gameService.handleCompleteQuest(userId, arg));
 
-        // ========== 社交系统 ==========
+        // ===== 社交系统 =====
         case '对话':
         case 'talk':
         case '交谈': {
@@ -894,7 +893,7 @@ export class GameCommandHandler implements CommandHandler {
           return this.wrap(await this.familiarSystem.setFollow(userId, targetName, isFollow));
         }
 
-        // ========== 反馈 ==========
+        // ===== 反馈 =====
         case '反馈':
         case 'feedback': {
           const raw = firstArg === 'bug' || firstArg === 'suggestion' || firstArg === '建议' || firstArg === '问题'
@@ -903,7 +902,7 @@ export class GameCommandHandler implements CommandHandler {
           return this.wrap(await this.gameService.handleFeedback(userId, raw));
         }
 
-        // ========== 状态系统 ==========
+        // ===== 状态系统 =====
         case '躺下':
         case 'lie-down':
           return this.wrap(await this.gameService.handleLieDown(userId));
@@ -912,12 +911,12 @@ export class GameCommandHandler implements CommandHandler {
         case 'get-up':
           return this.wrap(await this.gameService.handleGetUp(userId));
 
-        // ========== 设置 ==========
+        // ===== 设置 =====
         case '设置':
         case 'settings':
           return this.wrap(await this.gameService.handleSettings(userId, firstArg, args.slice(1).join(' ')));
 
-        // ========== 设置子指令 ==========
+        // ===== 设置子指令 =====
         case '设置指引':
         case 'setting-guide':
           return this.wrap(await this.gameService.handleSettingsGuide(userId));
@@ -946,16 +945,16 @@ export class GameCommandHandler implements CommandHandler {
         case 'setting-marker':
           return this.wrap(await this.gameService.handleSettingsMarker(userId, arg));
 
-        // ========== 快捷输入 ==========
+        // ===== 快捷输入 =====
         case '快捷':
         case 'sc':
         case 'shortcut': {
-          const subCmd = firstArg; // 子命令
+          const subCmd = firstArg;
           const subArgs = args.slice(1).join(' ');
           return this.wrap(await this.shortcutService.handleShortcutCmd(userId, subCmd, subArgs));
         }
 
-        // ========== 管理 ==========
+        // ===== 管理 =====
         case '管理':
         case 'admin':
         case '管理员':
@@ -967,15 +966,13 @@ export class GameCommandHandler implements CommandHandler {
         case 'finish-now':
           return this.wrap(await this.gameService.handleAdminFinishNow(userId));
 
-        // ========== 基础战斗命令 ==========
+        // ===== 基础战斗命令 =====
         case '开始战斗':
         case 'start-battle':
-          // 手动进入战斗循环模式
           return this.wrap(await this.gameService.handleStartBattle(userId));
 
         case '扫荡':
         case 'sweep':
-          // 快速战斗/扫荡模式
           return this.wrap(await this.gameService.handleSweep(userId, Number(firstArg) || 0));
 
         case '闪避':
@@ -985,7 +982,7 @@ export class GameCommandHandler implements CommandHandler {
           return this.wrap(result);
         }
 
-        // ========== 玩家信息命令 ==========
+        // ===== 玩家信息命令 =====
         case '资源背包':
         case 'resource-bag':
           return this.wrap(await this.gameService.handleResourceBag(userId));
@@ -1010,16 +1007,14 @@ export class GameCommandHandler implements CommandHandler {
 
         case '图鉴':
         case 'handbook': {
-          // 图鉴是纯查看指令，菜单正文以「请选择分类」开头、地图/怪物详情含
-          // 「不可传送」等提示，都会命中 isSuccessfulResponse 的失败关键词，
-          // 被误判为指令失败 → finishCommandTasks 跳过任务要求「发送“图鉴”」的推进，
-          // 表现为「教程-图鉴」永远停留在 ◆需要发送“图鉴”x3 无法完成。
-          // 查看类指令不适用失败关键词启发式：有正文即视为成功（同 使魔技能 的修法）。
+          // 图鉴是纯查看指令，菜单正文含「请选择分类」「不可传送」等提示，会被 isSuccessfulResponse
+          // 的失败关键词误判为失败 → 教程任务无法推进（同 使魔技能 的坑）。
+          // 查看类指令不适用失败关键词启发式：有正文即视为成功。
           const handbookText = await this.gameService.handleHandbook(userId, firstArg);
           return { success: !!handbookText?.trim(), content: handbookText, broadcast: true, durationMs: 0 };
         }
 
-        // ========== 物品操作命令 ==========
+        // ===== 物品操作命令 =====
         case '切换武器':
         case 'switch-weapon':
           return this.wrap(await this.gameService.handleSwitchWeapon(userId, firstArg));
@@ -1121,7 +1116,7 @@ export class GameCommandHandler implements CommandHandler {
           return this.wrap(result);
         }
 
-        // ========== 使魔系统命令 ==========
+        // ===== 使魔系统命令 =====
         case '通用技能':
         case 'common-skills':
           return this.wrap(await this.gameService.handleCommonSkills(userId));
@@ -1198,7 +1193,7 @@ export class GameCommandHandler implements CommandHandler {
         case 'start-challenge':
           return this.wrap(await this.gameService.handleStartChallenge(userId));
 
-        // ========== 带"覅"前缀的管理/调试延时攻击命令（对应原版 _主程序.ecode） ==========
+        // ===== 带"覅"前缀的管理/调试延时攻击命令（对应原版 _主程序.ecode） =====
         // 覅下一层：使魔挑战副本进入下一层（_主程序.ecode L6431 覅下一层）
         case '覅下一层':
         case 'challenge-next-layer': {
@@ -1217,12 +1212,12 @@ export class GameCommandHandler implements CommandHandler {
         case 'delayed-attack-qq':
           return this.wrap(await this.combatSystem.delayedAttackByQQWeapon(userId, arg));
 
-        // ========== 地图/探索命令 ==========
+        // ===== 地图/探索命令 =====
         case '观察附近':
         case 'look-around':
           return this.wrap(await this.gameService.handleLookAround(userId));
 
-        // ========== 查看XXX 导航系列（对应原版 _主程序.ecode L5442-5570） ==========
+        // ===== 查看XXX 导航系列（对应原版 _主程序.ecode L5442-5570） =====
         case '查看宠物':
         case 'view-pets':
           return this.wrap(await this.gameService.handleViewPets(userId));
@@ -1286,7 +1281,7 @@ export class GameCommandHandler implements CommandHandler {
         case 'view-safe':
           return this.wrap(await this.gameService.handleViewSafe(userId, arg));
 
-        // ========== 对话跟随 / 家园设置（对应原版 L1368/L1397/L5277） ==========
+        // ===== 对话跟随 / 家园设置（对应原版 L1368/L1397/L5277） =====
         case '对话咏星跟随':
         case 'dialogue-yongxing': {
           const result = await this.gameService.handleDialogueYongxing(userId);
@@ -1308,12 +1303,12 @@ export class GameCommandHandler implements CommandHandler {
         case 'signal-gun':
           return this.wrap(await this.gameService.handleSignalGun(userId, arg));
 
-        // ========== 副本命令 ==========
+        // ===== 副本命令 =====
         case '副本清空':
         case 'clear-dungeon':
           return this.wrap(await this.gameService.handleClearDungeon(userId, arg));
 
-        // ========== 载具命令 ==========
+        // ===== 载具命令 =====
         case '组装':
         case 'assemble': {
           // 原版 _主程序.ecode L10096-L10117：多段空格参数表示按模拟配方直接组装新载具。
@@ -1412,7 +1407,7 @@ export class GameCommandHandler implements CommandHandler {
         case 'amplifier-help':
           return this.wrap(await this.gameService.handleAmplifierHelp(userId));
 
-        // ========== 宠物/社交命令 ==========
+        // ===== 宠物/社交命令 =====
         case '开始捕捉':
         case 'start-capture':
           return this.wrap(await this.gameService.handleStartCapture(userId, firstArg));
@@ -1445,12 +1440,12 @@ export class GameCommandHandler implements CommandHandler {
           return this.wrap(result);
         }
 
-        // ========== 任务/设置命令 ==========
+        // ===== 任务/设置命令 =====
         case '放弃任务':
         case 'abandon-quest':
           return this.wrap(await this.gameService.handleAbandonQuest(userId, arg));
 
-        // ========== 其他命令 ==========
+        // ===== 其他命令 =====
         case '使魔大战':
         case 'game-intro':
           return this.wrap(await this.gameService.handleGameIntro(userId));
@@ -1539,6 +1534,8 @@ export class GameCommandHandler implements CommandHandler {
         case 'repair-item':
           return this.wrap(await this.gameService.handleRepairItem(userId, firstArg));
 
+        // 原版 _主程序.ecode L7410-L7489：普拉娜超装填 / 管风琴装填，
+        // 经「工作」标记与延时任务结算，不消耗背包弹药（结算见 DelayedSettleService）。
         case '装填':
         case 'reload':
           return this.wrap(await this.gameService.handleReload(userId, firstArg));
@@ -1570,7 +1567,7 @@ export class GameCommandHandler implements CommandHandler {
         case 'view-player':
           return this.wrap(await this.gameService.handleViewPlayer(userId, firstArg));
 
-        // ========== 社交/基础 ==========
+        // ===== 社交/基础 =====
         case '扶':
         case 'help-up':
           return this.wrap(await this.gameService.handleHelpUp(userId));
@@ -1581,7 +1578,7 @@ export class GameCommandHandler implements CommandHandler {
           return this.wrap(result);
         }
 
-        // ========== 安装/拆卸 ==========
+        // ===== 安装/拆卸 =====
         case '安装全部':
         case 'install-all':
           return this.wrap(await this.gameService.handleInstallAll(userId));
@@ -1590,12 +1587,12 @@ export class GameCommandHandler implements CommandHandler {
         case 'uninstall-all':
           return this.wrap(await this.gameService.handleUninstallAll(userId));
 
-        // ========== 背包操作 ==========
+        // ===== 背包操作 =====
         case '背包操作':
         case 'bag-ops':
           return this.wrap(await this.gameService.handleBagOps(userId));
 
-        // ========== 装备 ==========
+        // ===== 装备 =====
         case '装备强化':
         case 'equip-enhance': {
           const result = await this.gameService.handleEquipEnhance(userId, firstArg);
@@ -1615,7 +1612,7 @@ export class GameCommandHandler implements CommandHandler {
         case 'equip-preset':
           return this.wrap(await this.gameService.handleEquipPreset(userId, firstArg, args.slice(1)));
 
-        // ========== 商店 ==========
+        // ===== 商店 =====
         // 活跃度/钻石/数据三个商店统一委托给使魔商店子系统显示对应子商店
         case '活跃度商店':
         case 'activity-shop':
@@ -1629,7 +1626,7 @@ export class GameCommandHandler implements CommandHandler {
         case 'data-shop':
           return this.wrap(await this.familiarSystem.familiarShop(userId, 'dataCore'));
 
-        // ========== 探测扩展 ==========
+        // ===== 探测扩展 =====
         // 原版探测系列：无关键词=汇总提示/全部列表；有关键词=定向搜索
         case '探测雷达':
         case 'probe-radar': {
@@ -1650,7 +1647,7 @@ export class GameCommandHandler implements CommandHandler {
         case 'probe-crop':
           return this.wrap(await this.gameService.handleProbeCrops(userId, firstArg));
 
-        // ========== 宠物扩展 ==========
+        // ===== 宠物扩展 =====
         case '宠物操作':
         case 'pet-ops':
           return this.wrap(await this.familiarSystem.handlePet(userId, firstArg));
@@ -1696,7 +1693,7 @@ export class GameCommandHandler implements CommandHandler {
         case 'pet-equip':
           return this.wrap(await this.familiarSystem.petEquip(userId, firstArg, args.slice(1).join(' ')));
 
-        // ========== 全部指令 ==========
+        // ===== 全部指令 =====
         case '全部跟随':
         case 'follow-all':
         case 'all-follow':
@@ -1722,7 +1719,7 @@ export class GameCommandHandler implements CommandHandler {
         case 'all-commands':
           return this.wrap(await this.gameService.handleAllCommands(userId));
 
-        // ========== 家园扩展 ==========
+        // ===== 家园扩展 =====
         case '家园操作':
         case 'home-ops':
           return this.wrap(await this.familiarSystem.handleHome(userId, '家园操作', ...args));
@@ -1747,7 +1744,7 @@ export class GameCommandHandler implements CommandHandler {
         case 'home-rename':
           return this.wrap(await this.familiarSystem.handleHome(userId, '家园命名', ...args));
 
-        // ========== 开采扩展 ==========
+        // ===== 开采扩展 =====
         case '开采自动':
         case 'auto-mine': {
           const result = await this.gameService.handleAutoMine(userId);
@@ -1759,12 +1756,12 @@ export class GameCommandHandler implements CommandHandler {
         case 'stop-mine':
           return this.wrap(await this.gameService.handleStopMine(userId));
 
-        // ========== 配方 ==========
+        // ===== 配方 =====
         case '配方解锁':
         case 'recipe-unlock':
           return this.wrap(await this.gameService.handleRecipeUnlock(userId, arg));
 
-        // ========== 求助/购物扩展 ==========
+        // ===== 求助/购物扩展 =====
         case '求助确认':
         case 'confirm-help':
           return this.wrap(await this.gameService.handleConfirmHelp(userId, firstArg));
@@ -1773,7 +1770,7 @@ export class GameCommandHandler implements CommandHandler {
         case 'auto-shop':
           return this.wrap(await this.gameService.handleAutoShop(userId, firstArg));
 
-        // ========== 管理/调试 ==========
+        // ===== 管理/调试 =====
         case '刷新怪物':
         case 'refresh-monster':
           return this.wrap(await this.gameService.handleRefreshMonster(userId, arg));
@@ -1787,7 +1784,7 @@ export class GameCommandHandler implements CommandHandler {
         case 'spawn-npc':
           return this.wrap(await this.gameService.handleSpawnNpc(userId, arg));
 
-        // ========== 生产模式 ==========
+        // ===== 生产模式 =====
         case '生产0':
         case 'prod-mode-0':
           return this.wrap(await this.gameService.handleVehicleProduction(userId, '0'));
@@ -1796,7 +1793,7 @@ export class GameCommandHandler implements CommandHandler {
         case 'prod-mode-1':
           return this.wrap(await this.gameService.handleVehicleProduction(userId, '1'));
 
-        // ========== 铠甲合体 ==========
+        // ===== 铠甲合体 =====
         case '炎龙':
         case 'yanlong':
           return this.wrap(await this.gameService.handleArmorCombine(userId, '炎龙'));
@@ -1817,7 +1814,7 @@ export class GameCommandHandler implements CommandHandler {
         case 'xueao':
           return this.wrap(await this.gameService.handleArmorCombine(userId, '雪獒'));
 
-        // ========== 其他 ==========
+        // ===== 其他 =====
         case '转换文本':
         case 'transform-text':
           // 原版「转换文本 QQ 编号」两段参数
@@ -1835,12 +1832,12 @@ export class GameCommandHandler implements CommandHandler {
         case 'stop-save-image':
           return this.wrap(await this.gameService.handleStopSaveImage(userId));
 
-        // ========== 接管停止 ==========
+        // ===== 接管停止 =====
         case '接管停止':
         case 'stop-takeover':
           return this.wrap(await this.gameService.handleStopTakeover(userId));
 
-        // ========== 确认还原 ==========
+        // ===== 确认还原 =====
         case '确认还原植入体等级':
         case 'confirm-reset-implant':
           return this.wrap(await this.gameService.handleConfirmResetImplant(userId));
@@ -1863,13 +1860,13 @@ export class GameCommandHandler implements CommandHandler {
         }
       }
     } catch (err: any) {
-      return { success: false, content: `指令执行错误: ${err.message}`, broadcast: false, durationMs: 0 };
+      return failCommand(`指令执行错误: ${err.message}`);
     }
   }
 
   /**
-   * 家园命令路由
-   * 将新版生产相关的家园子命令分发到 HomeService，其他保持原有路由
+   * 家园命令路由：生产相关子命令（建造/拆除/种植/收获/生产）走 HomeService，
+   * 其余子命令走 familiarSystem.handleHome。
    */
   private async handleHomeCommand(userId: number, subCommand: string, args: string[]): Promise<string> {
     const normalizedSubCommand = String(subCommand || '').trim();
@@ -1900,7 +1897,6 @@ export class GameCommandHandler implements CommandHandler {
       return result;
     }
 
-    // 生产相关的子命令由 HomeService 处理
     const productionCommands = ['建造', '拆除', '种植', '收获', '生产'];
     if (productionCommands.includes(normalizedSubCommand)) {
       try {
@@ -1917,7 +1913,6 @@ export class GameCommandHandler implements CommandHandler {
         if (yardAction && builtGate) return builtGate;
         const backpack = this.playerService.safeJsonParse<any[]>(player.backpack, []);
 
-        // 加载建筑定义列表
         const buildingDefs = await this.homeService.getAllBuildingDefs();
 
         let result;
@@ -1927,11 +1922,9 @@ export class GameCommandHandler implements CommandHandler {
             if (!buildingName) return '请指定要建造的建筑名称，例如：建造 训练器';
             const buildResult = await this.homeService.buildBuilding(map, buildingName, buildingDefs, backpack);
             if (buildResult.success) {
-              // 保存地图和背包变更
               await this.gameService.updateMapBuildings(map.id, map.buildings);
               player.backpack = backpack;
               await this.playerService.savePlayer(player);
-              // 自动推进任务
               await this.taskService.advance(userId, '建造');
               await this.taskService.advance(userId, '建筑数量');
               await this.taskService.advance(userId, '安装' + buildingName);
@@ -2028,7 +2021,6 @@ export class GameCommandHandler implements CommandHandler {
       }
     }
 
-    // 其他子命令保持原有路由到 familiarSystem.handleHome
     return await this.familiarSystem.handleHome(userId, normalizedSubCommand, ...args);
   }
 

@@ -7,6 +7,7 @@ import { CombatSystemService } from './combat-system.service';
 import { ItemSystemService } from './item-system.service';
 import { TaskService } from './task.service';
 import { asJsonValue } from '../../common/utils/json-value.util';
+import { collectVehiclePartNames } from '../../common/utils/vehicle-part.util';
 // 数值收敛/展示唯一实现（两位小数），禁手写 Math.round 副本
 import { roundItemQuantity } from '../../common/utils/game-text.util';
 
@@ -50,7 +51,7 @@ export class AutoMineService {
   /**
    * 自动开采同样按「读快照→改→整包写回」操作玩家数据，必须与玩家指令、
    * 任务结算共用同一把用户级锁（PlayerService.enqueueUserWrite），否则后台
-   * 结算会用兑换/召唤前的旧快照整包覆盖背包（曾导致兑换的召唤券蒸发）。
+   * 结算会用兑换/召唤前的旧快照整包覆盖背包，兑换到的召唤券直接蒸发。
    */
   private enqueueUserWrite<T>(userId: number, fn: () => Promise<T>): Promise<T> {
     return this.playerService.enqueueUserWrite(userId, fn);
@@ -174,7 +175,7 @@ export class AutoMineService {
       ? vehicles.find((candidate: any) => [candidate?.id, candidate?.vehicleId]
         .some((value) => String(value ?? '') === vehicleKey))
       : undefined;
-    const partNames = this.getVehiclePartNames(vehicle);
+    const partNames = collectVehiclePartNames(vehicle);
     const collector = partNames.includes('引力调频器')
       ? 3
       : partNames.includes('行星解裂器')
@@ -312,7 +313,7 @@ export class AutoMineService {
     const raw = this.parseArray(value);
     return raw.map((entry: any) => {
       const sourceName = String(entry?.name ?? '').trim();
-      // 产出数量只读规范键 quantity（同义旧键 count 已废弃，静态数据与地图条目均已改名）
+      // 产出数量只读规范键 quantity（不读同义旧键 count）
       const rawQuantity = Number(entry?.quantity ?? 0);
       const hasChance = entry?.chance !== undefined;
       const qualityMatch = sourceName.match(/^(.*?)([edcbasx])$/i);
@@ -377,21 +378,5 @@ export class AutoMineService {
   private parseArray(value: any): any[] {
     if (Array.isArray(value)) return value;
     return asJsonValue<any[]>(value, []);
-  }
-
-  private getVehiclePartNames(vehicle: any): string[] {
-    if (!vehicle) return [];
-    const names: string[] = [];
-    const visit = (part: any): void => {
-      if (!part) return;
-      const name = String(part?.name ?? '').trim();
-      if (name) names.push(name);
-      for (const inner of this.parseArray(part?.builtinParts ?? part?.builtin ?? part?.内置)) {
-        visit(inner);
-      }
-    };
-    for (const part of this.parseArray(vehicle.parts)) visit(part);
-    for (const part of this.parseArray(vehicle.builtinParts)) visit(part);
-    return names;
   }
 }

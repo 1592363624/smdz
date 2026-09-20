@@ -1,12 +1,12 @@
 /**
- * 掉落资源投放回归测试（2026-09-06 线上事故：货舱 / 能量元素编号点了没反应）
+ * 掉落资源投放回归测试（守住「货舱 / 能量元素编号点了没反应」不再复发）
  *
- * 事故根因：定时任务把动态资源写成 {name,type,amount} 字面量塞进 GameMap.resources2，
+ * 根因：定时任务把动态资源写成 {name,type,amount} 字面量塞进 GameMap.resources2，
  * ① 缺 gatherCmd → 观察附近给它编了号但 cmd 为空 → 编号不注册 → 发数字完全无反应；
  * ② 采集链路 getGatherResources 在 resources 非空时只读 resources → 永远采不到；
  * ③ 缺 outputs → 即便采到也是「什么都没有收集到」。
  *
- * 本套件锁定修复后的三条不变量：
+ * 本套件锁定的三条不变量：
  *   1) 投放落在 resources（采集可见集），不是 resources2；
  *   2) 投放的是全局资源表的完整定义（gatherCmd / outputs / timeScale 齐全）；
  *   3) 重复投放累加「次数」，不是新增条目、也不是累加 amount。

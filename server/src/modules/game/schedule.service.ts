@@ -3,8 +3,8 @@
  * 对应原版易语言：后台运作.ecode
  * 负责自动保存、地图资源刷新、副本生成、行商判断、掉落货舱等定时任务
  *
- * 注意：为避免循环依赖，本服务不注入 GameService，所有与游戏逻辑相关的
- * 操作（生成 NPC/怪物/召唤物/资源/载具等）均直接通过 PrismaService 操作数据库。
+ * 注意：与游戏逻辑相关的操作（生成 NPC/怪物/召唤物/资源/载具等）直接通过
+ * PrismaService 操作数据库，只在行商判断处调用 GameService，以压缩循环依赖面。
  * 可配置项（副本名、宠物数量上限、几率等）统一从 SystemConfig 配置中心读取。
  */
 
@@ -29,7 +29,7 @@ import { asJsonValue } from '../../common/utils/json-value.util';
  *   2. 静态数据 shops.json 的 dungeons / dungeons2（原版「副本」/「副本2」配置的解析结果）
  *   3. DungeonService.getInstanceGroups() 的真实副本组名（兜底）
  * 三个来源都会按“地图表中是否真实存在”过滤：副本入口靠“去掉(副本)后的名称”解析目标地图，
- * 名字对不上地图时入口会永远进不去（2026-09-13「扭曲深渊」事故）。
+ * 名字对不上地图时入口会永远进不去。
  */
 
 /**
@@ -77,12 +77,12 @@ export class ScheduleService implements OnApplicationBootstrap {
   /**
    * 启动时补齐各地图常驻怪物（原版 接口1.ecode L1374：读档时对每张地图执行 `刷新地图`）。
    *
-   * 与旧实现的关键差异：这里是**只补不删**（`topUpResidentMonsters` → `spawnResidentMonsters`），
-   * 不重建存活怪。原版 `刷新地图` 之所以是整批重建，是因为它的世界存档在启动时整体载入内存；
+   * 这里是**只补不删**（`topUpResidentMonsters` → `spawnResidentMonsters`），不重建存活怪：
+   * 原版 `刷新地图` 之所以是整批重建，是因为它的世界存档在启动时整体载入内存；
    * 本框架的怪物实例持久化在 GameMonster 表，重启不该抹掉怪物身上已有的状态。
    *
    * 作用：保证「刚部署/冷启动」后所有非关卡地图都有怪可打，因此到达与建档两条路径
-   * 不再需要任何"懒刷新"捷径（这两条捷径已按原版移除）。
+   * 都不需要额外的"懒刷新"逻辑。
    */
   onApplicationBootstrap(): void {
     // 不阻塞启动收尾；失败只告警（DB 尚未就绪时下一分钟 cron 仍会补齐）
@@ -151,11 +151,6 @@ export class ScheduleService implements OnApplicationBootstrap {
   }
 
   /**
-   * 救援/采集的延时兜底扫描已由 DelayedTaskService（持久化延时任务表）取代：
-   * 任务行落库即跨重启存活，不再需要按 markers 反推任务、指纹去重与防重入熔断。
-   */
-
-  /**
    * 自动保存 - 每3分钟执行一次
    * 对应原版：自动保存线程（原版为3分钟一次，同时将最高级玩家等级写入配置中心）。
    * 本实现不写这一行：面板的「与最高级玩家等级差距」经验加成直接查 Player 表取实时值，
@@ -201,8 +196,7 @@ export class ScheduleService implements OnApplicationBootstrap {
    *
    * 可用环境变量 PLAYTIME_CRON=off 停用：本任务每分钟推进活跃玩家的 version，
    * 会与「锁外快照式 savePlayer」路径互相挤掉写入（stale-block 静默丢写 / CAS
-   * 冲突）——集成测试环境必须停用，否则 e2e 断言偶发读到半套写入的结果
-   * （2026-09-12 integration-vehicle-combat 偶发失败根因）。
+   * 冲突）——集成测试环境必须停用，否则 e2e 断言偶发读到半套写入的结果。
    */
   @Cron('30 * * * * *')
   async accumulatePlayTime() {
@@ -258,7 +252,7 @@ export class ScheduleService implements OnApplicationBootstrap {
    *   → 标记到期 → L1663-1674 补 1 只随机模板怪（上限 `地图.怪物数量`）
    *   → L1682 删除该标记。
    * ⚠️ 补怪**只增不删**：绝不重建存活怪，否则会把玩家已打出的伤害清零，
-   *    导致战斗永远无法收尾（线上事故：每分钟把残血怪替换成满血新怪，战斗打不完）。
+   *    导致战斗永远无法收尾。
    */
   @Cron('0 * * * * *') // 每分钟
   async respawnMonsters() {
@@ -299,7 +293,6 @@ export class ScheduleService implements OnApplicationBootstrap {
 
   /**
    * 解析可能为 JSON 字符串的怪物模板字段（容错历史行数据）
-   * @param raw monsters 字段原始值（字符串形态）
    * @returns 怪物名数组，解析失败返回空数组
    */
   private safeParseStringArray(raw: string): string[] {
@@ -372,7 +365,6 @@ export class ScheduleService implements OnApplicationBootstrap {
   /**
    * 清理上一小时生成的特殊 NPC 和怪物
    * 对应原版：行商判断 开头删除旧的 行商/露娜/npc1(神之工匠)/npc2(小雫)/小恶魔
-   * @param maps 可刷特殊的地图列表
    */
   private async clearOldMerchants(maps: any[]): Promise<void> {
     try {
@@ -426,7 +418,6 @@ export class ScheduleService implements OnApplicationBootstrap {
   /**
    * 生成行商 NPC（随机地图，含物品库存）
    * 对齐原版 后台运作.ecode L1213-1231：生成行商时调用 生成行商物品(g.背包)
-   * @param maps 可刷特殊的地图列表
    */
   private async spawnMerchant(maps: any[]): Promise<void> {
     try {
@@ -468,7 +459,6 @@ export class ScheduleService implements OnApplicationBootstrap {
   /**
    * 生成特殊宠物（花园宝宝 / 小白狐）
    * 对应原版：先统计全地图已有数量，未达上限时在随机地图生成召唤物
-   * @param maps 可刷特殊的地图列表
    * @param petName 宠物名称（花园宝宝/小白狐）
    */
   private async spawnSpecialPet(maps: any[], petName: string): Promise<void> {
@@ -512,7 +502,6 @@ export class ScheduleService implements OnApplicationBootstrap {
 
   /**
    * 统计全地图某特殊宠物的已有数量
-   * @param petName 宠物名称
    */
   private async countSpecialPet(petName: string): Promise<number> {
     const maps = await this.mapService.getAllMaps();
@@ -527,7 +516,6 @@ export class ScheduleService implements OnApplicationBootstrap {
 
   /**
    * 生成露娜（特殊怪物，加入地图召唤物，QQ=怪物露娜1g，特殊序号=-2）
-   * @param maps 可刷特殊的地图列表
    */
   private async spawnLuna(maps: any[]): Promise<void> {
     try {
@@ -559,7 +547,6 @@ export class ScheduleService implements OnApplicationBootstrap {
 
   /**
    * 生成神之工匠、小雫（特殊 NPC，加入地图 npcs 字段）
-   * @param maps 可刷特殊的地图列表
    */
   private async spawnArtisanAndXiaonv(maps: any[]): Promise<void> {
     try {
@@ -598,7 +585,6 @@ export class ScheduleService implements OnApplicationBootstrap {
 
   /**
    * 生成小恶魔（加入地图怪物2=tempMonsters，QQ=怪物小恶魔1）
-   * @param maps 可刷特殊的地图列表
    */
   private async spawnLittleDemon(maps: any[]): Promise<void> {
     try {
@@ -630,7 +616,6 @@ export class ScheduleService implements OnApplicationBootstrap {
 
   /**
    * 生成小蓝（5%几率在地图物品中添加特殊物品）
-   * @param maps 可刷特殊的地图列表
    */
   private async spawnBlueItem(maps: any[]): Promise<void> {
     try {
@@ -718,7 +703,7 @@ export class ScheduleService implements OnApplicationBootstrap {
       const spawnTimes = this.parseWreckSpawnTimes(raw);
       const maxCount = await this.getConfigValue<number>('game.wreckMaxCount', 3);
 
-      // 未命中任一配置时间点：跳过（原版其余小时的概率刷新已按需求移除）
+      // 未命中任一配置时间点：跳过
       if (!spawnTimes.some((t) => t.hour === hour && t.minute === minute)) return;
 
       // 同一分钟槽位只触发一次（cron 与配置变更边界防抖）
@@ -812,7 +797,6 @@ export class ScheduleService implements OnApplicationBootstrap {
    * 注意：不是"复制地图上已有的作物"——那样在没有作物的地图上永远刷不出作物，
    * 而且复制的运行时副本同样落在采集链路读不到的字段里。
    *
-   * @param maps 可刷特殊的地图列表
    */
   private async spawnCrop(maps: any[]): Promise<void> {
     try {
@@ -1020,9 +1004,6 @@ export class ScheduleService implements OnApplicationBootstrap {
     }
   }
 
-  /**
-   * 获取自动保存状态
-   */
   getAutoSaveStatus(): { lastSave: number; running: boolean } {
     return {
       lastSave: this.lastAutoSaveTime,
@@ -1038,10 +1019,7 @@ export class ScheduleService implements OnApplicationBootstrap {
     return maps.filter((m: any) => !m.isFrontier && !m.isInstance && !m.noSpecial);
   }
 
-  /**
-   * 从地图列表中随机选取一个地图
-   * @param maps 地图列表
-   */
+  /** 从地图列表中随机选取一个地图 */
   private pickRandomMap(maps: any[]): any {
     return maps[Math.floor(Math.random() * maps.length)];
   }
@@ -1049,7 +1027,6 @@ export class ScheduleService implements OnApplicationBootstrap {
   /**
    * 安全解析 JSON 数组，解析失败返回空数组
    * 兼容 JSON 字符串和已解析的数组（来自 mapService.getAllMaps 返回的合并数据）
-   * @param jsonStr JSON 字符串或已解析的数组
    */
   private parseJsonArray<T>(jsonStr: unknown): T[] {
     // 已是数组：直接返回（Prisma Json 列 / 合并数据读取路径）
@@ -1059,18 +1036,12 @@ export class ScheduleService implements OnApplicationBootstrap {
     return Array.isArray(parsed) ? (parsed as T[]) : [];
   }
 
-  /**
-   * 生成唯一编号（时间戳+随机数）
-   */
+  /** 生成唯一编号（时间戳+随机数） */
   private genId(): string {
     return `${Date.now()}${Math.floor(Math.random() * 10000)}`;
   }
 
-  /**
-   * 从配置中心读取配置值（按类型自动解析），不存在或解析失败时返回默认值
-   * @param key 配置键
-   * @param defaultValue 默认值
-   */
+  /** 从配置中心读取配置值（按类型自动解析），不存在或解析失败时返回默认值 */
   private async getConfigValue<T>(key: string, defaultValue: T): Promise<T> {
     try {
       const row = await this.prisma.systemConfig.findUnique({ where: { key } });

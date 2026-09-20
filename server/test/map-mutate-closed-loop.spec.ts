@@ -2,8 +2,7 @@
  * 地图聚合串行化闭环写（mutateMapFields / mutateSummons）行为验证。
  *
  * 背景：GameMap 的 summons/items/markers 等 Json 列是「读出数组 → 内存改 → 整组写回」
- * 的裸聚合。历史上 getMapById 合并快照（陈旧）做读改写，并发时互相覆盖
- * （白被地图写竞态清除即此类事故）。
+ * 的裸聚合；基于陈旧合并快照做读改写会在并发时互相覆盖（白被地图写竞态清除即此类事故）。
  *
  * mutateMapFields 收敛为「锁内闭环」：withMapLock(mapId) → 重读 DB 最新行 →
  * 归一化字段 → mutator 改 → 逐字段 JSON diff，只写真正变了的列。

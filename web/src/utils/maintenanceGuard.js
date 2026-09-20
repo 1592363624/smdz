@@ -1,19 +1,12 @@
 /**
- * 维护/断线遮罩守卫（部署更新期间的原地维护 UI）
- *
- * 背景：部署期间后端 /api 返回 503(code=MAINTENANCE)，cutover 切换窗口甚至
- * 直接 ECONNREFUSED。旧实现是响应拦截器里整页跳 '/'——但生产环境页面请求由
- * nginx 静态托管，跳 '/' 拿到的仍是 SPA，路由又弹回 /chat，形成
- * 「/chat ↔ / 无限刷新」乒乓（2026-09-08 实证）。
- *
- * 新策略：绝不整页跳转。原地盖一层全屏遮罩（SPA 内自绘，不依赖服务端返回
- * 什么页面），由遮罩自己轮询 /api/system/version：
- *   - 200            → 维护/断线结束，location.reload() 进新版本
- *   - 503 MAINTENANCE → 切维护文案，继续轮询
- *   - 网络错误        → 切断线文案，继续轮询
- *
- * 框架无关（纯 DOM 注入，不依赖 Pinia/组件树），保证在任何报错时机都能盖住 UI。
- * 视觉与服务端维护页（maintenance.middleware.ts / public/maintenance.html）一致。
+ * 维护/断线遮罩守卫：部署期间后端 /api 返回 503(code=MAINTENANCE)、cutover 窗口直接
+ * ECONNREFUSED 时，原地盖一层全屏遮罩（SPA 内自绘，不依赖服务端返回什么页面），
+ * 并由遮罩自己轮询 /api/system/version：200 → 整页 reload 进新版本；503 → 维护文案；
+ * 网络错误 → 断线文案，两者都继续轮询。
+ * 禁止整页跳转 '/'：生产环境跳 '/' 拿到的仍是 nginx 静态托管的 SPA，路由会弹回 /chat，
+ * 形成「/chat ↔ / 无限刷新」乒乓。
+ * 框架无关（纯 DOM 注入，不依赖 Pinia/组件树），视觉与服务端维护页
+ * （maintenance.middleware.ts / public/maintenance.html）一致。
  */
 
 /** 轮询间隔(毫秒)，与服务端维护页保持一致 */
@@ -99,7 +92,6 @@ async function probe() {
   }
 }
 
-/** 切换模式并刷新文案 */
 function setMode(next) {
   if (mode === next) return;
   mode = next;

@@ -26,6 +26,7 @@ import { GlobalProficiencyService } from '../game/global-proficiency.service';
 // 装备品质码判定单一实现（装备栏展示 / 入包规范化 / GM 保存共用同一口径）
 import { equipmentQualityLabel } from '../game/equipment-ref.util';
 import { asJsonValue } from '../../common/utils/json-value.util';
+import { CARD_DIVIDER } from '../../common/utils/game-text.util';
 
 @Injectable()
 export class AdminService {
@@ -73,14 +74,11 @@ export class AdminService {
 
   /**
    * 分页查询用户列表
-   * 关联玩家档案，附带等级/角色名/位置/在线状态/在线时长/最后登录等扩展信息
-   * 支持按指定字段排序与自定义分页大小。
+   * 关联玩家档案，附带等级/角色名/位置/在线状态/在线时长/最后登录等扩展信息。
    *
    * @param page 当前页码（从1开始）
-   * @param pageSize 每页条数
    * @param keyword 搜索关键词（用户名/昵称/QQ）
    * @param sortField 排序字段（白名单内）
-   * @param sortOrder 排序方向：asc 或 desc
    */
   async listUsers(
     page = 1,
@@ -191,8 +189,8 @@ export class AdminService {
       rawList = list as any;
     }
 
-    // 在线判定与聊天页侧栏一致：以 StatsService 的 WebSocket 在线集合为准。
-    // 原按 updatedAt 近5分钟估算会把后台自动保存等写库误判为在线。
+    // 在线判定与聊天页侧栏一致：以 StatsService 的 WebSocket 在线集合为准；
+    // 不能用 updatedAt 近5分钟估算（后台自动保存等写库会被误判为在线）。
     const now = Date.now();
     const enriched = rawList.map((u) => {
       const p = u.player as any;
@@ -293,8 +291,6 @@ export class AdminService {
    * 批量编辑玩家游戏数据（GM 用户管理"编辑"弹窗）
    * 仅更新传入的字段；数值字段校验，JSON 结构字段需传对象/数组。
    * @param operatorId 操作者ID（仅日志）
-   * @param userId 目标用户ID
-   * @param data 待更新字段
    */
   async editPlayerData(operatorId: number, userId: number, data: Record<string, any>): Promise<string> {
     if (!data || typeof data !== 'object' || Array.isArray(data)) {
@@ -351,11 +347,7 @@ export class AdminService {
     return `已保存对玩家 ${player.name || user.username} 的修改（${Object.keys(updateData).length} 个字段）`;
   }
 
-  /**
-   * 更新用户角色/状态/昵称/QQ号
-   * @param id 用户ID
-   * @param data 待更新字段（仅更新传入的字段）
-   */
+  /** 更新用户角色/状态/昵称/QQ号 */
   async updateUser(
     id: number,
     data: { role?: string; status?: string; nickname?: string; qqNumber?: string },
@@ -386,8 +378,8 @@ export class AdminService {
     if (data.qqNumber !== undefined) {
       // 空字符串表示解绑 QQ
       updateData.qqNumber = data.qqNumber === '' ? null : data.qqNumber;
-      // 兼容旧版绑定：原 qqNumber 是 openid（非5-12位纯数字）时，迁移到 externalId，
-      // 避免后续 QQ 登录识别不到原账号
+      // 存量数据兼容：qqNumber 曾用于存 openid（非5-12位纯数字），改绑时把它迁到 externalId，
+      // 否则后续 QQ 登录识别不到原账号
       if (updateData.qqNumber !== null && exists.qqNumber && !/^\d{5,12}$/.test(exists.qqNumber)) {
         if (!exists.externalId) {
           updateData.externalId = exists.qqNumber;
@@ -422,8 +414,6 @@ export class AdminService {
   /**
    * 删除用户（级联删除其玩家档案、绑定关系；聊天记录发送人置空）
    * 出于安全考虑，不允许删除自己，也不允许删除 SUPER_ADMIN。
-   * @param operatorId 操作者用户ID
-   * @param targetId 目标用户ID
    */
   async deleteUser(operatorId: number, targetId: number): Promise<string> {
     if (operatorId === targetId) {
@@ -497,8 +487,6 @@ export class AdminService {
   /**
    * 批量删除用户账号（级联删除其玩家档案、绑定关系）
    * 与 deleteUser 相同的安全规则：跳过操作者自己和超级管理员，单个失败不影响其余。
-   * @param operatorId 操作者用户ID
-   * @param ids 目标用户ID列表
    * @returns 操作结果文本（含成功/跳过/失败明细）
    */
   async batchDeleteUsers(operatorId: number, ids: number[]): Promise<string> {
@@ -531,7 +519,6 @@ export class AdminService {
   /**
    * 批量清空用户游戏数据（保留账号）
    * 复用 resetPlayerData，单个失败不影响其余。
-   * @param ids 目标用户ID列表
    * @returns 操作结果文本（含成功/失败明细）
    */
   async batchResetPlayerData(ids: number[]): Promise<string> {
@@ -560,7 +547,6 @@ export class AdminService {
   /**
    * 一键清空全部玩家的游戏数据（保留所有账号）
    * 遍历 Player 表全部记录，逐个走 resetPlayerData（含 per-user 串行邮箱写入）。
-   * @returns 操作结果文本
    */
   async resetAllPlayerData(): Promise<string> {
     const players = await this.prisma.player.findMany({ select: { userId: true } });
@@ -590,9 +576,7 @@ export class AdminService {
   /**
    * 清理（重置）指定用户的游戏数据，但保留账号
    * 将玩家所有游戏进度重置为"未开始游玩"的初始状态（等同新建玩家首次进入），
-   * 与 PlayerService.getOrCreatePlayer 的初始化逻辑保持一致。
-   * 不删除 user，仅重置 Player 行的游戏字段。
-   * @returns 操作结果文本
+   * 与 PlayerService.getOrCreatePlayer 的初始化逻辑保持一致；不删除 user，仅重置 Player 行的游戏字段。
    */
   async resetPlayerData(userId: number): Promise<string> {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
@@ -624,7 +608,7 @@ export class AdminService {
     const initialEquipment = [{ name: '布衣', type: '装备', slot: '身体', quantity: 1, durability: 0, data: 'e' }];
 
     // 初始任务：新手教程（从静态数据读取，避免硬编码，与 getOrCreatePlayer 一致）
-    // 任务需求条目数量规范键为 quantity（同义旧键 count 已废弃）
+    // 任务需求条目数量的规范键是 quantity，读 count 会拿到 undefined
     let initialTasks: Array<{ name: string; requirements: Array<{ name: string; quantity: number }> }> = [];
     const tutorialTask = this.staticData.getTaskByName('新手教程');
     if (tutorialTask) {
@@ -850,8 +834,8 @@ export class AdminService {
 
   /**
    * 获取服务器状态
-   * 统计用户数、玩家数、在线玩家数（暂取有活跃标记的玩家）、地图数、指令数、
-   * 怪物种类数、物品种类数及运行时长
+   * 统计用户数、玩家数、在线玩家数（StatsService 的 WebSocket 在线集合）、地图数、
+   * 指令数、怪物/物品种类数及运行时长
    */
   async getServerStatus(): Promise<{
     totalUsers: number;
@@ -874,8 +858,8 @@ export class AdminService {
     const totalItems = this.staticData.getAllItems().length;
 
     // 在线玩家：与聊天页侧栏统计(/game/stats)共用 StatsService 的 WebSocket 在线集合，
-    // 保证两处数字一致。原实现按 player.updatedAt 近5分钟有更新估算，
-    // 但后台自动保存/活力恢复等任何写库都会刷新 updatedAt，导致离线玩家被误判在线。
+    // 保证两处数字一致。不能用 player.updatedAt 估算——后台自动保存/活力恢复等任何写库
+    // 都会刷新 updatedAt，会把离线玩家误判为在线。
     const onlinePlayers = this.statsService.getOnlineCount();
 
     return {
@@ -912,10 +896,8 @@ export class AdminService {
   }
 
   /**
-   * 设置世界等级
-   * 写入「全局标记」的 `世界熟练度` 点数（按 floor(√点数)+1 = 等级 的逆运算取 (等级-1)²）。
+   * 设置世界等级：写入「全局标记」的 `世界熟练度` 点数（按 floor(√点数)+1 = 等级 的逆运算取 (等级-1)²）。
    * 该值同时决定怪物等级、掉落熟练度加成与新人保护阈值——只有这一个真相源。
-   * @returns 更新后的世界等级文本
    */
   async setWorldLevel(level: number): Promise<string> {
     if (!this.globalProficiency) return '全局熟练度服务未启用，无法设置世界等级';
@@ -942,20 +924,14 @@ export class AdminService {
     });
   }
 
-  /**
-   * 更新系统配置
-   * @returns 操作结果文本
-   */
+  /** 更新系统配置 */
   async updateSystemConfig(key: string, value: string): Promise<string> {
     await this.systemConfigService.set(key, value);
     this.logger.log(`系统配置已更新: ${key}=${value}`);
     return `配置项 ${key} 已更新`;
   }
 
-  /**
-   * 获取玩家列表（管理员用）
-   * 关联用户信息，分页返回
-   */
+  /** 获取玩家列表（管理员用），关联用户信息分页返回 */
   async getPlayersList(
     page: number,
     pageSize: number,
@@ -979,7 +955,6 @@ export class AdminService {
   /**
    * 封禁/解封用户
    * 切换用户 status 字段：ACTIVE ↔ BANNED
-   * @returns 操作结果文本
    */
   async toggleUserBan(userId: number): Promise<string> {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
@@ -998,8 +973,6 @@ export class AdminService {
   /**
    * 解析 GM 操作的目标用户
    * 兼容三种指定方式：数字用户ID / 用户名 / QQ号
-   * @param target 用户ID(数字或纯数字字符串)、用户名或QQ号
-   * @returns 用户记录
    */
   async resolveUserTarget(target: string | number) {
     if (target === undefined || target === null || `${target}`.trim() === '') {
@@ -1024,9 +997,7 @@ export class AdminService {
   }
 
   /**
-   * 给玩家发送物品（GM 指令）
-   * 调用 PlayerService 向玩家背包中添加物品
-   * @returns 操作结果文本
+   * 给玩家发送物品（GM 指令，走 PlayerService.addToBackpack）
    */
   async gmGiveItem(
     userId: number,
@@ -1044,7 +1015,6 @@ export class AdminService {
   /**
    * 读取指定玩家的背包物品列表（解析 JSON 数组）
    * 供 GM 后台"背包管理"使用：把背包里所有物品完整解析出来，供前端编辑/增删。
-   * @param userId 目标用户ID
    * @returns 背包物品数组（每条含 name/quantity/type/durability/data 等原始字段）
    */
   async gmGetBackpack(userId: number): Promise<any[]> {
@@ -1064,9 +1034,7 @@ export class AdminService {
    * 前端把编辑/增/删后的完整物品数组传回，服务端做名称与数量校验后整体写回。
    * 相同名称条目自动合并数量；数量为 0 的条目视为删除。
    * 写入走 per-user 串行邮箱，与玩家自身操作无并发冲突。
-   * @param userId 目标用户ID
    * @param items 背包物品数组（{ name, quantity, type?, durability?, data? }）
-   * @returns 操作结果文本
    */
   async gmSaveBackpack(
     userId: number,
@@ -1082,7 +1050,7 @@ export class AdminService {
       throw new BadRequestException('背包数据必须是数组');
     }
 
-    // 归一化：① 同名合并数量 ② 数量只写规范键 quantity（count 旧镜像已废弃）
+    // 归一化：① 同名合并数量 ② 数量只写规范键 quantity（不写 count）
     // ③ 保留首次出现的 type/durability/data 等原字段 ④ 数量<=0 视为删除
     const merged = new Map<string, any>();
     for (const raw of items) {
@@ -1090,7 +1058,7 @@ export class AdminService {
       const name = String(raw.name ?? '').trim();
       if (!name) continue;
       // 数量允许小数（掉落经 rewardMultiplier 放大后可能产生小数），不做取整以免改数值。
-      // 只读规范键 quantity（历史别名 count 已废弃，调用方不得再传旧键）。
+      // 数量只读规范键 quantity；旧键 count 读不到值，调用方不得再传。
       const qty = Number(raw.quantity ?? 1);
       if (!Number.isFinite(qty) || qty < 0) {
         throw new BadRequestException(`物品「${name}」的数量必须是非负数字`);
@@ -1099,7 +1067,7 @@ export class AdminService {
       if (existed) {
         existed.quantity = Number(existed.quantity ?? 0) + qty;
       } else {
-        // 构造标准条目：去 count 旧镜像字段，保留其余投影白名单字段与额外字段
+        // 构造标准条目：count 不入表，保留投影白名单字段与其余自定义字段
         const item: any = { name, quantity: qty };
         for (const k of ['type', 'durability', 'data', 'slot']) {
           if (raw[k] !== undefined && raw[k] !== null) item[k] = raw[k];
@@ -1114,13 +1082,12 @@ export class AdminService {
     // 删除数量<=0 的条目（即前端删除操作的结果）
     const backpack = [...merged.values()].filter((i) => (i.quantity ?? 0) > 0);
 
-    // 装备条目规范化（2026-09-10 收敛，取代原「裸条目补生成 + 失败静默保留」补丁）：
-    // 原版唯一的装备构造入口是「生成装备」（物品操作.ecode L1128-1261），数据串恒以
-    // 品质码开头（e/d/c/b/a/s），**原版不存在无品质码的装备**。因此 GM 保存的装备条目
-    // 一律按「有合法品质码 → 原样保留；否则走生成装备接口补齐；名称不是静态装备 → 拒绝保存」
-    // 处理，不再静默落裸条目（那正是 2026-09-06「时间主宰点不了」的成因）。
+    // 装备条目规范化：原版唯一的装备构造入口是「生成装备」（物品操作.ecode L1128-1261），
+    // 数据串恒以品质码开头（e/d/c/b/a/s），**原版不存在无品质码的装备**。因此 GM 保存的装备
+    // 条目一律按「有合法品质码 → 原样保留；否则走生成装备接口补齐；名称不是静态装备 → 拒绝保存」
+    // 处理，不接受无品质码的裸条目。
     // 装备身份判定器（静态装备表为唯一真源）：生产实现恒有 getEquipmentByName，
-    // 手工 new 的测试桩可能未提供，故做能力检测（与 item.service 既有写法一致）。
+    // 手工 new 的测试桩可能未提供，故做能力检测。
     const equipDefOf =
       typeof (this.staticData as any)?.getEquipmentByName === 'function'
         ? (n: string) => this.staticData.getEquipmentByName(n)
@@ -1183,20 +1150,14 @@ export class AdminService {
     return catalog;
   }
 
-  // ========== 新增管理命令 ==========
+  // ===== GM 管理命令 =====
 
   /**
-   * 设置间隔消息
-   * 定时向频道发送消息，支持设置消息内容、间隔时间（秒）、发送次数
-   * 数据存储在 SystemConfig 中，key: "admin.intervalMessage"
-   * 对应原版：间隔消息()
-   * @param userId 操作者用户ID
-   * @param content 消息内容
+   * 设置间隔消息（对应原版 间隔消息()）：配置存 SystemConfig，key "admin.intervalMessage"。
    * @param interval 间隔时间（秒）
-   * @param count 发送次数
+   * @param count 发送次数（1-100）
    */
   async setIntervalMessage(userId: number, content: string, interval: number, count: number): Promise<string> {
-    // 参数校验
     if (!content) {
       throw new BadRequestException('消息内容不能为空');
     }
@@ -1207,7 +1168,6 @@ export class AdminService {
       throw new BadRequestException('发送次数必须在1-100之间');
     }
 
-    // 存储间隔消息配置到 SystemConfig
     const configValue = JSON.stringify({
       content,
       interval,
@@ -1219,18 +1179,14 @@ export class AdminService {
 
     this.logger.log(`管理员 ${userId} 设置了间隔消息: 内容="${content}", 间隔=${interval}秒, 次数=${count}`);
 
-    return `✅ 间隔消息已设置\n━━━━━━━━━━━━━━━\n内容: ${content}\n间隔: ${interval}秒\n次数: ${count}次\n\n消息将自动发送到世界频道，请确保机器人有发送权限。`;
+    return `✅ 间隔消息已设置\n${CARD_DIVIDER}\n内容: ${content}\n间隔: ${interval}秒\n次数: ${count}次\n\n消息将自动发送到世界频道，请确保机器人有发送权限。`;
   }
 
   /**
-   * 封禁玩家（按QQ号）
-   * 封禁指定QQ的玩家，禁止登录和游戏操作
-   * 对应原版：封禁操作
-   * @param userId 操作者用户ID
-   * @param targetQQ 目标QQ号
+   * 按 QQ号 → 用户名 → 用户ID 三级定位目标用户（网页版账号可能没有 QQ 号）。
+   * 找不到时抛 NotFoundException，文案与各 GM 指令原有提示保持一致。
    */
-  async banPlayer(userId: number, targetQQ: string): Promise<string> {
-    // 查找目标用户：兼容 QQ号 → 用户名 → 用户ID 三级定位（网页版账号可能没有 QQ 号）
+  private async findUserByAnyKey(targetQQ: string): Promise<any> {
     let targetUser = await this.prisma.user.findUnique({
       where: { qqNumber: targetQQ },
     });
@@ -1247,13 +1203,17 @@ export class AdminService {
     if (!targetUser) {
       throw new NotFoundException(`未找到目标用户 ${targetQQ}（支持QQ号/用户名/用户ID）`);
     }
+    return targetUser;
+  }
 
-    // 检查是否已封禁
+  /** 封禁玩家（对应原版 封禁操作）：封禁后禁止登录与游戏操作 */
+  async banPlayer(userId: number, targetQQ: string): Promise<string> {
+    const targetUser = await this.findUserByAnyKey(targetQQ);
+
     if (targetUser.status === 'BANNED') {
       return `玩家 ${targetUser.nickname || targetUser.username}(${targetQQ}) 已被封禁`;
     }
 
-    // 执行封禁
     await this.prisma.user.update({
       where: { id: targetUser.id },
       data: { status: 'BANNED' },
@@ -1265,30 +1225,10 @@ export class AdminService {
   }
 
   /**
-   * 重置玩家数据
-   * 将玩家数据重置到初始状态，保留用户账号
-   * 对应原版：重置玩家
-   * @param userId 操作者用户ID
-   * @param targetQQ 目标QQ号
+   * 重置玩家数据（对应原版 重置玩家）：重置到初始状态，保留用户账号
    */
   async resetPlayer(userId: number, targetQQ: string): Promise<string> {
-    // 查找目标用户：兼容 QQ号 → 用户名 → 用户ID 三级定位（网页版账号可能没有 QQ 号）
-    let targetUser = await this.prisma.user.findUnique({
-      where: { qqNumber: targetQQ },
-    });
-    if (!targetUser) {
-      targetUser = await this.prisma.user.findUnique({
-        where: { username: targetQQ },
-      });
-    }
-    if (!targetUser && /^\d+$/.test(targetQQ)) {
-      targetUser = await this.prisma.user.findUnique({
-        where: { id: parseInt(targetQQ, 10) },
-      });
-    }
-    if (!targetUser) {
-      throw new NotFoundException(`未找到目标用户 ${targetQQ}（支持QQ号/用户名/用户ID）`);
-    }
+    const targetUser = await this.findUserByAnyKey(targetQQ);
 
     // 复用 resetPlayerData 的完整重置逻辑：覆盖全部游戏字段 + 货币归零 + 延时任务清理，
     // 避免"GM 重置玩家"成为部分重置、残留保险柜/任务/技能/套装/加成等进度。
@@ -1300,13 +1240,7 @@ export class AdminService {
   }
 
   /**
-   * 修改玩家数据
-   * 修改玩家指定字段（如等级、经验、属性等）
-   * 对应原版：修改玩家数据
-   * @param userId 操作者用户ID
-   * @param targetQQ 目标QQ号
-   * @param field 要修改的字段名
-   * @param value 新的值
+   * 修改玩家数据（对应原版 修改玩家数据）：仅白名单字段可改
    */
   async modifyPlayer(userId: number, targetQQ: string, field: string, value: string): Promise<string> {
     // 可修改的字段白名单（防止随意修改敏感字段）
@@ -1320,25 +1254,8 @@ export class AdminService {
       throw new BadRequestException(`不允许修改字段「${field}」，可修改字段: ${allowedFields.join(', ')}`);
     }
 
-    // 查找目标用户：兼容 QQ号 → 用户名 → 用户ID 三级定位（网页版账号可能没有 QQ 号）
-    let targetUser = await this.prisma.user.findUnique({
-      where: { qqNumber: targetQQ },
-    });
-    if (!targetUser) {
-      targetUser = await this.prisma.user.findUnique({
-        where: { username: targetQQ },
-      });
-    }
-    if (!targetUser && /^\d+$/.test(targetQQ)) {
-      targetUser = await this.prisma.user.findUnique({
-        where: { id: parseInt(targetQQ, 10) },
-      });
-    }
-    if (!targetUser) {
-      throw new NotFoundException(`未找到目标用户 ${targetQQ}（支持QQ号/用户名/用户ID）`);
-    }
+    const targetUser = await this.findUserByAnyKey(targetQQ);
 
-    // 查找玩家档案
     const player = await this.prisma.player.findUnique({
       where: { userId: targetUser.id },
     });
@@ -1346,7 +1263,6 @@ export class AdminService {
       throw new NotFoundException(`玩家 ${targetQQ} 还没有创建角色`);
     }
 
-    // 解析并验证值
     let parsedValue: any = value;
     const numericFields = [
       'level', 'exp', 'hp', 'maxHp', 'shield', 'maxShield',
@@ -1360,7 +1276,6 @@ export class AdminService {
       }
     }
 
-    // 执行修改
     await this.playerService.enqueueUserWrite(player.userId, async () => {
       const _pd = await this.playerService.getPlayerData(player.userId);
       Object.assign(_pd.player, { [field]: parsedValue });
@@ -1373,22 +1288,17 @@ export class AdminService {
   }
 
   /**
-   * 发送全服公告
-   * 向世界频道发送系统公告，广播给所有在线玩家
-   * 对应原版：发送公告
-   * @param userId 操作者用户ID
-   * @param message 公告内容
+   * 发送全服公告（对应原版 发送公告）：向世界频道广播给所有在线玩家
    */
   async broadcast(userId: number, message: string): Promise<string> {
     if (!message) {
       throw new BadRequestException('公告内容不能为空');
     }
 
-    // 使用 sendAnnouncement 发送公告
     await this.sendAnnouncement(message);
 
     this.logger.log(`管理员 ${userId} 发送了全服公告: ${message}`);
 
-    return `✅ 全服公告已发送\n━━━━━━━━━━━━━━━\n${message}`;
+    return `✅ 全服公告已发送\n${CARD_DIVIDER}\n${message}`;
   }
 }

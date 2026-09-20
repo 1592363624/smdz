@@ -1,12 +1,6 @@
 /**
  * 玩家/怪物三池（hp / shield / armor）数值出口归一化 —— 数值三道闸之外的「第四道闸」。
  *
- * 背景（2026-09-10 实测事故）：测试库「路人乙」三池停在
- *   hp=0.01999999999999602 / shield=0.0799999999999983 / armor=0.0799999999999983
- * 面板 Math.round 显示 0/72，但 `isPlayerDead → hp <= 0` 判为存活；同时战斗扣血端
- * 把「已按当前池值截断的微小伤害」再 Math.round 一次抹成 0，导致残血玩家既不死、
- * 又打不掉 —— 残血无敌死锁。
- *
  * 本模块是三池数值的**唯一出口实现**，所有写入/扣减/封顶/回复都必须经过它：
  *   1. 统一两位小数（对齐项目「数值最多两位小数」口径）；
  *   2. 绝对值 < POOL_EPSILON 的残值一律归零（清浮点尾 + 让死亡判定闭合）；
@@ -24,8 +18,7 @@ export const POOL_EPSILON = 0.01;
  *
  * 依据不是「两位小数」，而是**显示一致性**：面板对三池取 Math.round 显示，
  * 0.02 / 0.08 显示出来就是 0。若库里存 0.02 而 `hp <= 0` 判为存活，就会出现
- * 「面板 0 血、人还活着、还挨打不掉血」的自相矛盾态 —— 这正是本次事故的用户可见表现。
- *
+ * 「面板 0 血、人还活着、还挨打不掉血」的自相矛盾态。
  * 因此出口强制：显示为 0 的值，存下来就是 0。0.5 及以上（如龙闪后的 0.72）保留。
  */
 export const POOL_ZERO_FLOOR = 0.5;
@@ -64,10 +57,10 @@ export function capPoolValue(value: unknown, cap: unknown): number {
 /**
  * 战斗扣血出口：把 calcDamage 分配的「本层伤害」落成「实际扣减量」。
  *
- * 关键语义（修复死锁的核心）：
- * - 伤害 >= 当前池值 → **破池，扣光**（返回原始残值，不再取整）—— 旧实现在这里
- *   `Math.round(0.02) = 0`，残池永远扣不掉，是「残血无敌」的直接成因；
- * - 伤害不足以破池 → 按 Math.round 结算（与旧口径一致），不足 0.5 点则不扣。
+ * 关键语义：
+ * - 伤害 >= 当前池值 → **破池，扣光**，返回原始残值且不再取整——对 0.02 这类
+ *   残池取整会得到 0，残池永远扣不掉（「残血无敌」死锁的成因）；
+ * - 伤害不足以破池 → 按 Math.round 结算，不足 0.5 点则不扣。
  *
  * 禁止在调用侧再对返回值做 Math.round —— 那正是抹零死锁的成因。
  */
@@ -87,7 +80,7 @@ export function resolvePoolDamage(assigned: unknown, current: unknown): number {
   return normalizePoolValue(Math.min(rounded, raw));
 }
 
-/** 扣减后写回：当前值 - 扣减量，出口归一化（<0.01 归零） */
+/** 扣减后写回：当前值 - 扣减量，出口归一化（不足 0.5 归零） */
 export function subtractPoolValue(current: unknown, damage: unknown): number {
   const base = normalizePoolValue(current);
   const loss = Number(damage);
@@ -95,7 +88,7 @@ export function subtractPoolValue(current: unknown, damage: unknown): number {
   return normalizePoolValue(base - loss);
 }
 
-/** 三池字段名（顺序：护盾 → 装甲 → 生命，与结算层一致） */
+/** 三池字段名（归一化按此序遍历；战斗结算层的扣减顺序是 护盾 → 装甲 → 生命） */
 export const POOL_KEYS = ['hp', 'shield', 'armor'] as const;
 
 /**

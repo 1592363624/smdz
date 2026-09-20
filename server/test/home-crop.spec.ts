@@ -80,7 +80,7 @@ describe('家园作物种植与收获', () => {
 
     expect(result.success).toBe(true);
     expect(parseJson(map.resources2, [])).toEqual([]);
-    // 收益 = 产出2正收益 × 棵数 × 总成熟秒数 / 600（旧版每分钟口径折算整周期）
+    // 收益 = 产出2正收益 × 棵数 × 总成熟秒数 / 600（每分钟口径折算整周期）
     const plan: any = (service as any).getCropGrowthPlan('强壮苹果树');
     const baseFruit = staticData.getAllResources()
       .find((r: any) => r.name === '强壮苹果树')

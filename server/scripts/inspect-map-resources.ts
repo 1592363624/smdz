@@ -1,15 +1,13 @@
 /**
- * 地图资源只读诊断：打印指定地图的 resources / resources2 摘要，用于排查
- *「观察附近看得到、点编号采不到」这类僵尸资源问题。
+ * 地图资源只读诊断：打印指定地图的 resources / resources2 摘要。
  *
- * 输出每列的：名称、次数(times)、数量(amount)、采集指令(gatherCmd)、产出条数，
- * 并标出「缺 gatherCmd」（编号会注册成空指令 → 玩家发数字完全无反应）与
- *「落在 resources2 但采集可见集只读 resources」（永远匹配不到）两种异常。
+ * 每条输出：名称、次数(times)、数量(amount)、采集指令(gatherCmd)、产出条数，
+ * 并标出两种异常：缺 gatherCmd（编号注册成空指令）、
+ * 落在 resources2 但采集可见集只读 resources（永远匹配不到）。
  *
  * 用法（在 server/ 目录下）：
  *   npx ts-node scripts/inspect-map-resources.ts --db=prod --map=森林出口
  *   npx ts-node scripts/inspect-map-resources.ts --db=test --map=森林出口,城镇出口
- *   npx ts-node scripts/inspect-map-resources.ts --db=prod --map=森林出口 --full
  */
 import 'dotenv/config';
 import { NestFactory } from '@nestjs/core';

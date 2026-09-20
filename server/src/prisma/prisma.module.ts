@@ -1,5 +1,4 @@
 /**
- * Prisma 数据访问模块
  * 全局提供 PrismaService 单例，供所有模块注入使用。
  * PrismaService 依赖 ChangeBusService（写操作拦截发事件），
  * 通过导入 GameSyncModule 共享其唯一实例（勿在本模块重复 provide）。

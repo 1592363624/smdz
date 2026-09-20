@@ -1,14 +1,6 @@
 /**
- * 一次性迁移：修复「掉落的货舱 / 能量元素落在 resources2、且缺完整定义」的僵尸资源。
- *
- * 背景（2026-09-06 线上问题：森林出口 能量元素×9 / 货舱×10 编号点了没有任何反应）：
- *   定时任务 dropCargoPods 原先把动态资源写成 {name,type,amount,respawnTime} 字面量
- *   塞进 GameMap.resources2，缺 gatherCmd / times / outputs：
- *     1) 观察附近照样给它编了号，但 cmd 为空 → 编号不注册 → 发数字完全无反应；
- *     2) 采集链路 getGatherResources 在 resources 非空时只读 resources → 永远采不到；
- *     3) 即便采到也因为 outputs 为空而「什么都没有收集到」。
- *   运行时修复（schedule.service + map.service.dropResourceToMap）已把投放改为
- *   「完整模板 + 写 resources + 累加 times」，本脚本清理修复前留下的存量脏数据。
+ * 一次性迁移：把掉落在 resources2、且缺完整定义的僵尸资源迁回 resources。
+ * 只处理缺 gatherCmd 的条目，处理完即从 resources2 移除，可安全重复执行。
  *
  * 处理逻辑：
  *   1) 扫描每张地图的 resources2，筛出目标条目（默认：货舱/能量元素，且缺 gatherCmd）；

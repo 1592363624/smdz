@@ -130,7 +130,7 @@ describe('显示倍率设置项（真实远程库端到端）', () => {
     mapService = app.get(MapService);
     gameService = app.get(GameService);
 
-    // 防复发清理（2026-09-06 事故）：进程中断导致 afterAll 未执行时，e2e 测试地图会
+    // 防复发清理：进程中断导致 afterAll 未执行时，e2e 测试地图会
     // 泄漏进真实库并被定时任务当成普通地图（累计吸走货舱/能量元素、挂副本入口）。
     // 每次测试启动先按命名标记清一次历史残留，保证幂等。
     try {
@@ -222,7 +222,7 @@ describe('显示倍率设置项（真实远程库端到端）', () => {
     const uid = await makePlayer(1);
     await setupDummyMonster(100000); // 高闪避 → 真实命中判定必然失败
 
-    // checkHit 含 5% 保底命中率(combat-system.service.ts L4629)，仅靠高闪避无法 100% 保证未命中，
+    // checkHit 含 5% 保底命中率（CombatSystemService.checkHit），仅靠高闪避无法 100% 保证未命中，
     // 故显式 mock 为必不命中，使「未命中分支」确定性触发；同时禁用花园猫闪避反击递归
     // （怪物→玩家→怪物方向，见 handleGardenCatCounter），避免无限递归。
     jest.spyOn(combat as any, 'checkHit').mockReturnValue(false);

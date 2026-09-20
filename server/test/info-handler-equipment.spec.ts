@@ -2,13 +2,11 @@
  * 「信息」指令装备栏取数口径回归测试
  * 复刻 src: 显示数据.ecode 使魔数据 L2032-2210 + 物品操作.ecode 寻找装备 L1824
  *
- * 历史问题：装备生成时 item.type 固定为 '装备'（大分类），不写槽位名。
- * 旧实现 handleInfo 用 `e.type === slotName` 永远匹配不到 → 所有装备栏位都显示"无"，
- * 而网页左面板 buildEquipmentSnapshot 用 staticData.getEquipmentByName 查 equipType → 正常显示，
- * 表现为同一玩家"UI 面板"和"信息"指令装备信息不一致。
- *
- * 修复：handleInfo 改用与 buildEquipmentSnapshot 一致的 getEquipType 静态表查 equipType 口径，
- * 确保「信息」文本面板的装备栏与左面板保持一致（原版 寻找装备 等价于 z=装备列表[b] 后取 z.类型）。
+ * 口径：装备生成时 item.type 固定为 '装备'（大分类），槽位名只写在静态表的 equipType 里。
+ * handleInfo 必须与网页左面板 buildEquipmentSnapshot 一样，用 staticData.getEquipmentByName
+ * 查 equipType（原版 寻找装备 等价于 z=装备列表[b] 后取 z.类型）；
+ * 若改用 `e.type === slotName` 判断，所有装备栏位都会显示"无"，同一玩家的
+ * 「信息」指令面板与网页「UI 面板」就会不一致。
  */
 import { GameService } from '../src/modules/game/game.service';
 import { ItemService } from '../src/modules/game/item.service';
@@ -122,7 +120,7 @@ describe('信息 指令 装备栏取数 (数据显示.ecode 使魔数据 L2032-2
     // 至少应展示装备栏
     expect(out).toContain('📋 装备:');
     // 6 件都能找到对应槽位（与左面板 buildEquipmentSnapshot 同口径）
-    // 品质展示为**品质码字母**（2026-09-10 口径统一，与背包显示名「冰雹S」同源）：
+    // 品质展示为**品质码字母**（与背包显示名「冰雹S」同源）：
     // b=精良→B / a=史诗→A / c=优秀→C / d=良好→D
     expect(out).toContain('头部: B 防弹头盔');
     expect(out).toContain('肩膀: A 动力肩甲');
@@ -139,7 +137,7 @@ describe('信息 指令 装备栏取数 (数据显示.ecode 使魔数据 L2032-2
     });
     const out = await service.handleInfo(42);
     // "头部" 应该只命中第一个找到的 防弹头盔
-    // （2026-09-09 起已装备行带「N.」卸下序号前缀，行首为 "  1.头部:"）
+    // （已装备行带「N.」卸下序号前缀，行首为 "  1.头部:"）
     const headLines = out.split('\n').filter((l) => /^\s+\d+\.头部:/.test(l));
     expect(headLines.length).toBe(1);
     expect(headLines[0]).toContain('防弹头盔');

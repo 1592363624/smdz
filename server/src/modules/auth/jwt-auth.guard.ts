@@ -1,7 +1,4 @@
-/**
- * JWT 鉴权守卫
- * 用于保护需要登录才能访问的接口。
- */
+/** 保护需登录接口的 JWT 鉴权守卫（passport 策略名 jwt）。 */
 
 import { Injectable } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';

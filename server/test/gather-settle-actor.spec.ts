@@ -2,7 +2,7 @@
  * 回归：采集结算链（tick → dispatch → mutate → enqueueUserWrite → getPlayerData → savePlayer）
  * 必须把「采集中」标记的删除与产出落库。
  *
- * 线上实测（2026-09-12，超管批量"收集石头60"）：结算产出/经验/任务/熟练度全部落库，
+ * 线上实测（超管批量"收集石头60"）：结算产出/经验/任务/熟练度全部落库，
  * 唯独 markers['采集中'] 的删除没写进库 → 前端读条（PendingActionBar gather 条）不消失。
  *
  * 本测试用真实 PlayerService + 真实 ActorRuntime + 真实 PlayerMutateService（内存 prisma），
@@ -116,7 +116,6 @@ describe('采集结算在 Actor/mutate 链内的落库（线上读条残留回�
       });
     });
 
-    // 3) 断言落库结果
     const markers = rowMarkers(rows);
     expect(markers['采集中']).toBeUndefined();
     expect(markers['采集熟练度']).toBe(60);
@@ -148,7 +147,7 @@ describe('采集结算在 Actor/mutate 链内的落库（线上读条残留回�
       });
     });
 
-    // 结算链后半段：重读快照 + 写熟练度（对齐 applySettleGatherResource L2540-2544 写法）
+    // 结算链后半段：重读快照 + 写熟练度（对齐 applySettleGatherResource 的写法）
     await mutate.mutate(501, async () => {
       const fresh = (await playerService.getPlayerData(501)).player;
       const proficiencyMarkers = asJsonValue<Record<string, any>>(fresh.markers, {});

@@ -1,18 +1,14 @@
 /**
- * 宠物/召唤物指令域服务（game 模块化重构 P2-5 抽出）
+ * 宠物/召唤物指令域服务
  *
  * 职责：查看宠物/宠物操作（改名/转移/装备）、全部跟随/主动/被动/产奶/指令、
  * 挤奶结算（settleMilk 及产奶量/好感）、剪毛、开始/停止捕捉、大召唤术。
- * 依赖方向：依赖 FamiliarSystemService（召唤物系统主入口）、FamiliarSkillsService、
- * Player、Map、StaticData、Prisma、CombatState 与支撑层（updateOwnedSummonMode、
- * advanceTask、buildNumberedMenu、addItemToCollection、normalizeMarkers2 等通用出口）；
- * 不依赖其他指令域子服务。
- * 单一真相源：召唤物模式修改统一 updateOwnedSummonMode（支撑层）；
- * 产奶剩余展示统一 game-text.util.formatMsDurationText（remainingMinutes 口径）。
+ * 统一出口：召唤物模式修改走 GameSupportService.updateOwnedSummonMode；
+ * 产奶剩余展示走 game-text.util.formatMsDurationText（remainingMinutes 口径）。
  * 对口原版：_主程序.ecode 宠物/挤奶/捕捉分支。
  */import { Injectable, Logger } from '@nestjs/common';
 import { asJsonValue } from '../../../common/utils/json-value.util';
-import { formatMsDurationText } from '../../../common/utils/game-text.util';
+import { CARD_DIVIDER, formatMsDurationText } from '../../../common/utils/game-text.util';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { PlayerService } from '.././player.service';
 import { MapService } from '.././map.service';
@@ -44,7 +40,7 @@ export class PetCommandService {
     if (!map) return '你不在任何地图上！';
 
     const summons = asJsonValue<any[]>(map.summons, []);
-    const lines: string[] = [`🐾 【${map.name}】的宠物/NPC:`, `━━━━━━━━━━━━━━━`];
+    const lines: string[] = [`🐾 【${map.name}】的宠物/NPC:`, CARD_DIVIDER];
     const options: { label: string; cmd: string }[] = [];
 
     if (summons.length === 0) {
@@ -59,7 +55,7 @@ export class PetCommandService {
     }
 
     if (options.length > 0) {
-      lines.push(`━━━━━━━━━━━━━━━`);
+      lines.push(CARD_DIVIDER);
       const menu = await this.support.buildNumberedMenu(userId, options, '💡 发送编号数字即可查看详情');
       lines.push(...menu);
     }
@@ -375,7 +371,7 @@ export class PetCommandService {
   addSummonMilkAffinity(pet: any, ownerIds: Set<string>): void {
     const owner = String(pet?.ownerQQ ?? '') || [...ownerIds][0] || '';
     const key = `好感${owner}`;
-    // 召唤物专有标记容器只有规范键 markers（历史 标记 已由字段规范闸口收敛删除）
+    // 召唤物专有标记容器只认规范键 markers；中文别名键由字段规范闸口在读档/落库边界转换
     const field = 'markers';
     const raw = pet?.[field];
     if (Array.isArray(raw)) {
@@ -510,7 +506,7 @@ export class PetCommandService {
     }
     if (Array.isArray(hair)) hair = hair[0];
     const hairName = String(hair?.name ?? target.hairName ?? target.毛发名称 ?? '毛发');
-    // 静态使魔配置 familiars.json 的 hairDrop 条目数量只读规范键 quantity（同义旧键 count 已废弃）
+    // 静态使魔配置 familiars.json 的 hairDrop 条目数量只读规范键 quantity（读同义键 count 拿到 undefined）
     const hairCount = Math.max(1, Number(hair?.quantity ?? 1) || 1);
 
     // 原版 L11324-L11330：成功后任务同时记录物种、剪毛、采集和产物。

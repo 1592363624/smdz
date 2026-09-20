@@ -1,12 +1,12 @@
 /**
  * 「发送指令」成就写入回归
  *
- * 背景（2026-09-15 玩家反馈）：发送多条指令后「领取称号 肝帝I」仍提示
+ * 背景（玩家反馈）：发送多条指令后「领取称号 肝帝I」仍提示
  * “需要发送指令x10，你只达到了0”。
  * 根因：原版 添加成就(“发送指令”,1,玩家.成就,玩家.任务) 一次调用同时写
  * 「成就」（Player.markers，称号进度数据源）与「任务」；移植版只有
  * taskService.advance（只推进任务），没有写 markers → 肝帝系列条件恒为 0。
- * 修复：CommandService.finishCommandTasks 里同步调用
+ * 口径：CommandService.finishCommandTasks 里同步调用
  * AchievementService.addAchievement(player, '发送指令', 1)（可选依赖，
  * 未注入时跳过、不阻断指令主链路）。
  */

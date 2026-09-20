@@ -5,8 +5,8 @@ import { MovementVehicleService } from '../src/modules/game/commands/movement-ve
  * 地图通行门槛门禁（完整复刻原版「前往需求判断」地图操作.ecode L992-1046
  * + 标记要求 _主程序.ecode L6648-6660 + 不可传送 L1614/L1738）。
  *
- * 历史事故背景：旧实现把 requiredTravel 判定写成查玩家 markers 的 travel_2/travel_3
- * 键，而全代码库无任何写入点 → 战舰坟场/血族城堡永久锁死。本 spec 防止回归。
+ * 防回归：requiredTravel 判定不得查玩家 markers 的 travel_2/travel_3 键——
+ * 全代码库无任何写入点，那样战舰坟场/血族城堡会永久锁死。
  */
 describe('地图通行门槛 checkCanTravel（原版复刻门禁）', () => {
   function makeService(): any {
@@ -129,8 +129,8 @@ describe('地图通行门槛 checkCanTravel（原版复刻门禁）', () => {
 
 /**
  * 地图连通性门禁：原版 L6622「取最短路径」的存在性部分。
- * 历史事故背景：旧实现缺失该判定（无路径也能发起「前往」，孤岛地图如
- * 血族城堡/战舰坟场 go 任意地图只会误报「需要传送/跃迁」），本 spec 防止回归。
+ * 防回归：缺该判定时无路径也能发起「前往」，孤岛地图如
+ * 血族城堡/战舰坟场 go 任意地图只会误报「需要传送/跃迁」。
  */
 describe('地图连通性 hasTravelPath（原版 L6622 复刻门禁）', () => {
   function makeTravelService(maps: any[]): any {

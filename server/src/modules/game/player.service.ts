@@ -27,9 +27,7 @@ import { PlayerMutateContextService } from './player-mutate-context.service';
 import { GameHighlightService } from './highlight.service';
 import { ActorRuntime, actorKey } from '../actor';
 
-/**
- * 玩家数据完整解析后的结构
- */
+/** 玩家数据完整解析后的结构 */
 export interface PlayerData {
   player: any;
   backpack: any[];
@@ -68,8 +66,7 @@ export type PlayerCommand =
   | { type: 'SET_ATTRIBUTE'; attr: 'hp' | 'shield' | 'armor' | 'vitality' | 'currentWeapon'; value: number; source?: string }
   | { type: 'ADJUST_ATTRIBUTE'; attr: 'hp' | 'shield' | 'armor' | 'vitality'; delta: number; source?: string };
 
-/** savePlayer 兼容层附加的写基线（非枚举，不会落库/进入 fieldSignature）。 */
-/** 写基线元数据键；PlayerMutateService 需读写其货币审计去重标志，故导出 */
+/** 写基线元数据键（savePlayer 兼容层附加，非枚举、不落库/不进 fieldSignature）；PlayerMutateService 需读写其货币审计去重标志，故导出 */
 export const PLAYER_WRITE_META = Symbol('player-write-meta');
 const PLAYER_PATCH_FIELDS = [
   'level', 'exp', 'upgradeExp', 'name', 'baseName', 'type', 'specialSeq',
@@ -130,7 +127,7 @@ const CANONICAL_JSON_FIELDS = [
  * 字段级写基线开关（环境变量 PLAYER_WRITE_DIFF，默认 on）：
  * - on（默认）：savePlayer 收到带写基线的行对象时，只投递「相对基线实际改过的
  *   字段」。把「调用方把整行旧快照搬回邮箱」这条路从根上掐断。
- * - off：回退到「合并对象上出现过的全部字段」的旧行为，仅供线上排障时对照。
+ * - off：合并「对象上出现过的全部字段」（整包搬运），仅供线上排障时对照。
  */
 const WRITE_DIFF_MODE: 'on' | 'off' =
   process.env.PLAYER_WRITE_DIFF === 'off' ? 'off' : 'on';
@@ -148,9 +145,9 @@ export class PlayerService {
    * 写模型诊断计数（进程级，重启归零）。
    *
    * 为什么需要：`拦截到旧快照整包写入` 与 `玩家乐观锁冲突` 都是**静默丢写**信号
-   * （strict 模式下调用方拿不到异常，玩家只会看到「操作了但状态没生效」）。历史上
-   * 这类问题只能靠玩家反馈 + 翻日志堆栈人肉定位。计数与「最近一次调用方」落到内存，
-   * 由 `GET game/admin/write-model` 一次性读出，便于上线后回归观测。
+   * （strict 模式下调用方拿不到异常，玩家只会看到「操作了但状态没生效」），只能靠
+   * 翻日志堆栈人肉定位。计数与「最近一次调用方」落到内存，由 `GET game/admin/write-model`
+   * 一次性读出，便于上线后回归观测。
    */
   private readonly writeModelStats: PlayerWriteModelStats = {
     staleWriteBlocked: 0,
@@ -177,7 +174,7 @@ export class PlayerService {
     @Optional() private readonly mutateContext?: PlayerMutateContextService,
     /** Actor 运行时注入入口：唯一写路径内核（生产由 ActorModule 注入全局单例）。
      *  未注入（存量测试桩手工 new）时构造器自动内置独立实例并注册 player 类型，
-     *  桩测试与生产走同一条 Actor 路径（legacy 邮箱 fallback 已于 2026-09-08 删除）。 */
+     *  桩测试与生产走同一条 Actor 路径。 */
     @Optional() injectedRuntime?: ActorRuntime,
     /** 物品系统（可选依赖，经 ITEM_SYSTEM_SERVICE 字符串 token 别名注入，
      *  避免 PlayerService↔ItemSystemService 运行时循环加载）。
@@ -237,13 +234,10 @@ export class PlayerService {
    * 前一个之后顺序执行，单进程内天然单线程、无竞态，无任何 Mutex/信号量阻塞。
    * 即「改状态只能给它发消息 / 内部单线程」的 Actor 模型落地形态。
    *
-   * 背景：玩家背包/标记等复杂结构以 JSON 字符串整包存取，任何「读取快照→
-   * 修改→savePlayer 整包写回」的路径如果与其它路径并发执行，后写者会用
-   * 旧快照覆盖先写者的改动（曾导致兑换扣钻后召唤券被后台开采结算的旧
-   * 快照回滚）。此前 AutoMineService / TaskService 各持有私有锁互不互斥。
-   * 现统一委托本邮箱；已在同一邮箱内的调用（同 userId）直接放行以支持嵌套。
-   * @param userId 用户ID
-   * @param fn 入队后顺序执行的读写逻辑
+   * 为什么必须串行：玩家背包/标记等复杂结构以 JSON 整包存取，任何「读取快照→
+   * 修改→savePlayer 整包写回」的路径若与其它路径并发，后写者会用旧快照覆盖
+   * 先写者的改动（表现为兑换扣钻后召唤券被后台开采结算的旧快照回滚）。
+   * 已在同一邮箱内的调用（同 userId）直接放行以支持嵌套。
    */
   enqueueUserWrite<T>(userId: number, fn: () => Promise<T>): Promise<T> {
     if (!userId || !Number.isFinite(userId)) return fn();
@@ -252,9 +246,6 @@ export class PlayerService {
     // 同玩家写操作经 actorRuntime.run('player', userId) 串到同一邮箱链，内部
     // getPlayerData/savePlayer 走内存态缓存，写后由运行时统一落库。
     // 可重入：同一条异步链已在 run 内时直接执行（防自死锁），落库交给最外层 run。
-    // 【历史】此处曾有手工 Promise 链实现的同用户串行 fallback（供无 DI 测试桩），
-    // 2026-09-08 删除：构造器自动内置 ActorRuntime，测试桩与生产走同一条 Actor
-    // 路径——「测试验证的路径 = 生产运行的路径」，双轨回退已被架构门禁禁止。
     return this.actorRuntime!.run<T, T>('player', userId, async () => fn());
   }
 
@@ -267,8 +258,6 @@ export class PlayerService {
    *  - Prisma Json 列 / 内存快照：读出已是「解析好的对象/数组」，直接作为权威数据返回，
    *    绝不能再走 JSON.parse（否则对象被强制转成 "[object Object]" 而误判失败、丢失真实数据）；
    *  - 历史字符串列 / 双表示 accessor：是 JSON 文本，解析后返回。
-   * @param jsonStr 待解析的值（字符串 / 对象 / 数组 / null / undefined）
-   * @param defaultVal 解析失败或空值时的默认值
    */
   safeJsonParse<T>(jsonStr: unknown, defaultVal: T): T {
     // 守卫：DB 字段为 NULL/undefined 时直接回退默认值，
@@ -280,7 +269,6 @@ export class PlayerService {
     if (typeof jsonStr !== 'string') {
       return jsonStr as T;
     }
-    // 空字符串：回退默认值
     if (jsonStr.trim() === '') {
       return defaultVal;
     }
@@ -302,17 +290,14 @@ export class PlayerService {
    *   a2 = (c*c + 5) * (1 + 玩家.加成.升级经验 / 100) * (1 - 风月入墨减益 / 100)
    * 其中 c 为当前等级。若没有"升级经验加成"（装备/称号/使魔提供的升级经验百分比），
    * 则 upgradeExpBonus=0；"风月入墨"减益为负面增益（0~100 百分比）。
-   * @param level 当前等级
    * @param upgradeExpBonus 升级经验加成（百分比），默认 0
    * @param windMoonReduce 风月入墨减益（百分比），默认 0
-   * @returns 升级所需经验值
    */
   calcUpgradeExp(
     level: number,
     upgradeExpBonus = 0,
     windMoonReduce = 0,
   ): number {
-    // 升级经验加成>0 会降低升级门槛（即需要的经验更少），故为 (1 + 加成/100)
     const base = level * level + 5;
     return Math.floor(base * (1 + upgradeExpBonus / 100) * (1 - windMoonReduce / 100));
   }
@@ -343,11 +328,8 @@ export class PlayerService {
   }
 
   /**
-   * 获取或创建玩家
-   * 如果用户已有玩家档案则返回，否则创建新档案
-   * 新玩家初始化：发放初始装备、初始物品、设置初始位置与标记
-   * @param userId 用户ID
-   * @returns 玩家对象
+   * 获取或创建玩家：已有档案直接返回，否则建档并初始化
+   * （初始装备、初始物品、初始位置与标记）
    */
   async getOrCreatePlayer(userId: number): Promise<any> {
     const uid = this.requireUserId(userId);
@@ -358,7 +340,7 @@ export class PlayerService {
 
       // 初始装备（全部为原版道具，对应原版「普通装备补给箱」的布装备+石制工具）：
       // 武器走原版"生成装备"路径卷随机词条（品质e），保证开局有真实武器伤害。
-      // 之前的自创道具「石斧/皮帽」在装备表中无定义（武器伤害恒为0），已移除。
+      // 装备名必须取自装备表——表内无定义的名称武器伤害恒为 0。
       const fallbackGear = (name: string): any => ({ name, type: '装备', quantity: 1, durability: 0, data: 'e' });
       const generateStarterGear = async (name: string): Promise<any> => {
         if (!this.itemSystem) return fallbackGear(name);
@@ -397,11 +379,11 @@ export class PlayerService {
 
       // 初始任务：自动领取「新手教程」（对应原版 开局自动接取新手引导任务）
       // 任务要求与奖励从静态数据 tasks.json 读取，避免在代码中硬编码
-      // 任务需求条目数量规范键为 quantity（同义旧键 count 已废弃）
+      // 任务需求条目数量只认规范键 quantity（读同义键 count 会拿到 undefined）
       let initialTasks: Array<{ name: string; requirements: Array<{ name: string; quantity: number }> }> = [];
       const tutorialTask = this.staticData.getTaskByName('新手教程');
       if (tutorialTask) {
-        // asJsonValue 容错读取：静态数据可能已是解析数组（新格式）或 JSON 字符串（旧格式）
+        // asJsonValue 容错读取：静态数据可能是已解析数组，也可能是 JSON 字符串
         const reqs = asJsonValue<Array<{ name: string; quantity: number }>>(
           tutorialTask.requirements, []
         );
@@ -452,24 +434,20 @@ export class PlayerService {
         },
       });
 
-      // 新玩家出生不再单独刷怪（对齐原版）：原版 `刷新地图` 只在服务器读档
+      // 新玩家出生不在此刷怪（对齐原版）：原版 `刷新地图` 只在服务器读档
       // （接口1.ecode L1374）与副本刷新（后台运作 L1066）执行，与建档无关；
       // 出生地图的常驻怪由启动补齐（ScheduleService.onApplicationBootstrap →
       // MapService.spawnResidentMonsters）与「刷新怪物」标记驱动补齐覆盖。
-      // 旧实现「出生即整批重刷出生地图」会把该地图上其他玩家正在打的怪一并替换。
+      // 若在建档时整批重刷出生地图，会把该地图上其他玩家正在打的怪一并替换。
     }
     return player;
   }
 
   /**
-   * 获取玩家数据（完整JSON解析）
-   * 解析所有JSON字段为对象，方便业务层直接使用
-   * @param userId 用户ID
-   * @returns 包含解析后各字段的玩家数据
-   * @deprecated 快照式写模型的读入口，仅存量调用点兼容保留，新代码禁用
-   *   （2026-09-08 RVW04 P2-5）。终态：指令域一律走 `PlayerMutateService.mutate`
-   *   （单一快照 + 统一落库 + 货币审计），后台跨玩家域走 `patchPlayer`（定向字段写，
-   *   不整包覆盖）。存量调用点暂不迁移；收口进度由架构门禁
+   * 获取玩家数据（把各 JSON 字段解析成对象，供业务层直接使用）
+   * @deprecated 快照式写模型的读入口，仅存量调用点兼容保留，新代码禁用。
+   *   终态：指令域一律走 `PlayerMutateService.mutate`（单一快照 + 统一落库 + 货币审计），
+   *   后台跨玩家域走 `patchPlayer`（定向字段写，不整包覆盖）。收口进度由架构门禁
    *   `architecture-guard.spec.ts` 的 `RAW_SAVEPLAYER_BASELINE` 度量（只减不增）。
    */
   async getPlayerData(userId: number): Promise<PlayerData> {
@@ -560,7 +538,7 @@ export class PlayerService {
     // 背包数组，业务代码照常按背包物品读写（透明兼容）。
     this.materializeCurrencies(player);
 
-    // 物品身份自愈（Issue #11 架构收敛）：背包内同名非装备合并、type 收敛到
+    // 物品身份自愈：背包内同名非装备合并、type 收敛到
     // 静态定义（equipments.json/items.json 为唯一真源），保证同一物品无论从
     // 什么渠道获得身份一致。详见 item-normalize.util.ts。
     player.backpack = canonicalizeBackpack(
@@ -654,15 +632,12 @@ export class PlayerService {
 
   /**
    * 双表示收敛（框架级根除 style A/B 分叉）：
-   *
-   * 玩家子集合历史上存在两种等价写法——
    *   (A) 改顶层解析数组/对象：`ctx.backpack.push(...)` / `ctx.markers['x'] = 1`；
-   *   (B) 改行字段（历史上是 JSON 字符串，现 Json 列直赋结构体）：`player.backpack = backpack`。
-   * 旧实现里两者是独立的两份数据，落库前必须用「基线对比 + merge 启发式」猜测
-   * 业务改的是哪一侧（persistPlayerData 的 merge + mutate 的 syncParsedFields），
-   * 启发式一旦拿到陈旧表示就会互相覆盖（医疗箱永久标记被抹掉的回归根因）。
+   *   (B) 改行字段：`player.backpack = backpack`。
+   * 两者若各自持有一份数据，落库前就得用「基线对比 + merge 启发式」猜业务改的是
+   * 哪一侧，启发式一旦拿到陈旧表示会互相覆盖。
    *
-   * 现在把行字段改为 accessor：getter 序列化权威态（顶层解析表示）、setter 解析
+   * 这里把行字段改为 accessor：getter 序列化权威态（顶层解析表示）、setter 解析
    * 回写权威态。两种写法物理上写的是同一份对象，「先解析行→改→写回行」的常见
    * 模式天然经过最新权威态，不再可能丢掉另一侧的改动。落库 = 序列化权威态，
    * 无任何猜测。
@@ -678,8 +653,8 @@ export class PlayerService {
         get: () => {
           const canonical = (state as any)[field];
           // 权威态一般恒为解析对象；保留「原始字符串」这一兜底形态，是为了让
-          // setter 收到无法解析的历史脏字符串时原样透传（与旧行为一致，
-          // 读取侧 safeJsonParse 会走各自的 default 兜底）。
+          // setter 收到无法解析的历史脏字符串时原样透传，
+          // 读取侧 safeJsonParse 会走各自的 default 兜底。
           return typeof canonical === 'string' ? canonical : JSON.stringify(canonical);
         },
         set: (value: any) => {
@@ -700,11 +675,11 @@ export class PlayerService {
    *
    * ## 解决什么问题
    *
-   * `savePlayer(player)` 的历史语义是「把调用方给的行对象合并进活态」。现存
-   * 270 处裸调用点里，有大量是「邮箱外读一份 DB 副本 → 改一两个字段 → 整行
-   * 传回 savePlayer」的写法（典型：战斗循环定时器、延时结算回调）。这类调用
-   * 携带的是**整行旧快照**：合并进活态时，副本上那些「没打算改、但已经过期」
-   * 的字段会一并覆盖活态里刚刚发生的新写入——这正是「旧快照覆盖」事故的直接形态。
+   * `savePlayer(player)` 的语义是「把调用方给的行对象合并进活态」。常见调用形态是
+   * 「邮箱外读一份 DB 副本 → 改一两个字段 → 整行传回 savePlayer」（典型：战斗循环
+   * 定时器、延时结算回调）。这类调用携带的是**整行旧快照**：合并进活态时，副本上
+   * 那些「没打算改、但已经过期」的字段会一并覆盖活态里刚刚发生的新写入——
+   * 这正是「旧快照覆盖」事故的直接形态。
    *
    * ## 怎么解决
    *
@@ -808,14 +783,12 @@ export class PlayerService {
   /**
    * 统一货币读写入口（三支柱·支柱一：单写者下的构造级新鲜度）
    *
-   * 背景（正式库 7516「兑换后立刻召唤只看到兑换前 21.012」事故）：货币条目曾经是
-   * count/quantity 双字段镜像——兑换加券只写 quantity、召唤只读 count，同一份权威
-   * 活态里两个数量互相打架，savePlayer 的「重读+合并」安全网救不了这种分裂
-   * （两个字段都属于同一权威态，quantity 的修改是真变更、count 的陈旧是合法字段值）。
-   *
-   * 根治方式：货币条目只保留规范键 quantity（与物品域完全同口径，历史别名 count
-   * 由 field-contract 在读写档边界收敛），因此「读到旧字段」在构造上不再可能；
-   * 所有货币数量读写统一经过本入口。
+   * 货币条目的数量只认规范键 quantity（与物品域完全同口径，历史别名 count 由
+   * field-contract 在读写档边界收敛）。若条目同时挂 count/quantity 两份镜像字段，
+   * 一处只写 quantity、另一处只读 count 就会互相打架，且 savePlayer 的
+   * 「重读+合并」安全网救不了这种分裂（两个字段都属于同一权威态，quantity 的修改
+   * 是真变更、count 的陈旧是合法字段值）。只保留一个键，「读到旧字段」在构造上
+   * 即不可能；所有货币数量读写统一经过本入口。
    */
 
   /**
@@ -878,13 +851,12 @@ export class PlayerService {
 
 
   /**
-   * 保存玩家数据
-   * 将修改后的数据写回数据库，JSON 字段会自动序列化
+   * 保存玩家数据：JSON 字段自动序列化后写回数据库
    * @param player 要保存的玩家对象（包含可能已修改的 JSON 字段）
-   * @deprecated 快照式写模型的写入口，仅存量调用点兼容保留，新代码禁用
-   *   （2026-09-08 RVW04 P2-5）。终态：指令域一律走 `PlayerMutateService.mutate`
-   *   （最外层统一落库），后台跨玩家域走 `patchPlayer`（定向字段写，不整包覆盖）。
-   *   存量调用点暂不迁移；收口进度由架构门禁 `RAW_SAVEPLAYER_BASELINE` 度量（只减不增）。
+   * @deprecated 快照式写模型的写入口，仅存量调用点兼容保留，新代码禁用。
+   *   终态：指令域一律走 `PlayerMutateService.mutate`（最外层统一落库），
+   *   后台跨玩家域走 `patchPlayer`（定向字段写，不整包覆盖）。收口进度由架构门禁
+   *   `RAW_SAVEPLAYER_BASELINE` 度量（只减不增）。
    */
   async savePlayer(player: any): Promise<void> {
     // 已在 mutate 上下文内：把本次要写入的字段"合并"进上下文快照（局部写如
@@ -1020,7 +992,7 @@ export class PlayerService {
    * （活态此后已被其他写者推进）——正是「旧快照整包覆盖」的特征。
    * - strict 模式（默认）：直接丢弃本次合并，保护活态（调用方应基于活态重算后重试）；
    * - log 模式（运维回退用，PLAYER_WRITE_CAS=log）：记录冲突与调用方堆栈后
-   *   照常合并（旧行为，业务不中断）。
+   *   照常合并（业务不中断）。
    * version 相同或更大不属于旧快照，正常合并。
    *
    * @returns 是否接受了本次合并（false = 判定为旧快照并丢弃，strict 模式）；
@@ -1111,19 +1083,14 @@ export class PlayerService {
   /**
    * 写通过后把「本次读取的活态版本」回写到调用方快照上（自我推进基线）。
    *
-   * ## 解决什么问题（2026-09-10 实测根因）
+   * ## 解决什么问题
    *
    * 旧快照拦截判定用的是「调用方快照的 version < 活态 version」，但**调用方自己
    * 每一次成功写入都会把活态 version 推进 1**，而调用方快照的 version 一直停在
    * 读取时刻。于是「读一次快照 → 连续写多次」的指令，第 2 次及以后的写入全被判成
    * 旧快照、在 strict 模式下被静默丢弃（`mergeIntoLiveState` 直接 return，调用方
-   * 拿不到任何异常）。
-   *
-   * 实测形态（`handleDodge`，玩家 728）：一次读取后连写 3 次（添加成就「闪避」→
-   * 添加成就「闪避熟练度」→ 写 buffs+markers2）。第 1 次落库推进 version 0→1，
-   * 后两次被拦：日志连出 2 条「拦截到旧快照整包写入」，结果是成就「闪避熟练度」
-   * 与闪避增益 / 闪避冷却标记全部丢失——表现为「发指令看着成功、状态没生效」
-   * （冷却没写进去 → 可以无限连发闪避）。
+   * 拿不到任何异常）——表现为「发指令看着成功、状态没生效」（冷却没写进去时
+   * 同一指令还能无限连发）。
    *
    * ## 为什么这样是安全的
    *
@@ -1283,7 +1250,6 @@ export class PlayerService {
       }
     }
 
-    // 复制非 JSON 的基础字段
     const scalarFields = [
       'level', 'exp', 'upgradeExp', 'name', 'baseName', 'type', 'specialSeq',
       'hp', 'maxHp', 'shield', 'maxShield', 'armor', 'maxArmor',
@@ -1363,14 +1329,13 @@ export class PlayerService {
 
   /**
    * 乐观锁模式（环境变量 PLAYER_WRITE_CAS，默认 strict）：
-   * - off：完全关闭 CAS，走旧的无条件 update（$use 中间件自增 version）。
+   * - off：完全关闭 CAS，走无条件 update（$use 中间件自增 version）。
    * - log：按读取快照的 version 条件更新；count=0（快照已被他人推进）
    *   时记录冲突与调用方堆栈后强制写库——把「旧快照整包覆盖」从静默变成显式
    *   可观测，业务行为保持不变（运维回退模式，不再是默认）。
    * - strict（默认）：冲突直接抛错阻断，宁可让调用方重试也不用旧快照覆盖新写入。
-   *   2026-09-08（RVW04 P1-3）默认由 log 翻转为 strict：单进程 + Actor 邮箱收敛后
-   *   旁路写理论为零，CAS 命中即真实竞态，strict 让它立刻可见。
-   * 存量测试桩手工 new PlayerService（无 updateMany mock）时自动退回旧路径。
+   *   单进程 + Actor 邮箱下旁路写理论为零，CAS 命中即真实竞态，故默认让它立刻可见。
+   * 存量测试桩手工 new PlayerService（无 updateMany mock）时自动退回无条件 update。
    */
   private static readonly CAS_MODE: 'off' | 'log' | 'strict' =
     (['off', 'log', 'strict'] as const).includes(process.env.PLAYER_WRITE_CAS as any)
@@ -1388,7 +1353,7 @@ export class PlayerService {
    */
   private async persistPlayer(player: any): Promise<void> {
     // 落库兜底闸（第四道闸）：任何漏过业务出口的三池浮点/负值写入在此收敛为
-    // 「两位小数 + <0.01 归零」，DB 不会存下 0.02 这类「面板显示 0、判定仍存活」的脏值。
+    // 「两位小数 + 不足 0.5 归零」，DB 不会存下 0.02 这类「面板显示 0、判定仍存活」的脏值。
     normalizePools(player);
     // 字段规范闸（落库唯一出口）：任何写入方即使写了历史别名键（数量/名称/count/
     // 有效期至…），此处一并收敛为规范英文键后落库，保证 DB 里同义字段只有一份。
@@ -1446,7 +1411,7 @@ export class PlayerService {
         `玩家数据并发冲突(id=${player.id}, 快照version=${snapshotVersion})，本次写入已拒绝，请重试`,
       );
     }
-    // log 模式：强制写保持旧行为（业务不中断），version 以库内最新为准推进。
+    // log 模式：强制写（业务不中断），version 以库内最新为准推进。
     await this.prisma.player.update({
       where: { userId: player.userId }, // 归属判定靠 where.userId（Player.id ≠ userId）
       data: updateData, // $use 中间件自动 version: { increment: 1 }
@@ -1527,11 +1492,11 @@ export class PlayerService {
   /**
    * Actor 运行时 config.save 的落库入口：把整份 PlayerData 写回 player 表。
    *
-   * 双表示收敛后（见 installCanonicalAccessors），行字段是读写都透传到顶层权威
+   * 双表示收敛下（见 installCanonicalAccessors），行字段是读写都透传到顶层权威
    * 表示的 accessor——无论业务用哪种风格改（顶层 `ctx.backpack.push(...)` 还是
    * 行 `player.backpack = backpack`），改的都是同一份权威数据，落库
    * 经 asJsonValue 收敛后必然以最新权威态写入 Json 列。落库因此退化为单纯的
-   * 整包写入，无需任何「基线对比 + 按侧猜测」的调和逻辑（该机制已随双表示一起删除）。
+   * 整包写入，无需任何「基线对比 + 按侧猜测」的调和逻辑。
    */
   private async persistPlayerData(data: PlayerData): Promise<void> {
     const p = (data as any).player;
@@ -1602,8 +1567,8 @@ export class PlayerService {
     }
 
     if (level === startLevel) {
-      // 未升级也顺带修正可能过期的 upgradeExp 存量脏值（仅在对象本就携带该字段时，
-      // 与旧 addExp「实时计算门槛、不信任过期字段」的策略一致）
+      // 未升级也顺带修正可能过期的 upgradeExp 存量脏值：仅在对象本就携带该字段时
+      // 覆写，门槛一律实时计算、不信任过期字段。
       if (player.upgradeExp !== undefined) player.upgradeExp = upgradeExp;
       return false;
     }
@@ -1660,8 +1625,6 @@ export class PlayerService {
    * 与 savePlayer 归一化门禁共享同一份实现）
    * 升级后同步重算基础战斗属性（maxHp/maxShield/maxArmor/attack 等），
    * 对齐原版 _计算玩家 的等级成长公式（加成计算.ecode L1799-1833）。
-   * @param userId 用户ID
-   * @param exp 增加的经验值
    * @returns 是否升级及新等级
    */
   async addExp(userId: number, exp: number): Promise<{ leveledUp: boolean; newLevel: number }> {
@@ -1701,7 +1664,6 @@ export class PlayerService {
 
     const player = await this.getOrCreatePlayer(userId);
 
-    // 累加经验
     player.exp = (player.exp || 0) + exp;
 
     const leveledUp = this.applyLevelUps(player);
@@ -1738,13 +1700,8 @@ export class PlayerService {
     const profDefense = prof('防御');
     const profDodge = prof('闪避');
 
-    // 原版 _计算玩家 等级成长（加成计算.ecode L1799-1833）：
-    //   攻击=10+战斗熟练×(1+等级/100)；命中=10+(等级/2+战斗熟练/2)×(1+等级/100)
-    //   生命=50+(等级×2+防御熟练)×(1+等级/100)；护盾=20+...；装甲=30+...
-    //   闪避=10+(等级/2+防御熟练/2)×(1+等级/100)
-    //   速度=10+等级/5+闪避熟练/4×(1+等级/100)
-    //   暴击+3；暴击伤害+150+等级/10
-    // 直接按公式覆盖上限（对齐原版：1级玩家生命上限≈52，攻击=10）。
+    // 原版 _计算玩家 等级成长（加成计算.ecode L1799-1833）：直接按公式覆盖上限
+    // （对齐原版：1级玩家生命上限≈52，攻击=10）。
     player.maxHp = Math.floor(50 + (lv * 2 + profDefense) * lvFactor);
     player.maxShield = Math.floor(20 + (lv * 2 + profDefense) * lvFactor);
     player.maxArmor = Math.floor(30 + (lv * 2 + profDefense) * lvFactor);
@@ -1767,17 +1724,12 @@ export class PlayerService {
     this.logger.log(`玩家 ${player.userId} 等级 ${lv}，重算属性: 攻击=${player.attack} HP上限=${player.maxHp}`);
   }
 
-  /**
-   * 获取玩家所在位置信息
-   * @param userId 用户ID
-   * @returns 地图ID和地图名称
-   */
+  /** 获取玩家所在位置信息（地图ID与地图名称） */
   async getPlayerLocation(userId: number): Promise<{ mapId: number; mapName: string }> {
     // 走 getPlayerData：Actor 邮箱内读内存活态，避免 writeThrough 未落库时读到旧位置
     const pd = await this.getPlayerData(userId);
     const player = pd.player;
 
-    // 根据 mapId 查询地图名称
     let mapName = player.location || '未知区域';
     try {
       const gameMap = await this.mapService.getMapById(player.mapId).catch(() => null);
@@ -1791,11 +1743,7 @@ export class PlayerService {
     return { mapId: player.mapId, mapName };
   }
 
-  /**
-   * 检查玩家是否死亡
-   * @param player 玩家对象
-   * @returns 是否死亡（hp <= 0）
-   */
+  /** 检查玩家是否死亡（hp <= 0） */
   isPlayerDead(player: any): boolean {
     return (player.hp || 0) <= 0;
   }
@@ -1808,7 +1756,7 @@ export class PlayerService {
    * 退回基础上限 `maxHp`，保证行为不劣化。
    *
    * 只用 player 自身可得的字段构造 playerData 入参，**绝不重新读档**——避免在既有
-   * mutate/Actor 链里产生第二份快照（历史上快照覆盖 bug 的根因）。
+   * mutate/Actor 链里产生第二份快照（快照覆盖 bug 的根因）。
    */
   private resolveCombatCapHp(player: any, playerData?: any): number {
     const baseMax = Number(player?.maxHp ?? player?.生命上限 ?? player?.属性?.生命 ?? 0);
@@ -1960,11 +1908,7 @@ export class PlayerService {
     return null;
   }
 
-  /**
-   * 获取玩家背包中的物品
-   * @param player 玩家对象
-   * @returns 背包物品数组
-   */
+  /** 获取玩家背包中的物品数组（兼容 Json 列对象与历史字符串两种形态） */
   getBackpackItems(player: any): any[] {
     const backpack = player.backpack;
     if (typeof backpack === 'string') {
@@ -1973,19 +1917,12 @@ export class PlayerService {
     return Array.isArray(backpack) ? backpack : [];
   }
 
-  /**
-   * 添加物品到背包
-   * 相同名称的物品会自动叠加数量
-   * @param userId 用户ID
-   * @param itemName 物品名称
-   * @param count 添加数量
-   * @returns 是否成功
-   */
+  /** 添加物品到背包：普通物品按名自动叠加数量，装备按原版「生成装备」路径生成独立条目 */
   async addToBackpack(userId: number, itemName: string, count: number): Promise<boolean> {
     try {
       // 读、改、写全部放入 enqueueUserWrite 内完成：基于 Actor 内存活态修改背包。
-      // 之前是先 getOrCreatePlayer 读 DB 行副本改完再写回，若活态有未落库改动
-      // （如战斗刚掉落的物品），整包覆盖会造成丢失更新（同类 addExp 事故的背包版）。
+      // 在邮箱外读 DB 行副本、改完再整包写回时，活态里未落库的改动
+      // （如战斗刚掉落的物品）会被覆盖，造成丢失更新。
       await this.enqueueUserWrite(userId, async () => {
         const _pd = await this.getPlayerData(userId);
         const backpack = this.getBackpackItems(_pd.player);
@@ -1994,10 +1931,10 @@ export class PlayerService {
         // 按原版"生成装备"路径卷随机词条生成，每个装备占独立一条（type='装备'、quantity=1），
         // 保证背包能以"装备"身份显示（不显示 ×N）、并能被解析出词条/伤害正常装备。
         // 否则 addToBackpack 只会写成 { name, count } 占位条目，既无 type='装备'（无法装备），
-        // 也无 data 词条（伤害/属性恒为 0）——GM 发放高斯步枪此前正是如此。
+        // 也无 data 词条（伤害/属性恒为 0）。
         const isEquip = !!this.staticData.getEquipmentByName(itemName);
         if (isEquip) {
-          // 清理历史上以普通物品占位存下的同名条目，避免与真实装备并存。
+          // 清理背包里以普通物品占位存下的同名条目，避免与真实装备并存。
           for (let i = backpack.length - 1; i >= 0; i--) {
             if (backpack[i]?.name === itemName && backpack[i]?.type !== '装备') backpack.splice(i, 1);
           }
@@ -2021,7 +1958,7 @@ export class PlayerService {
           }
         } else {
           // 普通物品：走背包写入唯一出口（按名合并、type 以静态定义为唯一真源、
-          // 数量只写规范键 quantity + 两位小数收敛），不再在此手写合并逻辑（2026-09-10 收敛）
+          // 数量只写规范键 quantity + 两位小数收敛），不在此手写合并逻辑
           const qty = roundItemQuantity(count);
           mergeBackpackItem(
             backpack,
@@ -2042,9 +1979,6 @@ export class PlayerService {
 
   /**
    * 从背包移除物品
-   * @param userId 用户ID
-   * @param itemName 物品名称
-   * @param count 移除数量
    * @returns 是否成功（数量不足时返回 false）
    */
   async removeFromBackpack(userId: number, itemName: string, count: number): Promise<boolean> {
@@ -2070,7 +2004,6 @@ export class PlayerService {
         }
 
         if (currentCount === count) {
-          // 数量刚好用完，移除该物品条目
           backpack.splice(index, 1);
         } else {
           // 减少数量（只写规范键 quantity，清理历史别名 count 避免歧义）
@@ -2092,8 +2025,6 @@ export class PlayerService {
    * 检查玩家是否有某个标记。
    * 数组形态看是否存在同名条目，字典形态看键是否存在；两者都由共享口径判定。
    * @param markers 标记容器（已解析对象/数组，或 Json 列历史字符串）
-   * @param name 标记名
-   * @returns 是否存在该标记
    */
   hasMarker(markers: any, name: string): boolean {
     const parsed = typeof markers === 'string' ? this.safeJsonParse<any>(markers, {}) : markers;
@@ -2104,8 +2035,6 @@ export class PlayerService {
   /**
    * 获取标记的数值（标记读取唯一口径，数组/字典两种形态通用，缺失返回 0）。
    * @param markers 标记容器（已解析对象/数组，或 Json 列历史字符串）
-   * @param name 标记名
-   * @returns 标记数值，不存在时返回 0
    */
   getMarkerValue(markers: any, name: string): number {
     const parsed = typeof markers === 'string' ? this.safeJsonParse<any>(markers, {}) : markers;
@@ -2114,11 +2043,7 @@ export class PlayerService {
 
   /**
    * 设置标记（标记写入唯一口径：数组写 { name, value }、字典按键赋值，原地修改）。
-   * 传入字符串（Json 列原始值）时无法原地写回，调用方必须先解析为对象/数组——
-   * 与历史行为一致（旧实现解析副本后写它，同样不会作用到调用方）。
-   * @param markers 标记容器（对象或数组）
-   * @param name 标记名
-   * @param value 标记数值
+   * 传入字符串（Json 列原始值）时无法原地写回，调用方必须先解析为对象/数组。
    */
   setMarker(markers: any, name: string, value: number): void {
     if (!markers || typeof markers !== 'object') return;

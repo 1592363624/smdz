@@ -1,21 +1,15 @@
 /**
- * 帮助指令处理器
- * 展示清晰的玩法指引 + 常用指令分组，帮助新手快速上手。
+ * 帮助指令处理器：展示新手玩法指引 + 常用指令分组。
  * 对应原版：帮助 / 全部指令 命令。
- * 设计要点：
- * - 不把几百条指令全部平铺（管理/内部指令太多会让人眼花），而是按"新手该做什么"分组呈现。
- * - 每个分组只展示最常用的核心指令，配合使用说明。
- * - 如需完整指令列表，可引导查看「使魔大战」主菜单。
+ * 不把几百条指令全部平铺（管理/内部指令太多会让人眼花），而是按"新手该做什么"分组，
+ * 每组只展示最常用的核心指令；需要完整列表时引导查看「使魔大战」主菜单。
  */
 
 import { Inject } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CommandContext, CommandHandler, CommandResult } from '../interfaces/command.interface';
+import { CARD_DIVIDER } from '../../../common/utils/game-text.util';
 
-/**
- * 帮助指令处理器
- * 展示新手起步指引 + 常用指令分组（按功能模块）。
- */
 export class HelpHandler implements CommandHandler {
   key = 'help';
   module = 'basic';
@@ -32,7 +26,7 @@ export class HelpHandler implements CommandHandler {
 
     const lines: string[] = [];
     lines.push(`🎮 使魔大战 - 新手引导`);
-    lines.push(`━━━━━━━━━━━━━━━`);
+    lines.push(CARD_DIVIDER);
     lines.push(`【快速上手】`);
     lines.push(`  1. 发送「信息」查看自己的角色属性`);
     lines.push(`  2. 发送「观察附近」查看当前地图的怪物、资源、NPC`);
@@ -41,11 +35,10 @@ export class HelpHandler implements CommandHandler {
     lines.push(`  5. 发送「移动 地图名」前往其他地图（如「移动 走廊」）`);
     lines.push(`  6. 发送「使魔大战」打开游戏主菜单`);
     lines.push(``);
-    lines.push(`━━━━━━━━━━━━━━━`);
+    lines.push(CARD_DIVIDER);
     lines.push(`【常用指令】`);
     lines.push(``);
 
-    // 按功能分组展示，仅列出确定存在的指令
     const groups: { title: string; cmds: string[] }[] = [
       { title: '🎒 背包与装备', cmds: ['背包', '使用', '装备', '卸下', '资源背包', '背包搜索', '装备强化', '装备预设', '丢弃'] },
       { title: '⚔️ 战斗', cmds: ['攻击', '技能', '扫荡', '闪避', '切换武器', '捕捉', '使魔挑战'] },
@@ -59,7 +52,6 @@ export class HelpHandler implements CommandHandler {
     ];
 
     for (const g of groups) {
-      // 只保留确实存在的指令
       const valid = g.cmds.filter((c) => exist.has(c));
       if (valid.length > 0) {
         lines.push(`【${g.title}】`);
@@ -68,7 +60,7 @@ export class HelpHandler implements CommandHandler {
       }
     }
 
-    lines.push(`━━━━━━━━━━━━━━━`);
+    lines.push(CARD_DIVIDER);
     lines.push(`💡 提示：发送「使魔大战」打开主菜单，或发送「游戏解释 词条」查看术语说明。`);
     lines.push(`   采集资源：在「观察附近」中看到资源后，发送编号数字或采集指令即可采集。`);
 

@@ -391,17 +391,8 @@
 
 <script setup>
 /**
- * 右下角悬浮世界聊天窗
- * 参照 palworld-server-tool 的三态设计：气泡 → 小窗 → 伪全屏。
- * 消息由 ChatView 按 type=chat 路由进本组件；发送走统一 socket 通道。
- *
- * 支持 QQ 式 @人：
- * - 气泡内 @提及 自动高亮（@用户名 换算为 @昵称展示）
- * - 右键头像/昵称/@片段 → 弹出菜单「提及 TA」（把 "@名字 " 填入输入框）
- * - 输入框中输入 @ 时弹出玩家下拉，支持方向键/回车/Tab/鼠标选择
- * 被 @ 的玩家由后端 chat:at 事件定向提醒（ChatView 统一弹轻提示）。
- *
- * 未来扩展：红包 / 道具赠送等消息 type 直接进 messages，模板按 type 分支渲染即可。
+ * 右下角悬浮世界聊天窗：气泡 → 小窗 → 伪全屏三态，消息由 ChatView 按 type=chat 路由进来，发送走统一 socket 通道。
+ * 支持 QQ 式 @人：气泡内 @提及 高亮、右键「提及 TA」、输入框 @ 下拉选人；被 @ 者由后端 chat:at 定向提醒。
  */
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
 import { useFloatingChatStore } from '../stores/floatingChat';
@@ -462,7 +453,6 @@ function hashName(name) {
 function avatarBg(m) {
   return PALETTE[hashName(nameOf(m)) % PALETTE.length];
 }
-// ink 调色板保留给头像字母着色扩展位；当前用 text-secondary 保证对比度
 
 function avatarLetter(m) {
   const n = nameOf(m);
@@ -576,8 +566,6 @@ const playerByName = computed(() => {
 /**
  * 取可写入 @ 的名字：昵称能被后端解析时优先昵称（更直观），
  * 否则退回用户名——含空格/表情的昵称会被 @ 解析截断，导致 @ 不到人
- * @param {object} player { username, nickname }
- * @returns {string}
  */
 function mentionNameOf(player) {
   const nick = String(player?.nickname || '').trim();
@@ -586,9 +574,7 @@ function mentionNameOf(player) {
 }
 
 /**
- * @提及 的展示文本：能匹配到玩家且昵称「@ 安全」时显示 @昵称，否则保持原文
- * @param {string} name @ 后面的名字（用户名或昵称）
- * @returns {string}
+ * @提及 的展示文本：能匹配到玩家且昵称「@ 安全」时显示 @昵称，否则保持原文（保证回填后仍能 @ 到人）
  */
 function mentionDisplay(name) {
   const p = playerByName.value.get(name);
@@ -600,8 +586,7 @@ function mentionDisplay(name) {
 /**
  * 把聊天文本按 @提及 拆成片段（mention / text），供模板高亮渲染
  * 与后端 ChatService.parseMentions 使用同款规则，保证「高亮的都能 @ 到人」
- * @param {string} content 原始消息文本
- * @returns {Array<{type:'text'|'mention', text:string, display?:string}>}
+ * @returns 每项 { type: 'text'|'mention', text, display? }
  */
 function contentSegments(content) {
   const text = String(content ?? '');
@@ -687,8 +672,8 @@ function onDraftInput() {
 
 /**
  * 把 "@名字 " 插入输入框
- * @param {string} name 要 @ 的名字（用户名/昵称）
- * @param {{start:number,end:number}|null} range 需替换的区间（@ 补全用）；为空则插入到光标处（失焦则追加到末尾）
+ * @param name 要 @ 的名字（用户名/昵称）
+ * @param range 需替换的区间（@ 补全用）；为空则插入到光标处（失焦则追加到末尾）
  */
 function insertMentionText(name, range = null) {
   const clean = String(name || '').trim();
@@ -980,7 +965,7 @@ async function submitRedPacket() {
 /**
  * 红包卡片展示状态：优先取 store 里的实时视图（socket 推送 / 接口拉取），
  * 视图缺失（如状态接口失败）时退化为只读展示，避免用户点了没反应。
- * @param {object} m 聊天消息（type='redpacket'）
+ * @param m 聊天消息（type='redpacket'）
  */
 function rpState(m) {
   const view = chat.redPackets[m.refId] || m.redPacket || null;
@@ -1063,7 +1048,6 @@ function rpState(m) {
 
 /**
  * 红包卡片按钮点击：口令红包先弹出口令输入框，其余直接领取
- * @param {object} m 红包消息
  */
 function onRedPacketClick(m) {
   const state = rpState(m);

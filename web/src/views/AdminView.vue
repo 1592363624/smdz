@@ -978,7 +978,7 @@
         </div>
 
         <div class="gm-tools">
-          <!-- 发放物品/修改属性已并入「用户管理 → 详情」，此处只保留全局类工具 -->
+          <!-- GM 工具只放全服级操作；针对单个玩家的发放物品 / 修改属性在「用户管理 → 详情」弹窗 -->
 
           <!-- 设置世界等级 -->
           <div class="gm-tool-card">
@@ -1029,11 +1029,8 @@
 
 <script setup>
 /**
- * 管理员后台页面（增强版）
- * - 仪表盘：服务器状态统计、世界等级显示与控制
- * - 系统配置：在线修改指令前缀、游戏数值等配置项
- * - 用户管理：查看/修改用户角色、封禁状态、昵称
- * - GM 工具：设置世界等级、发送全服公告
+ * 管理员后台：仪表盘 / 系统配置（含导入导出与 JSON、熟练度、签到、私密消息规则编辑器）
+ * / 用户管理（分页排序 + 批量操作 + 详情背包管理）/ GM 工具 / 后台日志。
  */
 import { ref, computed, reactive, onMounted, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
@@ -1244,7 +1241,6 @@ async function applyImport() {
     const res = await adminApi.importConfig(importPayload.value, importMode.value, false);
     importResultMsg.value = res?.message || '导入完成';
     importPreview.value = null;
-    // 重新拉取配置列表，刷新界面
     const list = await adminApi.listConfig();
     configs.value = list.data || [];
     hydrateGlobalProfFromConfigs(list.data || []);
@@ -1959,7 +1955,6 @@ const savedUser = ref(0);
 const sortField = ref('');
 const sortOrder = ref('asc');
 
-// 可点击排序的列定义
 const sortableColumns = [
   { field: 'id', label: 'ID' },
   { field: 'nickname', label: '昵称' },
@@ -2137,7 +2132,6 @@ async function updateUser(u, changes) {
 
 async function deleteUser(u) {
   if (u.id === user.value?.id) return;
-  // 关键操作，需二次确认
   const ok = confirm(`确定要删除用户「${u.username}」吗？\n将同时删除其游戏角色、绑定关系等数据，不可恢复！`);
   if (!ok) return;
   try {
@@ -2493,8 +2487,7 @@ function bumpBackpackQty(it, delta) {
 async function saveBackpack() {
   const uid = gmBackpack.value.userId;
   if (!uid) return;
-  // 货币清零二次确认：货币条目「载入时有值、保存时缺失或 <=0」→ 服务端按权威快照把列清零。
-  // 这是不可撤销操作，必须显式确认（数量改为 0 与直接删除 ✕ 都会命中）。
+  // 货币清零二次确认（清零语义见 removeBackpackItem）：数量改为 0 与直接删除 ✕ 都会命中。
   const baseline = gmBackpack.value.currencyBaseline || {};
   const zeroed = CURRENCY_ITEM_NAMES.filter((n) => {
     const before = Number(baseline[n] ?? 0);
@@ -2681,7 +2674,6 @@ onMounted(async () => {
       return;
     }
   }
-  // 并行加载所有数据
   await Promise.allSettled([
     loadDashboard(),
     loadWorldLevel(),
@@ -3290,7 +3282,7 @@ onMounted(async () => {
   gap: 12px;
   overflow: hidden;
 }
-/* 头部：图标 + 主标题 + 副标题（副标题独占一行，不再与标题挤在同一行） */
+/* 头部：图标 + 主标题 + 副标题（副标题独占一行） */
 .modal-head.private-modal-head {
   margin-bottom: 0;
   align-items: flex-start;
@@ -3703,7 +3695,7 @@ onMounted(async () => {
   font-size: 11.5px;
   color: var(--muted-dark);
 }
-/* 奖励行改为 4 列：# / 天数 / 奖励明细区（内含多条）/ 删行 */
+/* 奖励行 4 列：# / 天数 / 奖励明细区（内含多条）/ 删行 */
 .checkin-rule-head,
 .checkin-rule-row {
   grid-template-columns: 34px 92px minmax(0, 1fr) 40px;
@@ -3748,7 +3740,7 @@ onMounted(async () => {
   background: rgba(139, 92, 246, 0.2);
   border-style: solid;
 }
-/* 「编辑奖励」入口按钮：宽度随文字自适应、不换行也不被 flex 压缩（文案已精简为总条数） */
+/* 「编辑奖励」入口按钮：宽度随文字自适应、不换行也不被 flex 压缩 */
 .checkin-open-btn {
   white-space: nowrap;
   flex-shrink: 0;
@@ -4249,7 +4241,7 @@ onMounted(async () => {
   .modal-box.wide {
     width: calc(100vw - 24px);
   }
-  /* 私密消息规则：窄屏隐藏表头，每行改为「指令 + 占位文本」上下堆叠 */
+  /* 私密消息规则：窄屏隐藏表头，每行「指令 + 占位文本」上下堆叠 */
   .modal-box.private-modal {
     width: calc(100vw - 24px);
     padding: 16px;
@@ -4276,7 +4268,7 @@ onMounted(async () => {
     grid-column: 2;
     grid-row: 1 / span 2;
   }
-  /* JSON 编辑弹窗：字段行改为上下堆叠 */
+  /* JSON 编辑弹窗：字段行上下堆叠 */
   .modal-box.json-modal {
     width: calc(100vw - 24px);
     padding: 16px;

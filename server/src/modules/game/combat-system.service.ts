@@ -1,20 +1,14 @@
 /**
- * 战斗子系统
- * 对应原版：战斗相关.ecode
- * 完整实现：武器攻击、炮击、伤害计算、特效触发、怪物AI、掉落生成等
- *
- * 核心伤害模型：
- * - 四种伤害类型：物理(1)、火焰(2)、冰霜(3)、雷电(4)
- * - 三个独立血池：护盾(Shield) → 装甲(Armor) → 生命(HP)
- * - 伤害 = 攻击力 × 武器属性系数 × 暴击倍率 × 随机修正 × (1 - 抗性/100) × 易伤
- * - 命中率 = 攻击方命中 / 防御方闪避 (最低5%基础命中率)
- * - 等级差距修正：低等级打高等级伤害衰减，反之亦然
- * - 递减收益：二阶段属性超过阈值后按比例衰减
+ * 战斗子系统（对应原版 战斗相关.ecode）：武器攻击、伤害计算、特效触发、怪物AI、掉落生成。
+ * 四属性伤害 物理1/火焰2/冰霜3/雷电4，按 护盾 → 装甲 → 生命 三池依次扣减，每池独立算抗性与穿透。
+ * 伤害 = 攻击力 × 武器属性系数 × 暴击倍率 × 随机修正 × (1 - 抗性/100) × 易伤。
+ * 命中率 = 攻击方命中 / 防御方闪避（百分比，无保底钳制）；等级差距修正、二阶段属性超阈值按比例衰减。
  */
 
 import { Injectable, Logger, Optional, Inject, forwardRef, OnApplicationShutdown } from '@nestjs/common';
 import { AsyncLocalStorage } from 'async_hooks';
 import { PrismaService } from '../../prisma/prisma.service';
+import { collectVehiclePartNames } from '../../common/utils/vehicle-part.util';
 import { ChatService } from '../chat/chat.service';
 import { ShortcutService } from './shortcut.service';
 import { PlayerService, PlayerData } from './player.service';
@@ -56,12 +50,9 @@ import {
 
 import { resolvePoolDamage, subtractPoolValue, capPoolValue, round2 } from './player-pool.util';
 
-// ==================== 类型定义 ====================
+// ===== 类型定义 =====
 
-/**
- * 攻击上下文参数
- * 对应原版 武器攻击() 的可选参数
- */
+/** 攻击上下文参数，对应原版 武器攻击() 的可选参数 */
 export interface AttackContext {
   damageMultiplier?: number; // 伤害倍率（百分比），默认100
   mustHit?: boolean;         // 是否强制命中
@@ -122,10 +113,7 @@ export interface AttackContext {
   vitalityMode?: 'normal' | 'sweep';
 }
 
-/**
- * 使魔特效结果
- * 使魔专属战斗特效处理后返回的修改参数
- */
+/** 使魔专属战斗特效处理后返回的修改参数 */
 export interface FamiliarEffectResult {
   /** 修改后的伤害倍率 */
   damageMultiplier: number;
@@ -169,9 +157,7 @@ export interface FamiliarEffectResult {
   markTargetAsMelee?: boolean;
 }
 
-/**
- * 伤害计算结果（单次命中）
- */
+/** 伤害计算结果（单次命中） */
 export interface DamageResult {
   damage: number;       // 最终总伤害（三池合计）
   isHit: boolean;       // 是否命中
@@ -198,10 +184,7 @@ export interface DamageResult {
   effectText?: string;
 }
 
-/**
- * 四属性伤害明细
- * 对应原版"属性"数据类型
- */
+/** 四属性伤害明细，对应原版"属性"数据类型 */
 export interface DamageBreakdown {
   physical: number;  // 物理伤害
   fire: number;      // 火焰伤害
@@ -209,20 +192,14 @@ export interface DamageBreakdown {
   elec: number;      // 雷电伤害
 }
 
-/**
- * 三池分伤结果
- * 伤害优先级：护盾(Shield) → 装甲(Armor) → 生命(HP)
- * 每个池子独立计算抗性和穿透
- */
+/** 三池分伤：扣减顺序 护盾(Shield) → 装甲(Armor) → 生命(HP)，每池独立算抗性和穿透 */
 export interface PoolDamage {
   shield: number;     // 护盾扣减量
   armor: number;      // 装甲扣减量
   hp: number;         // 生命扣减量
 }
 
-/**
- * 武器攻击结果
- */
+/** 武器攻击结果 */
 export interface WeaponAttackResult {
   result: string;       // 攻击结果文本（多行）
   killed: string[];     // 被击杀的怪物名称列表
@@ -257,9 +234,7 @@ export interface VehicleRecalculationOptions {
   lannBaby?: boolean;
 }
 
-/**
- * 怪物死亡结果
- */
+/** 怪物死亡结果 */
 export interface MonsterDeathResult {
   expGain: number;
   drops: any[];
@@ -286,9 +261,7 @@ interface CombatTaskProgress {
   userId?: number;
 }
 
-/**
- * 特效处理结果
- */
+/** 特效处理结果 */
 export interface SpecialEffectResult {
   bonusDmg: number;       // 额外伤害
   effectText: string;     // 特效文本
@@ -298,9 +271,7 @@ export interface SpecialEffectResult {
   extraPenetration: number; // 额外穿透
 }
 
-/**
- * 武器数据结构（简化版，对应原版"装备"数据类型）
- */
+/** 武器数据结构（简化版，对应原版"装备"数据类型） */
 export interface WeaponData {
   name: string;
   damage: number;
@@ -332,12 +303,21 @@ export interface WeaponData {
   effectFlags?: { aoe: boolean; mustHit: boolean };
 }
 
+/**
+ * 套装类型减伤对照表（原版 战斗相关.ecode L2689-2723）：[套装名, 生效武器类型]。
+ * 每档按 套装等级×10% 减免，顺序即结算顺序，新增档位只加一行。
+ */
+const SUIT_TYPE_DAMAGE_REDUCTIONS: ReadonlyArray<readonly [string, string]> = [
+  ['防爆', '近战武器'],
+  ['游骑兵', '射弹武器'],
+  ['游侠', '生体武器'],
+  ['动力', '能量武器'],
+  ['无畏', '制导武器'],
+];
+
 @Injectable()
 export class CombatSystemService implements OnApplicationShutdown {
   private readonly logger = new Logger(CombatSystemService.name);
-
-  // 白的羁绊技能1候选表已收敛到 bond-skill.util（曾在此重复定义 {id,name} 一份）。
-  // 战斗加成判定所需的「技能名 → 武器类型」映射同样取自该表，禁止重建。
 
   // 伤害类型常量
   static readonly DMG_PHYS = 1;
@@ -402,7 +382,7 @@ export class CombatSystemService implements OnApplicationShutdown {
     this.monsterLockedAttackTimers.clear();
   }
 
-  // ==================== 用户级战斗串行锁 ====================
+  // ===== 用户级战斗串行锁 =====
   // 原版为单线程内存模型，指令天然原子执行；本框架 Web 后端多请求并发
   // 读改写同一玩家会产生丢失更新（典型表现：怪物反击写入的死亡/卷土重来
   // 状态被外层攻击流程的旧玩家快照整体覆盖回数据库），因此所有玩家战斗
@@ -413,22 +393,17 @@ export class CombatSystemService implements OnApplicationShutdown {
    * 嵌套攻击链标记（AsyncLocalStorage）：userId = 当前异步链已处于持锁的
    * weaponAttackInner 内。weaponAttack 据此直通跳过 withCombatLock，
    * 防止嵌套调用在自身未决的锁 tail 上排队形成永久自死锁
-   * （2026-09-11 正式库事故：剑圣苇名剑法补击/棒棒糖自动技能 → 攻击无回包）。
+   * （正式库事故复盘：剑圣苇名剑法补击/棒棒糖自动技能 → 攻击无回包）。
    */
   private readonly innerChain = new AsyncLocalStorage<number>();
 
   /** 召唤物主人解析缓存（ownerQQ → userId），地图战斗节拍每轮复用 */
   private readonly summonOwnerCache = new Map<string, number>();
 
-  // ==================== 公开接口 ====================
+  // ===== 公开接口 =====
 
   /**
-   * 对指定用户串行执行一段战斗流程（per-user 互斥，对齐原版单线程语义）。
-   * 同一用户并发进入时按到达顺序排队；不同用户互不阻塞。
-   */
-  /**
-   * 武器公共攻击CD最低冷却（秒）。
-   * 管理后台「系统配置 → 游戏数据」可在线调整；默认 5，0=不限制下限。
+   * 武器公共攻击CD最低冷却（秒）：管理后台「系统配置 → 游戏数据」在线调整，默认 5，0=不限制下限；
    * 未注入 SystemConfigService（测试桩）时回退默认 5。
    */
   private async getWeaponPublicCdMinSec(): Promise<number> {
@@ -441,6 +416,10 @@ export class CombatSystemService implements OnApplicationShutdown {
     }
   }
 
+  /**
+   * 对指定用户串行执行一段战斗流程（per-user 互斥，对齐原版单线程语义）。
+   * 同一用户并发进入时按到达顺序排队；不同用户互不阻塞。
+   */
   private async withCombatLock<T>(userId: number, fn: () => Promise<T>): Promise<T> {
     const previous = this.combatLocks.get(userId) ?? Promise.resolve();
     const current = previous.then(fn, fn);
@@ -454,7 +433,7 @@ export class CombatSystemService implements OnApplicationShutdown {
     }
   }
 
-  // ==================== 地图怪物自动攻击循环（原版 覅攻击pd 延时递归） ====================
+  // ===== 地图怪物自动攻击循环（原版 覅攻击pd 延时递归）=====
 
   /**
    * 延时拉起一回合地图怪物攻击（原版 _主程序.ecode 新建延时("覅攻击pd"+地图, N秒)）。
@@ -492,9 +471,7 @@ export class CombatSystemService implements OnApplicationShutdown {
    * 除已在锁内的递归入口（skipCombatLock）外，所有玩家战斗统一经
    * withCombatLock 串行化，防止并发指令的丢失更新。
    *
-   * @param userId 攻击者用户ID
    * @param weaponIndex 武器索引（0=拳头）
-   * @param context 攻击上下文参数
    */
   async weaponAttack(
     userId: number,
@@ -526,13 +503,10 @@ export class CombatSystemService implements OnApplicationShutdown {
   }
 
   /**
-   * 武器攻击内部实现（必须在 withCombatLock 内调用）。
-   * 对应原版：武器攻击()
-   * 处理武器攻击完整流程：选择目标 → 命中判定 → 伤害计算 → 特效触发 → 击杀处理
+   * 武器攻击内部实现（必须在 withCombatLock 内调用），对应原版 武器攻击()。
+   * 流程：选择目标 → 命中判定 → 伤害计算 → 特效触发 → 击杀处理
    *
-   * @param userId 攻击者用户ID
    * @param weaponIndex 武器索引（0=拳头）
-   * @param context 攻击上下文参数
    */
   private async weaponAttackInner(
     userId: number,
@@ -565,15 +539,12 @@ export class CombatSystemService implements OnApplicationShutdown {
       || (runtimeActor ? this.createRuntimeActorData(runtimeActor) : await this.playerService.getPlayerData(userId));
     const { player } = playerData;
 
-    // 检查是否死亡
     // 原版“覅公jj”明确允许对死亡召唤物按 QQ 定位（原版 _主程序 L544 注释），
     // 因此运行时攻击方不做玩家死亡门禁；普通玩家仍按现有规则处理。
-    //
     // 卷土重来豁免（原版 战斗相关.ecode L5182-5184）：玩家生命<=0 但增益"卷土重来"
-    // 未过期时不算真死，仍可继续出手。这一条在移除「卷土重来顺便回满三池」的自造
-    // 行为后变成必需 —— 否则倒地玩家会被这道门禁挡住，永远等不到靠击杀回满
-    // （原版 造成伤害 L3690：处于卷土重来且完成击杀 → 三池回满 + 推进成就）的机会，
-    // 卷土重来就退化成纯等死状态。
+    // 未过期时不算真死，仍可继续出手 —— 否则倒地玩家会被死亡门禁挡住，永远等不到
+    // 靠击杀回满（原版 造成伤害 L3690：处于卷土重来且完成击杀 → 三池回满 + 推进成就）
+    // 的机会，卷土重来退化成纯等死状态。
     const comebackAlive = !isRuntimeActor
       && this.hasActiveRuntimeBuff(player.buffs, '卷土重来', Date.now());
     if (!isRuntimeActor && !comebackAlive && this.playerService.isPlayerDead(player)) {
@@ -632,14 +603,13 @@ export class CombatSystemService implements OnApplicationShutdown {
       const cooldownName = `${weapon.name}冷却`;
       const markers2 = this.playerService.safeJsonParse<any[]>(player.markers2, []);
 
-      // ========== 公共攻击冷却（原版 战斗相关.ecode L4601-4605 检查 / L93-107 写入）==========
-      // 除单武器冷却外，武器之间还有「攻击冷却」公共 CD（基础 5 秒），否则切武器可立刻再出手。
-      // 原版两处分工不同，必须分开对待：
-      //   检查：`战斗` 子程序入口（L4601-4605）—— 位于 `.判断开始 (攻击方.当前武器 != 0)`
-      //         的 `.默认`（非管风琴）支内，外层仅要求 `无延迟 == 假`，
+      // ===== 公共攻击冷却（原版 战斗相关.ecode L4601-4605 检查 / L93-107 写入）=====
+      // 单武器冷却之外，武器之间还有「攻击冷却」公共 CD（基础 5 秒），否则切武器可立刻再出手。
+      // 原版检查与写入分工不同，必须分开对待：
+      //   检查在 `战斗` 子程序入口（L4601-4605）的 `.默认`（非管风琴）支、外层仅要求 `无延迟 == 假`，
       //         **与武器是否锁定无关**（用锁定武器攻击同样被拦）。
-      //   写入：`武器攻击` 的**无锁定支**（L83 的 `.否则`）内（L93-107）—— 有锁定武器
-      //         走 `新建延时("覅公jj")` 延时攻击分支，不写公共冷却。
+      //   写入在 `武器攻击` 的**无锁定支**（L83 的 `.否则`，L93-107）—— 有锁定武器走
+      //         `新建延时("覅公jj")` 延时攻击分支，不写公共冷却。
       // 拳头路径原版只查「拳头冷却」、**不查** 攻击冷却；管风琴整段跳过。
       // 运行时攻击方（召唤物/怪物）无 markers2 语义，跳过。noDelay 已由外层 if 保证为假。
       const weaponSeqPub = Number(weapon.specialSeq ?? 0);
@@ -680,9 +650,8 @@ export class CombatSystemService implements OnApplicationShutdown {
         && (!publicCdWrite || itemName(m) !== '攻击冷却'));
       newMarkers2.push({ name: cooldownName, expireAt: now + cooldownSec * 1000 });
 
-      // 写入公共「攻击冷却」（原版 战斗相关.ecode L93-107）
-      // 原版基准：普拉娜 2s / 雷火剑 = 武器冷却×0.333 / 装机械触手(特殊序号110) 6s / 默认 5s
-      // 管理后台可配「公共攻击CD最低冷却」作为下限（默认 5s），避免特殊效果把公共 CD 压得过低。
+      // 写入公共「攻击冷却」（原版 战斗相关.ecode L93-107）：基准普拉娜 2s / 雷火剑 = 武器冷却×0.333
+      // / 装机械触手(特殊序号110) 6s / 默认 5s；管理后台「公共攻击CD最低冷却」为下限，防特殊效果把公共 CD 压得过低。
       if (publicCdWrite) {
         let publicCdSec = 5;
         if (Number(player.specialSeq ?? 0) === 22 || player.type === '普拉娜') {
@@ -720,24 +689,19 @@ export class CombatSystemService implements OnApplicationShutdown {
       return { result: '没有可以攻击的目标', killed: [], damageDealt: 0, expGained: 0, drops: [] };
     }
 
-    // 6. 处理使魔专属战斗特效
-    // 根据玩家的当前使魔类型，触发专属战斗特效（如战斗女仆随机效果、伊卡洛斯歼灭模式等）
+    // 6. 处理使魔专属战斗特效（如战斗女仆随机效果、伊卡洛斯歼灭模式等）
       const familiarEffect = this.processFamiliarEffects(player, playerData, weapon, context);
-    // 应用使魔特效修改后的参数
-    let effectiveDamageMultiplier = familiarEffect.damageMultiplier; // 修改后的伤害倍率
+    let effectiveDamageMultiplier = familiarEffect.damageMultiplier;
     const effectiveAllAttack = familiarEffect.forceAllAttack || familiarEffect.allAttack || !!weapon?.effectFlags?.aoe; // 实际全体攻击波标记（含武器特效 aoe）
-    let hitRateModifier = familiarEffect.hitRateModifier; // 命中率修正
-    let extraPenetration = familiarEffect.extraPenetration; // 额外穿透
-    const effectText = familiarEffect.effectText; // 特效文本
+    let hitRateModifier = familiarEffect.hitRateModifier;
+    let extraPenetration = familiarEffect.extraPenetration;
+    const effectText = familiarEffect.effectText;
     // 溅射参数（战斗女仆RPG!/恶毒好感等设置）：对主目标外额外 splashCount 个目标造成分摊/必中伤害
     const splashCount = familiarEffect.splashCount || 0;
     const splashDamageMultiplier = familiarEffect.splashDamageMultiplier || 1;
     const splashMustHit = familiarEffect.splashMustHit || false;
 
-    // ========== 装备特效（对应原版 战斗相关.ecode L441-467，#目标选择结束 之后） ==========
-    // 棒棒糖(#特殊序号97)：10%几率「类型技能冷却」-60秒并自动释放使魔技能，额外攻击次数+1；
-    // 射爆核心(#29)：60秒间隔 额外攻击次数+1；
-    // 唯我主宰(#84)：60秒间隔 本次攻击必中。
+    // ===== 装备特效（原版 战斗相关.ecode L441-467，#目标选择结束 之后）=====
     // 武器特效「必中」（如核装药，effects.json bonus.必中）：本次攻击直接命中。
     let mustHitOverride = mustHit || !!weapon?.effectFlags?.mustHit;
     let extraAttackCount = 0;
@@ -881,8 +845,6 @@ export class CombatSystemService implements OnApplicationShutdown {
       if (bondSets['白']) {
         const bj1 = Number(this.safeParseJson<Record<string, any>>(player.markers, {})['bj1'] || 0);
         const weaponType = String((weapon as any)?.type ?? '');
-        // 技能名与武器类型同源于 bond-skill.util 的 BOND_SKILL_A（此处原为
-        // 「局部武器类型数组 + 类内 {id,name} 表」两份平行数据，靠顺序隐式对齐）。
         if (weaponType && weaponType === bondWeaponType(bj1)) {
           attackerBonus.攻击2 = (attackerBonus.攻击2 || 0) + BOND_SKILL_A_ATTACK_BONUS;
           resultLines.push(`【${bondSkillName('a', bj1)}】${weaponType}攻击+${BOND_SKILL_A_ATTACK_BONUS}%`);
@@ -930,7 +892,7 @@ export class CombatSystemService implements OnApplicationShutdown {
       resultLines.push(...summonLines);
     }
 
-    // ========== 当前生命>0 移除卷土重来（原版 _计算玩家 L2539-2541） ==========
+    // ===== 当前生命>0 移除卷土重来（原版 _计算玩家 L2539-2541）=====
     // 原版：当前生命>0 时获得增益(卷土重来, -30) 即移除卷土重来（卷土重来仅在死亡时生效）
     if ((player.hp || 0) > 0 && playerData.buffs && Array.isArray(playerData.buffs)) {
       const jtIdx = playerData.buffs.findIndex(
@@ -942,14 +904,13 @@ export class CombatSystemService implements OnApplicationShutdown {
       }
     }
 
-    // ========== 等级差距（对应原版 加成计算.ecode L1817-1820 新人加成） ==========
+    // ===== 等级差距（原版 加成计算.ecode L1817-1820 新人加成）=====
     // 原版：世界等级 = 全局标记"世界"；若 玩家.等级 < 世界等级*10，
     //       则 差距 = 1 - 玩家.等级/(世界等级*10)（0<差距<1，等级越低差距越大）。
     // 差距用于命中/伤害：命中 = 命中/(1-差距)（放大），伤害 = 剩余/(1-差距)（放大）→ 新人加成。
     // 只有等级低于世界等级×10 的"新人"享受该加成，高等级玩家无差距。
     try {
-      // 世界等级来自全局熟练度换算（原版 显示熟练度等级(全局标记,"世界")），
-      // 不再读独立配置项——世界等级只有「全局标记」一个真相源。
+      // 世界等级唯一真相源是全局熟练度换算（原版 显示熟练度等级(全局标记,"世界")）。
       const worldLevel = this.globalProficiency
         ? await this.globalProficiency.worldLevel()
         : 1;
@@ -961,7 +922,7 @@ export class CombatSystemService implements OnApplicationShutdown {
       this.logger.warn(`读取世界等级计算差距失败: ${e.message}`);
     }
 
-    // ========== 载具加成（对应原版 加成计算.ecode 载具加成 L3334-3379） ==========
+    // ===== 载具加成（原版 加成计算.ecode 载具加成 L3334-3379）=====
     // 玩家驾驶载具时，将地图上对应载具的加成并入攻击属性（攻击2/闪避2/命中2 + 其余加成）
     if (player.vehicle) {
       try {
@@ -993,7 +954,7 @@ export class CombatSystemService implements OnApplicationShutdown {
       }
     }
 
-    // ========== 使魔被动特效的即时攻击修正（对应原版 造成伤害 L1037-1142） ==========
+    // ===== 使魔被动特效的即时攻击修正（原版 造成伤害 L1037-1142）=====
     // 普拉娜"火力"/战斗女仆"精准攻击"：按百分比加攻击；
     // 战斗女仆"精准暴伤"：按百分比加暴击伤害；小樱"库洛魔力"等
     if (familiarEffect.attackBonus) {
@@ -1025,7 +986,7 @@ export class CombatSystemService implements OnApplicationShutdown {
       player.markers = m; // Json 列直接写对象
     }
 
-    // ========== 通用战斗特判（对应原版 战斗相关.ecode 造成伤害 L1004-1185） ==========
+    // ===== 通用战斗特判（原版 战斗相关.ecode 造成伤害 L1004-1185）=====
     // 攻击模式（炮击模式）：闪避固定为1（对应原版 L2340-2342 玩家.属性.闪避 = 1）
     if (player.attackMode === 1) {
       attackerBonus.闪避 = 1;
@@ -1084,7 +1045,7 @@ export class CombatSystemService implements OnApplicationShutdown {
       player.markers = calmMarkers; // Json 列直接写对象
     }
 
-    // ========== 武器特殊序号特效（对应原版 造成伤害 L1306-1337） ==========
+    // ===== 武器特殊序号特效（原版 造成伤害 L1306-1337）=====
     // 兰音被动：好感≥100 时，武器冷却越长最终伤害越高（150×冷却/20/100，下限100%，上限200%+技能×5%）
     if (player.type === '兰音' && (player.affinity || 0) >= 100) {
       const lanyinSkill = this.playerService.getMarkerValue(playerData.markers, '兰音技能');
@@ -1154,12 +1115,11 @@ export class CombatSystemService implements OnApplicationShutdown {
     // 这些标记由 familiar-skills 的 setNextAttackBuff 写入，此处命中时生效一次后清除
     const nextAttack = this.consumeNextAttackBuffs(player);
 
-    // 如果有特效文本，先添加到结果中
     if (effectText) {
       resultLines.push(effectText);
     }
 
-    // ========== 战斗结果统计计数器（对应原版 简略模式 L755-771 攻击N次/命中X次/被闪避Y次） ==========
+    // ===== 战斗结果统计计数器（原版 简略模式 L755-771 攻击N次/命中X次/被闪避Y次）=====
     // 原版用成就计数 冰伤2(未命中)/火伤2(被闪避)/电伤2(命中零伤)/物伤2(有效伤) 记录每次攻击结果，
     // 并在攻击次数>1 时输出"攻击N次，命中X次，被闪避Y次，命中零伤Z次，有效伤W次"。
     const atkStats = { total: 0, hit: 0, dodged: 0, nullDmg: 0, effective: 0 };
@@ -1179,7 +1139,7 @@ export class CombatSystemService implements OnApplicationShutdown {
       // 裸体围裙/透明围裙 易伤（格挡判定中累加，防御方 bonus 构建后应用）
       let apronVuln = 0;
 
-      // ========== 防御方闪避判定（对应原版 造成伤害 L1267-1428） ==========
+      // ===== 防御方闪避判定（原版 造成伤害 L1267-1428）=====
       // 四糸乃：固定闪避+10；伊卡洛斯(歼灭模式)：20%几率获得闪避；绝灭天使：消耗羽毛触发光翼闪避
       // 「闪避」增益：目标处于闪避状态时大幅提升闪避率（原版"固定闪避"语义）
       let targetDodgeModifier = 0;
@@ -1282,7 +1242,7 @@ export class CombatSystemService implements OnApplicationShutdown {
         isHit = this.checkHit(hitRate, effectiveDodge);
       }
 
-      // ========== 熟练度记录（对应原版 造成伤害 L1483-1496） ==========
+      // ===== 熟练度记录（原版 造成伤害 L1483-1496）=====
       // 命中：给玩家加「战斗熟练度」与「武器类型熟练度」，反馈到 _计算玩家 的属性成长
       // 未命中：给防御方(怪物)加「闪避熟练度」
       if (isHit) {
@@ -1309,7 +1269,7 @@ export class CombatSystemService implements OnApplicationShutdown {
           const remaining = targetBuffs.filter((b: any) => !(b && b.name === '闪避'));
           target.buffs = remaining; // Json 列直接写数组
         }
-        // ========== 防御方使魔被动特效（对应原版 造成伤害 L2224-2262） ==========
+        // ===== 防御方使魔被动特效（原版 造成伤害 L2224-2262）=====
         // 攻击命中防御方使魔时，防御方使魔可能触发减伤/免伤/反击特效
         if (targetType.includes('恶毒')) {
           // 恶毒好感≥100：30秒内"色欲"免伤一次（伤害倍率=0）
@@ -1372,20 +1332,9 @@ export class CombatSystemService implements OnApplicationShutdown {
         continue;
       }
 
-      // ========== 格挡判定（对应原版 造成伤害 L2583-2688 完整还原） ==========
-      // 1. 免伤前置：防御方有"剑阵"增益时本次伤害=0
-      // 2. 格挡来源：防爆盾(+10)/金刚不坏(+10)/圆盾(+5)/烟雾弹增益(+20)
-      //    /裸体围裙(近战+10 远程-10 且易伤+5)/透明围裙(+标记×5+5 且易伤+5)/含光套装(+50)
-      // 3. 几率判断(格挡) 触发：
-      //    - 阿尔缇娜 a3=-1.01：格挡成功（无额外效果）
-      //    - a3=-1.02（a技能2增益）：30%完全格挡 / 20%穿透+ / 其余按条件
-      //    - 含光套装(陪睡>7)：随机0.01~0.15倍率
-      //    - 铃铛：15秒冷却内×0.25，否则随机0.01~0.15倍率
-      //    - 默认：×0.25（减伤75%）
-      //    - 圆盾：120秒冷却完全免伤并恢复满状态
-      //    - 防御熟练度+3
-      // 4. 套装减伤（触发格挡后单独判定）：防爆(近战)/游骑兵(射弹)/游侠(生体)/动力(能量)/无畏(制导)
-      // 5. 攻击方有"激变星"增益时本次伤害=0
+      // ===== 格挡判定（原版 造成伤害 L2583-2688）=====
+      // 此处只做前置免伤（剑阵）与格挡率来源累加（防爆盾/金刚不坏/圆盾/烟雾弹/围裙）；
+      // 几率判断(格挡) 的完整分支（含光/铃铛/圆盾免伤/套装减伤/激变星）在下方「格挡系统」段结算。
       {
         const tBuffs = this.safeParseJson<any[]>(target.buffs, []);
         const tMk = this.safeParseJson<Record<string, number>>(target.markers, {});
@@ -1484,7 +1433,7 @@ export class CombatSystemService implements OnApplicationShutdown {
 
       // 伤害计算
       const defenderBonus = this.buildMonsterBonus(target);
-      // ========== 目标易伤（debuff）计算（对应原版 造成伤害 L2139-2142/L2263-2273） ==========
+      // ===== 目标易伤（debuff）计算（原版 造成伤害 L2139-2142/L2263-2273）=====
       // 易伤来源：割裂(+10)、影光(+a1×2.5 封顶a1=40)、重伤(+a1)，累加到 defenderBonus.减益，
       // 由 calcDamage 统一按 剩余伤害×(1+易伤/100) 应用。
       {
@@ -1541,15 +1490,12 @@ export class CombatSystemService implements OnApplicationShutdown {
         resultLines.push(`【月落寸光】获得 ${pen.toFixed(1)}% 三层穿透`);
       }
 
-      // ========== 特殊武器特效（对应原版 造成伤害 L1295+，斩首/尖兵/因果逆转/如梦似幻等） ==========
-      // 调用 processSpecialEffects 按武器 specialEffect 触发对应效果，应用额外伤害/倍率/命中修正/穿透
+      // ===== 特殊武器特效（原版 造成伤害 L1295+，斩首/尖兵/因果逆转/如梦似幻等）=====
       const specialEffect = this.processSpecialEffects(player, target, weapon, 0, weapon.damageType || CombatSystemService.DMG_PHYS);
       if (specialEffect.effectText) {
         resultLines.push(specialEffect.effectText);
       }
-      // 应用特效修改后的伤害倍率与命中修正
       const effectiveDmgMult = effectiveDamageMultiplier * (specialEffect.damageMultiplier || 1.0);
-      // 额外穿透（如特殊装备附带）
       if (specialEffect.extraPenetration) {
         attackerBonus.护盾穿透 = (attackerBonus.护盾穿透 || 0) + specialEffect.extraPenetration;
         attackerBonus.装甲穿透 = (attackerBonus.装甲穿透 || 0) + specialEffect.extraPenetration;
@@ -1558,7 +1504,7 @@ export class CombatSystemService implements OnApplicationShutdown {
       // 命中修正（因果逆转等）——攻击判定已在此之前完成，此处用于最终命中率展示，不影响本次判定
       hitRateModifier += specialEffect.hitRateModifier || 0;
 
-      // ========== 武器追加伤害（对应原版 造成伤害 L2749-2897 全量） ==========
+      // ===== 武器追加伤害（原版 造成伤害 L2749-2897 全量）=====
       // 走完整抗性/倍率流程。目标当前状态 = hp+shield+armor。
       // 本框架无"不触发特效"概念，默认恒为"触发"（不触发特效==假），故各 .如果真 守卫均成立。
       // 额外伤害倍率(extraDamageMult) 对应原版 L983 初始化=1，L1805 镇岳陪睡>2 时 +=0.15。
@@ -1605,7 +1551,7 @@ export class CombatSystemService implements OnApplicationShutdown {
           resultLines.push(`【梅塔特隆】电伤+${Math.round(bonus)}`);
         }
 
-        // ========== 法宝追加伤害（原版 L2778-2796） ==========
+        // ===== 法宝追加伤害（原版 L2778-2796）=====
         // 镇岳（法宝4级）：命中造成目标当前状态5%的额外物理伤害（×额外伤害倍率）
         if (sakuraHits === 2 && sleepLv > 3) {
           const a2 = targetCurState * 0.05 * extraDamageMult;
@@ -1619,7 +1565,7 @@ export class CombatSystemService implements OnApplicationShutdown {
           resultLines.push(`【神女枪】+${Math.round(a2)}`);
         }
 
-        // ========== 武器自带麻醉判定（原版 L2797：z1.自带.麻醉 <= 0） ==========
+        // ===== 武器自带麻醉判定（原版 L2797：z1.自带.麻醉 <= 0）=====
         const z1Anesthesia = (weapon.self as any)?.anesthesia || 0;
         if (z1Anesthesia <= 0) {
           // 斩舰刀（特殊序号-22）：a1 += 5（每击物伤+5%，原版 L2798-2799）
@@ -1648,7 +1594,7 @@ export class CombatSystemService implements OnApplicationShutdown {
           }
         }
 
-        // ========== 不触发特效==假 段（原版 L2818-2897） ==========
+        // ===== 不触发特效==假 段（原版 L2818-2897）=====
         // ---- 觉醒天神（原版 L2819-2829：攻击方特殊序号<-1 且 觉醒熟练≥500） ----
         if ((player.specialSeq ?? 0) < -1 && (playerMk['觉醒'] ?? 0) >= 500) {
           const a2 = targetMaxState * 0.03 / 4 * extraDamageMult;
@@ -1764,7 +1710,7 @@ export class CombatSystemService implements OnApplicationShutdown {
           resultLines.push(`(雷精灵${Math.round(a2Ts)})`);
         }
 
-        // ========== 装备要求类穿透（原版 造成伤害 L2447 / L2021-2062） ==========
+        // ===== 装备要求类穿透（原版 造成伤害 L2447 / L2021-2062）=====
         // 两极反转（装备 specialSeq=63）：穿透+8（原版 L2447 增加穿透(攻击方.属性, 8)）
         const hasReverse = (playerData.equipment as any[])?.some(
           (e: any) => e.specialSeq === 63 || (e.name || '').includes('两极反转'),
@@ -1821,7 +1767,7 @@ export class CombatSystemService implements OnApplicationShutdown {
           attackerBonus.生命穿透 = (attackerBonus.生命穿透 || 0) + 10;
         }
 
-        // ========== 增幅器套装 2/4/1（原版 造成伤害 L1981-2018） ==========
+        // ===== 增幅器套装 2/4/1（原版 造成伤害 L1981-2018）=====
         // 原版 套装.增幅器 对应本框架 setsData['增幅器']。
         const amplifier = setsData['增幅器'] ?? setsData.amplifier ?? 0;
         if (amplifier === 2) {
@@ -1858,10 +1804,11 @@ export class CombatSystemService implements OnApplicationShutdown {
           }
         }
 
-        // ========== 超压（普拉娜专属，原版 造成伤害 L1892-1911） ==========
+        // ===== 超压（普拉娜专属，原版 造成伤害 L1892-1911）=====
         // 取成就熟练度(攻击方.标记, z1.名称+"t")>=1 → 伤害倍率×1.25（普拉娜好感>=60 → ×(1.25+技等×0.01)）
         if ((playerMk[`${weapon.name}t`] || 0) >= 1) {
           delete playerMk[`${weapon.name}t`];
+          // #普拉娜=22（@Constant.ecode L225 .常量 普拉娜,"22"）
           // #普拉娜=22（@Constant.ecode L225 .常量 普拉娜,"22"），与 L5958/L6330 的判定保持一致
           const isPlana = (player.specialSeq ?? 0) === 22 || player.type === '普拉娜';
           if (isPlana && (player.affinity ?? 0) >= 60) {
@@ -1872,7 +1819,7 @@ export class CombatSystemService implements OnApplicationShutdown {
           resultLines.push('【超压】伤害提升');
         }
 
-        // ========== 第二批套装/武器/负面类型特效（原版 造成伤害 L1813-2160） ==========
+        // ===== 第二批套装/武器/负面类型特效（原版 造成伤害 L1813-2160）=====
         // 防御方增益集合（原版 防御方.增益）；此处从 target.buffs 读取（怪物/玩家统一）
         const defenderBuffs = this.safeParseJson<any[]>(target.buffs || '[]', []);
         const hasDefBuff = (name: string) =>
@@ -1911,7 +1858,7 @@ export class CombatSystemService implements OnApplicationShutdown {
           }
         }
 
-        // ========== 武器特殊序号判断（原版 造成伤害 L1827-1867，紧接安乐天使之后） ==========
+        // ===== 武器特殊序号判断（原版 造成伤害 L1827-1867，紧接安乐天使之后）=====
         // 对应 @Constant.ecode：仿真尾巴=-36 / 火焰飞羽=-30 / 纵横=-13 / 矢量=-12 / 影光=-23 / 寒风=-10 / 光棱=-29
         // 原版本段三类目标字段：
         //   · 武器冷却(仿真尾巴减CD/寒风加CD) → 原版「攻击方.标记2 / 防御方.标记2」= 框架 markers2 数组（元素 {name, expireAt}），与武器攻击冷却 L94-103 同一容器
@@ -1919,8 +1866,8 @@ export class CombatSystemService implements OnApplicationShutdown {
         //   · 防御方增益(火焰飞羽/影光) → 框架 target.buffs（中文 key {name, expireAt}）
         //   · 额外生命/装甲伤害(纵横/矢量) → BonusData（中文属性 key）
 
-        // 本地解析 markers2 数组（原版 标记2 容器），与 L295-322 武器冷却读写约定一致
-        // 注意：本段 markers2 容器的 expireAt 统一采用「毫秒」单位（与武器冷却 L322 一致），
+        // 本地解析 markers2 数组（原版 标记2 容器），容器口径与 weaponAttack 开头的武器冷却读写一致。
+        // 注意：本段 markers2 容器的 expireAt 统一采用「毫秒」单位，
         // 与 targetMk/playerMk（markers 对象，秒级 nowSec）不同，操作时需换算。
         const nowMs = Date.now();
         const atkMk2 = this.safeParseJson<any[]>(player.markers2 || '[]', []);
@@ -2135,7 +2082,7 @@ export class CombatSystemService implements OnApplicationShutdown {
           }
         }
 
-        // ========== 第三批 使魔/装备专属特效（原版 造成伤害 L2161-2258 / L2439 / L2471-2586） ==========
+        // ===== 第三批 使魔/装备专属特效（原版 造成伤害 L2161-2258 / L2439 / L2471-2586）=====
         const atkSeq = player.specialSeq ?? 0;
         const defSeq = target.specialSeq ?? 0;
         const atkVit = player.vitality ?? 0;
@@ -2225,10 +2172,9 @@ export class CombatSystemService implements OnApplicationShutdown {
         // 效果：把当前剩余四属性伤害之和的 15% 随机追加到 物/火/冰/电 之一，文本「消音·X」；
         // 触发同时由 时间间隔要求 写入 BOND_SILENCER_COOLDOWN_SEC 秒 xyq 冷却（查即写，与原版一致）。
         // 位置：原版此处紧随攻击方额外伤害链之后、防御方效果链之前，故置于本段末尾。
-        // ⚠️ 与原版偏差（已确认修正）：原版 _主程序.ecode L146-161 另有一段「攻击后进入隐匿
-        // （不惊动怪物）」分支，其条件 增益要求("xyq")==假 会被本次写入的 xyq 冷却短路，导致该
-        // 分支在原版实际不可达（时序矛盾，技能描述「攻击为隐匿攻击」成为空承诺）。
-        // 此处按技能描述修正：置标志位供末尾跳过怪物回合，其余（30 秒冷却节流）与原版一致。
+        // ⚠️ 与原版偏差：原版 _主程序.ecode L146-161 的「攻击后进入隐匿（不惊动怪物）」分支，
+        // 条件 增益要求("xyq")==假 会被本处刚写入的 xyq 冷却短路而不可达。
+        // 按技能描述「攻击为隐匿攻击」修正：置标志位供末尾跳过怪物回合，其余（30 秒冷却节流）与原版一致。
         try {
           const silencerSets = this.safeParseJson<Record<string, any>>(player.sets, {});
           const silencerBj2 = Number(this.safeParseJson<Record<string, any>>(player.markers, {})['bj2'] || 0);
@@ -2385,7 +2331,7 @@ export class CombatSystemService implements OnApplicationShutdown {
             if (defAff >= 80) {
               // 恢复 生命上限 生命（原版 当前生命 += 属性.生命 封顶）
               const maxHp = target.maxHp || target.hp || 0;
-              // 走三池唯一实现封顶（原实现直写 player.hp，绕过第四道闸）
+              // 三池上限唯一实现是 capPoolValue，不可直写 target.hp 绕过封顶
               target.hp = capPoolValue((target.hp || 0) + maxHp, maxHp);
               resultLines.push(`【剑阵】恢复${maxHp}生命`);
             }
@@ -2410,7 +2356,7 @@ export class CombatSystemService implements OnApplicationShutdown {
           }
         }
 
-        // ========== 格挡系统（原版 造成伤害 L2512-2688 几率判断(格挡) 子系统） ==========
+        // ===== 格挡系统（原版 造成伤害 L2512-2688 几率判断(格挡) 子系统）=====
         // 先累计 格挡 值（来自防御方使魔/装备/增益/标记），再 几率判断(格挡) 概率触发；
         // 触发后 暴击倍率(=本框架 finalDamage 倍率) 乘 0.25 或随机比例，圆盾则三池回满+免疫。
         const defEquip2 = (target as any).equipment as any[];
@@ -2507,27 +2453,14 @@ export class CombatSystemService implements OnApplicationShutdown {
           if (blockMult === 0) dmgImmune = true; // 圆盾/免疫场景跳过保底1
         }
 
-        // ========== 套装类型减伤（原版 L2689-2723） ==========
+        // ===== 套装类型减伤（原版 L2689-2723）=====
         const suitVal = (k: string) => defSets2[k] ?? 0;
-        if (suitVal('防爆') > 0 && weapon.type === '近战武器') {
-          forcedMult *= (1 - suitVal('防爆') / 10);
-          resultLines.push(`【防爆】${suitVal('防爆') * 10}%`);
-        }
-        if (suitVal('游骑兵') > 0 && weapon.type === '射弹武器') {
-          forcedMult *= (1 - suitVal('游骑兵') / 10);
-          resultLines.push(`【游骑兵】${suitVal('游骑兵') * 10}%`);
-        }
-        if (suitVal('游侠') > 0 && weapon.type === '生体武器') {
-          forcedMult *= (1 - suitVal('游侠') / 10);
-          resultLines.push(`【游侠】${suitVal('游侠') * 10}%`);
-        }
-        if (suitVal('动力') > 0 && weapon.type === '能量武器') {
-          forcedMult *= (1 - suitVal('动力') / 10);
-          resultLines.push(`【动力】${suitVal('动力') * 10}%`);
-        }
-        if (suitVal('无畏') > 0 && weapon.type === '制导武器') {
-          forcedMult *= (1 - suitVal('无畏') / 10);
-          resultLines.push(`【无畏】${suitVal('无畏') * 10}%`);
+        for (const [suitKey, weaponType] of SUIT_TYPE_DAMAGE_REDUCTIONS) {
+          const suitLevel = suitVal(suitKey);
+          if (suitLevel > 0 && weapon.type === weaponType) {
+            forcedMult *= (1 - suitLevel / 10);
+            resultLines.push(`【${suitKey}】${suitLevel * 10}%`);
+          }
         }
         // 激变星增益 → 伤害0（L2724-2727）
         {
@@ -2540,10 +2473,9 @@ export class CombatSystemService implements OnApplicationShutdown {
           }
         }
 
-        // 写回攻击方/防御方标记变更
         player.markers = playerMk; // Json 列直接写对象
-        // targetMk 不只承载无双计数，也承载负面效果累计、冷却和装备特效状态。
-        // 原先只在无双触发时写回，会丢失割裂/灼烧/深寒/感电的未满4层计数。
+        // targetMk 还承载负面效果累计、冷却与装备特效状态，必须整体写回：
+        // 只在无双触发时写回会丢失割裂/灼烧/深寒/感电的未满 4 层计数。
         if (target.userId) target.markers = targetMk; // Json 列直接写对象
       }
 
@@ -2557,7 +2489,7 @@ export class CombatSystemService implements OnApplicationShutdown {
         擦过: markers['擦过熟练度'] || 0,
         描边: markers['描边熟练度'] || 0,
       };
-      // 侵彻参数：增幅器5 需在 L959 块外重新读取玩家套装数据（原版 攻击方.套装.增幅器==5）
+      // 侵彻参数：增幅器5 需在上方特效块之外重新读取玩家套装数据（原版 攻击方.套装.增幅器==5）
       const amplifierSets = this.safeParseJson<any>(player.sets, {});
       const amplifier5Flag = (amplifierSets['增幅器'] ?? amplifierSets.amplifier ?? 0) === 5;
       const weaponAnesthesiaVal = (weapon.self as any)?.anesthesia ?? weapon.anesthesia ?? 0;
@@ -2805,7 +2737,7 @@ export class CombatSystemService implements OnApplicationShutdown {
       );
       if (anesthesiaText) resultLines.push(anesthesiaText);
 
-      // ========== 溅射伤害（对应原版 造成伤害 L624-705 溅射循环） ==========
+      // ===== 溅射伤害（原版 造成伤害 L624-705 溅射循环）=====
       // 战斗女仆RPG!/恶毒好感等设置 splashCount：对主目标外额外 splashCount 个存活目标，
       // 造成分摊伤害（溅射倍率），溅射必中（splashMustHit）。原版溅射伤害按各自目标抗性结算。
       if (splashCount > 0 && !effectiveAllAttack) {
@@ -2883,7 +2815,7 @@ export class CombatSystemService implements OnApplicationShutdown {
         }
       }
 
-      // ========== 反伤（对应原版 计算反伤 子程序 L4791-4873，已抽为独立方法 calcReflectDamage） ==========
+      // ===== 反伤（原版 计算反伤 子程序 L4791-4873，实现见 calcReflectDamage）=====
       // 防御方（目标）携带反伤来源时，按比例把伤害反弹给攻击方：
       //   恶毒好感≥100(色欲30s)：反伤100%；军姬好感≥40(剑阵)：反伤100%
       //   荆棘之翼：+15%；小鱼发饰(60s冷却)：+200%；军姬2好感≥40：+100%+(2+技能等级×0.05)%
@@ -2919,16 +2851,15 @@ export class CombatSystemService implements OnApplicationShutdown {
           origTs,
         );
         if (reflectDmg > 0) {
-          // 反伤扣血走三池唯一实现（原实现直写 player.hp，绕过第四道闸）
+          // 反伤扣血必须走三池唯一实现 subtractPoolValue，直写 player.hp 会绕过血量下限/上限闸
           player.hp = subtractPoolValue(player.hp, Math.floor(reflectDmg));
           resultLines.push(`【反伤】${target.name} 反弹了 ${Math.floor(reflectDmg)} 点伤害给你！`);
-          // ===== 反伤致死级联（原版反伤走完整 造成伤害() 管道，战斗相关.ecode L585-589） =====
+          // ===== 反伤致死级联（原版反伤走完整 造成伤害() 管道，战斗相关.ecode L585-589）=====
           // 原版 L3674-3690：玩家被打倒时 jlq 60秒冷却未过 → 真死；否则授予
-          // 卷土重来(30+属性.卷土重来) 并播报。移植版此前直扣血漏掉级联，
-          // 反伤致死时既无卷土重来也无倒下提示，表现为「突然死亡」。
-          // 与怪物反击链路（monsterCounterAttackOnePlayer）的级联保持同语义。
+          // 卷土重来(30+属性.卷土重来) 并播报。缺失该级联会表现为「突然死亡」，
+          // 且与怪物反击链路（monsterCounterAttackOnePlayer）语义不一致。
           if (!isRuntimeActor && this.playerService.isPlayerDead(player)) {
-            // 负值夹回 0，与反击链路 L3430 一致，避免负血穿透持久化
+            // 负值夹回 0（与 monsterCounterAttackOnePlayer 同口径），避免负血穿透持久化
             if (Number(player.hp) < 0) player.hp = 0;
             // 全局熟练度：怪物击倒目标 +1、世界 +1（原版 L3683-3684）
             try {
@@ -2942,7 +2873,7 @@ export class CombatSystemService implements OnApplicationShutdown {
             taskProgress.push({ userId: Number(player.userId), actionName: '被击败', count: 1 });
             const nowSecR = Math.floor(Date.now() / 1000);
             const mk2R = this.safeParseJson<any[]>(player.markers2, []);
-            // 兼容秒/毫秒混存：≥1e12 视为毫秒（与反击链路 L3457 同一判定）
+            // 兼容秒/毫秒混存：≥1e12 视为毫秒（与 monsterCounterAttackOnePlayer 同一判定）
             const toSecR = (raw: any): number => {
               const n = Number(raw ?? 0);
               return n >= 1e12 ? n / 1000 : n;
@@ -3051,7 +2982,7 @@ export class CombatSystemService implements OnApplicationShutdown {
 
       attackCount++;
 
-      // ========== 免死判定（对应原版 免死 子程序 L5020-5096） ==========
+      // ===== 免死判定（原版 免死 子程序 L5020-5096）=====
       // 目标（防御方）在即将死亡时可能触发免死：
       //   龙姬"怒吼"增益 → 保留1血（b=2）
       //   伊芙利特"五番a"增益 → 伤害0（b=3，冷却60-技能等级/2秒触发）
@@ -3080,11 +3011,9 @@ export class CombatSystemService implements OnApplicationShutdown {
         }
       }
 
-      // 先把本次扣血结果写回怪物实例（无论死活）。
-      // 之前只在"未击杀"分支写回：击杀分支完全依赖 handleMonsterDeath 删除记录，
-      // 一旦删除未生效（并发认领失败 / 删除异常），库里仍是扣血前的旧血量，
-      // 怪物就以"幽灵血量"反复复活、每回合被"击杀"一次（表现：同一只怪打不完）。
-      // 先写回 hp<=0 可保证它立刻退出战斗序列；即使删除失败也不会留下活着的残血怪。
+      // 先把本次扣血结果写回怪物实例（无论死活）：只在未击杀分支写回时，若删除记录未生效
+      // （并发认领失败/删除异常），库里仍是扣血前的旧血量，怪物会以"幽灵血量"反复复活、
+      // 每回合被"击杀"一次。先写回 hp<=0 可保证它立刻退出战斗序列，删除失败也不留活着的残血怪。
       await this.updateMonsterHpInMap(map.id, target);
 
       // 处理击杀
@@ -3097,7 +3026,7 @@ export class CombatSystemService implements OnApplicationShutdown {
         target.markers = killMarkers; // Json 列直接写对象
         // 原版 L3710-3717：玩家（特殊序号>0）击杀时按「攻击前三池总血量 / 目标最大三池」
         // 判定「捡人头」（攻击前已残血 <10%）与「满血秒杀」（攻击前满血被一击击杀）。
-        // 成就是称号条件数据源（此前只推进任务会让这两个称号恒为 0）。
+        // 成就是称号条件数据源，必须与任务同步推进，否则这两个称号恒为 0。
         if (Number(player.specialSeq ?? 0) > 0) {
           const maxPoolTotal = Number(defenderBonus.生命 || 0)
             + Number(defenderBonus.护盾 || 0)
@@ -3188,15 +3117,15 @@ export class CombatSystemService implements OnApplicationShutdown {
       player.shield = Number(player.maxShield || attackerBonus.护盾 || player.shield || 0);
       player.armor = Number(player.maxArmor || attackerBonus.装甲 || player.armor || 0);
       // 原版造成伤害 L3694：复活成功即 获得增益(攻击方.增益, "卷土重来", -60, 真)
-      // —— 保护时长减 60 秒，减后过期即删除。此前遗漏该步，增益残留会让前端
-      // 免死保护倒计时（PendingActionBar comeback 条）在复活后继续跑。
+      // —— 保护时长减 60 秒，减后过期即删除；漏掉该步会让前端免死保护倒计时
+      //（PendingActionBar comeback 条）在复活后继续跑。
       const comebackBuffs = Array.isArray(playerData.buffs)
         ? playerData.buffs
         : this.playerService.safeJsonParse<any[]>(player.buffs, []);
       shortenBuff(comebackBuffs, '卷土重来', 60);
       player.buffs = comebackBuffs; // Json 列直接写数组
       // 原版 L3695 添加成就("卷土重来",1,攻击方.成就,攻击方.任务)：任务由下方
-      // advance 推进，成就是称号条件数据源，必须同步写 markers（随 L3154 savePlayer 落库）。
+      // advance 推进，成就是称号条件数据源，必须同步写 markers（由本方法末尾 savePlayer 落库）。
       const comebackMarkers = this.safeParseJson<Record<string, number>>(player.markers, {});
       comebackMarkers['卷土重来'] = (Number(comebackMarkers['卷土重来']) || 0) + 1;
       player.markers = comebackMarkers; // Json 列直接写对象
@@ -3223,8 +3152,7 @@ export class CombatSystemService implements OnApplicationShutdown {
     //     "0", 群号, 3)——3秒后怪物回合开始（L200+ 覅攻击pd 处理器），之后每4秒自动
     //     续回合（L504），直到无目标或"活动"窗口过期才停止。
     //     隐匿模式玩家不惊动怪物（原版 L152-165，豁免在循环服务内判定）。
-    //     注意：本版曾在此处同步内联一次"怪物反击"，导致玩家每次攻击额外多挨
-    //     一次即时反击（原版无此行为），已按原版语义移除，怪物攻击统一由延时回合结算。
+    //     怪物攻击统一由延时回合结算，此处不得再同步内联"怪物反击"（原版无此行为）。
     if (!context.skipBattleDriver && !isRuntimeActor) {
       if (bondSilencerStealth) {
         // 生存之道本回合已触发 → 本次攻击视为隐匿：不惊动怪物、不拉起怪物回合。
@@ -3265,9 +3193,7 @@ export class CombatSystemService implements OnApplicationShutdown {
     //     自动发射 player 变更事件 → SyncProjector 防抖推送玩家面板；
     //     怪物血量变化经 MapService 收口广播同图在线玩家。此处无需手动推送。
 
-    // ========== 简略战斗结果统计（对应原版 战斗相关.ecode L755-771 简略模式） ==========
-    // 原版在攻击次数>1 时输出"攻击N次，命中X次，被闪避Y次，命中零伤Z次，有效伤W次"。
-    // 此处当发生多次攻击尝试时附加统计行，还原原版战斗结算反馈。
+    // ===== 简略战斗结果统计（原版 战斗相关.ecode L755-771 简略模式）=====
     if (atkStats.total > 1) {
       resultLines.push(
         `━━━ 战斗统计 ━━━\n` +
@@ -3276,9 +3202,9 @@ export class CombatSystemService implements OnApplicationShutdown {
       );
     }
 
-    // ========== 额外攻击次数（对应原版 战斗相关.ecode L445/L452/L456「额外攻击次数」累加） ==========
-    // 棒棒糖触发时 +1、射爆核心冷却就绪时 +1；每点额外次数以当前武器再完整攻击一轮
-    // （noDelay+isExtraAttack 防止连击/延时任务重复叠加）。原版由造成伤害外层循环消化该计数。
+    // ===== 额外攻击次数（原版 战斗相关.ecode L445/L452/L456「额外攻击次数」累加）=====
+    // 棒棒糖/射爆核心各 +1；每点额外次数以当前武器再完整攻击一轮（noDelay+isExtraAttack
+    // 防止连击/延时任务重复叠加）。
     if (!context.isExtraAttack && !isRuntimeActor && extraAttackCount > 0) {
       for (let i = 0; i < extraAttackCount; i++) {
         try {
@@ -3297,7 +3223,7 @@ export class CombatSystemService implements OnApplicationShutdown {
       }
     }
 
-    // ========== 剑圣「苇名剑法」补击（原版 L706-739） ==========
+    // ===== 剑圣「苇名剑法」补击（原版 L706-739）=====
     // 近战命中且冷却写入成功后，用身上第一件「非近战且锁定==0」的武器再攻击一次。
     if (ashinaFollowup && !isRuntimeActor && !context.isExtraAttack) {
       try {
@@ -3331,7 +3257,7 @@ export class CombatSystemService implements OnApplicationShutdown {
       }
     }
 
-    // ========== 自动连击（对应原版 武器攻击 L474-545 连击循环） ==========
+    // ===== 自动连击（原版 武器攻击 L474-545 连击循环）=====
     // 火神机枪/三千世界 等武器特殊序号触发：冷却结束时自动再次攻击（递归 weaponAttack，最多30次）。
     // noDelay(延时攻击/自动连击/自动战斗) 不再二次触发连击，避免无限递归。
     if (!isRuntimeActor && !noDelay && comboTrigger && weapon?.name) {
@@ -3349,14 +3275,10 @@ export class CombatSystemService implements OnApplicationShutdown {
   }
 
   /**
-   * 召唤物协同攻击
-   * 对应原版 覅攻击pd L320-499：攻击时遍历地图召唤物，归属当前玩家的存活召唤物用武器攻击怪物。
-   * 本框架召唤物未配置武器时用拳头攻击，属性由使魔定义 + 好感 + 等级计算。
-   * @param player 玩家对象
+   * 召唤物协同攻击：对应原版 覅攻击pd L320-499，遍历地图召唤物，归属当前玩家的存活召唤物
+   * 用武器攻击怪物。本框架召唤物未配置武器时用拳头攻击，属性由使魔定义 + 好感 + 等级计算。
    * @param playerData 玩家完整数据（读取好感并复用同一玩家对象）
-   * @param map 当前地图
-   * @param out 可选的输出累计对象（totalExp 累计召唤物击杀经验，供 weaponAttack 统一 addExp）
-   * @returns 召唤物攻击结果文本行
+   * @param out 输出累计对象（totalExp 累计召唤物击杀经验，供 weaponAttack 统一 addExp）
    */
   private async summonCoAttack(
     player: any,
@@ -3466,20 +3388,6 @@ export class CombatSystemService implements OnApplicationShutdown {
   }
 
   /**
-   * 怪物对单个玩家发起反击（伤害/闪避/被动特效本体）
-   * 对应原版 战斗相关.ecode L4663-4712：对防御方数组中的某位玩家执行 武器攻击 防御方 分支。
-   * @param monster 攻击方怪物
-   * @param monsterBonus 怪物属性加成
-   * @param victim 受害玩家对象
-   * @param victimData 受害玩家完整数据
-   * @param map 当前地图
-   * @param isSelf 是否攻击者本人（用于"你"的提示文本）
-   * @param sharedWithAttacker 受害者对象与外层攻击流程共享（同一内存实例）。
-   *        为真时本函数不落库，由外层 weaponAttack 第10步统一保存，
-   *        避免旧快照覆盖外层尚未写入的其他状态。
-   * @returns 该玩家的反击结果文本行
-   */
-  /**
    * 防御方是否已被打倒。玩家与地图召唤物统一按「生命<=0」判定，兼容中文别名
    * （persistRuntimeActor 会同步 hp 与 当前生命），与 playerService.isPlayerDead
    * 语义一致，但额外覆盖没有 userId 的召唤物/怪物对象。
@@ -3488,6 +3396,15 @@ export class CombatSystemService implements OnApplicationShutdown {
     return Number(actor?.hp ?? 0) <= 0;
   }
 
+  /**
+   * 怪物对单个玩家发起反击（伤害/闪避/被动特效本体）
+   * 对应原版 战斗相关.ecode L4663-4712：对防御方数组中的某位玩家执行 武器攻击 防御方 分支。
+   * @param monster 攻击方怪物
+   * @param isSelf 是否攻击者本人（用于"你"的提示文本）
+   * @param sharedWithAttacker 受害者对象与外层攻击流程共享（同一内存实例）。
+   *        为真时本函数不落库，由外层 weaponAttack 第10步统一保存，
+   *        避免旧快照覆盖外层尚未写入的其他状态。
+   */
   private async monsterCounterAttackOnePlayer(
     monster: any,
     monsterBonus: BonusData,
@@ -3509,11 +3426,10 @@ export class CombatSystemService implements OnApplicationShutdown {
     };
     try {
       // 死亡门禁（防御性复查）：真正倒下的玩家与召唤物都不再被反击选中。
-      // 正常流程在 monsterCounterAttack 筛选阶段已豁免；此处兜底拦截
+      // 正常流程在 monsterCounterAttackOnePlayer 筛选阶段已豁免；此处兜底拦截
       // 同一轮反击中前序受害者结算刚写入的死亡状态，杜绝鞭尸。
       // 召唤物同样适用：原版 _主程序 L329 / L439 对 HP<=0 的召唤物整段跳过，
-      // 它既不出手也不再作为防御方。之前只拦玩家，阵亡宠物每回合仍被反复攻击，
-      // 表现为「玩家死后怪物和 NPC 还在互殴」。
+      // 它既不出手也不再作为防御方（漏拦会表现为「玩家死后怪物和 NPC 还在互殴」）。
       if (this.isActorDefeated(victim)) return lines;
       // 命中判定：怪物命中 vs 玩家闪避；玩家若处于「闪避」状态(固定闪避+100)则几乎必闪避(100%免伤)
       // 启示录混乱分支的防御方就是攻击方怪物自身，仍使用怪物初始化属性，
@@ -3545,7 +3461,7 @@ export class CombatSystemService implements OnApplicationShutdown {
       const hitRate = this.calcHitRate(attackBonus, { 闪避: victimDef.闪避 || 0, 闪避2: victimDef.闪避2 || 0 });
       const youText = isSelf ? '你' : victim.name; // 原版对全图不同玩家用各自名称
 
-      // ========== 防御方被动：幻时凝固（对应原版 战斗相关.ecode L1517-1547） ==========
+      // ===== 防御方被动：幻时凝固（原版 战斗相关.ecode L1517-1547）=====
       {
         const affinity = victim.affinity || 0;
         const happyBuff = this.safeParseJson<any[]>(victim.buffs, []).find((b: any) => b && b.name === '幸福');
@@ -3596,9 +3512,9 @@ export class CombatSystemService implements OnApplicationShutdown {
             monster.name || '', youText, missAtkName,
           )
           : `${monster.name} 向${youText}发起攻击，但被${youText}闪避了`;
-        // 两位小数统一走 roundItemQuantity（2026-09-10 口径收敛，禁手写 Math.round 副本）
+        // 两位小数统一走 roundItemQuantity，禁在此手写 Math.round 副本
         lines.push(`${missLine}(命中率${roundItemQuantity(hitRate)}%)`);
-        // ========== 花园猫闪避反击（对应原版 战斗相关.ecode L1429-1560 防御方闪避成功分支） ==========
+        // ===== 花园猫闪避反击（原版 战斗相关.ecode L1429-1560 防御方闪避成功分支）=====
         // 仅当花园猫就是外层持锁攻击者本人（sharedWithAttacker）时跳过再次加锁，
         // 否则正常走 weaponAttack 获取该玩家自己的战斗锁。
         if (victim.type === '花园猫') {
@@ -3611,7 +3527,7 @@ export class CombatSystemService implements OnApplicationShutdown {
             this.logger.warn(`花园猫反击失败: ${e.message}`);
           }
         }
-        // ========== 防御方被动：含光回防（对应原版 战斗相关.ecode L1429-1444） ==========
+        // ===== 防御方被动：含光回防（原版 战斗相关.ecode L1429-1444）=====
         {
           const equipList: any[] = this.safeParseJson(victimData.equipment, []);
           const hanGuang = equipList.find((e: any) => (e.name || '').includes('含光'));
@@ -3699,7 +3615,7 @@ export class CombatSystemService implements OnApplicationShutdown {
       }
       const finalDmg = Math.max(0, Math.floor(dmg.damage));
 
-      // ========== 载具承伤（对应原版 战斗相关.ecode L3175-3529） ==========
+      // ===== 载具承伤（原版 战斗相关.ecode L3175-3529）=====
       // 原版载具分支结尾会清空普通四属性剩余伤害；载具击毁的同一次普通攻击不把
       // 溢出伤害转给驾驶员，只有“阵地”强制分支会继续穿透玩家三池。
       const vehicleResolution = await this.resolveVehicleDamage({
@@ -3722,8 +3638,8 @@ export class CombatSystemService implements OnApplicationShutdown {
       const shieldBeforeDamage = Number(victim.shield || 0);
       const armorBeforeDamage = Number(victim.armor || 0);
       // 三池出口归一化（player-pool.util）：先按当前池值解析实际扣减量，再归一化写回。
-      // 原实现 Math.round(pool.x) 会把 0.02/0.08 这类「已截断到残池」的伤害抹成 0，
-      // 使残血玩家永远扣不掉血（死锁）；resolvePoolDamage 在残池 <1 时按「打到即清空」处理。
+      // 残池 <1 时 resolvePoolDamage 按「打到即清空」处理；若在此 Math.round，0.02/0.08 这类
+      // 已截断到残池的伤害会被抹成 0，残血玩家永远扣不掉血（死锁）。
       const shieldDmg = resolvePoolDamage(pool.shield, victim.shield);
       const armorDmg = resolvePoolDamage(pool.armor, victim.armor);
       const hpDmg = resolvePoolDamage(pool.hp, victim.hp);
@@ -3792,17 +3708,15 @@ export class CombatSystemService implements OnApplicationShutdown {
           await this.globalProficiency.addProficiency(String(monster?.name ?? ''), 1);
           await this.globalProficiency.addProficiency(WORLD_PROFICIENCY_NAME, 1);
         }
-        // ========== 原版 造成伤害 L3674 的身份门槛 ==========
-        // 原版只有 防御方.特殊序号>0（玩家）才会获得"卷土重来"；召唤物/怪物
-        // （特殊序号<=0）被打到 HP<=0 即真死 —— 不进卷土重来，也不回血。
-        // 之前此处没有身份判断，宠物被击杀后照样拿增益并回满三池、永不退场，
-        // 于是怪物与宠物每回合互相击倒、互相复活，形成无限战斗循环。
+        // ===== 原版 造成伤害 L3674 的身份门槛 =====
+        // 只有 防御方.特殊序号>0（玩家）才会获得"卷土重来"；召唤物/怪物（特殊序号<=0）
+        // 被打到 HP<=0 即真死 —— 不进卷土重来、不回血，否则宠物与怪物会互相击倒/复活成无限循环。
         if (!runtimeVictim) {
-          // ========== 卷土重来（玩家专属，对应原版 L3674-3678） ==========
+          // ===== 卷土重来（玩家专属，原版 L3674-3678）=====
           // 原版只 获得增益("卷土重来", 30+玩家.属性.卷土重来)：给增益，不回血。
           // 玩家在卷土重来期间生命保持 0，靠该增益的 闪避=1 + 四伤÷2（L2596-2608）
           // 免于继续受伤，等待宠物扶起（HP=属性.生命/2）或 30 秒后增益过期真死。
-          // 之前此处额外做了"三池回满"，属自造行为，直接导致目标打不死，已移除。
+          // 此处若顺手回满三池，目标就永远打不死。
           const nowSecV = Math.floor(Date.now() / 1000);
           const vMk2 = this.safeParseJson<any[]>(victim.markers2, []);
           // 兼容存量重复标记：不能只用 find() 检查第一条 jlq，
@@ -4583,20 +4497,7 @@ export class CombatSystemService implements OnApplicationShutdown {
 
   /** 读取载具零件名称，兼容英文/中文字段和内置零件数组。 */
   private getVehiclePartNames(vehicle: any): string[] {
-    if (!vehicle) return [];
-    const parse = (value: any): any[] => Array.isArray(value)
-      ? value
-      : this.playerService.safeJsonParse<any[]>(value, []);
-    const names: string[] = [];
-    const visit = (part: any): void => {
-      if (!part) return;
-      const name = String(part.name ?? '');
-      if (name) names.push(name);
-      for (const inner of parse(part.builtinParts ?? part.builtin ?? part.内置)) visit(inner);
-    };
-    for (const part of parse(vehicle.parts)) visit(part);
-    for (const part of parse(vehicle.builtinParts)) visit(part);
-    return names;
+    return collectVehiclePartNames(vehicle);
   }
 
   /** 载具涂层类型：物理=1、火焰=2、冰冻=3、雷电=4（@Constant.ecode L277-L280）。 */
@@ -4866,18 +4767,11 @@ export class CombatSystemService implements OnApplicationShutdown {
   }
 
   /**
-   * 计算单次伤害
-   * 对应原版 造成伤害() 子程序的核心计算逻辑
+   * 计算单次伤害，对应原版 造成伤害() 子程序的核心计算逻辑。
+   * 总伤害 = Σ(各属性伤害 × 武器属性系数 × 暴击倍率 × 随机修正)，
+   * 各属性伤害经对应抗性减免后分配到三池（护盾→装甲→生命）。
    *
-   * 伤害公式：
-   *   总伤害 = Σ(各属性伤害 × 武器属性系数 × 暴击倍率 × 随机修正)
-   *   各属性伤害经过对应抗性减免后，分配到三池（护盾→装甲→生命）
-   *
-   * @param atkBonus 攻击方加成数据
-   * @param defBonus 防御方加成数据
-   * @param weapon 武器数据
    * @param damageType 伤害类型（物理/火焰/冰霜/雷电）
-   * @param isCrit 是否暴击
    * @param opts 可选伤害修正：dmgLower/dmgUpper 对应原版 伤害下限/伤害上限（受霰弹核心/雷火剑/超载核心影响）
    */
   calcDamage(
@@ -5007,8 +4901,7 @@ export class CombatSystemService implements OnApplicationShutdown {
 
     // 9. 等级差距修正（原版 L3290-3297：剩余伤害 /(1-攻击差距) ×(1-防御差距)）
     //    攻击方差距：新人打高世界等级目标命中/伤害放大（新人加成）；
-    //    防御方差距：低等级玩家被打时按 (1-差距) 减伤（原版新人保护的另一半），
-    //    此前缺失该项导致怪物对低等级玩家打出全额伤害。怪物防御方差距为 0。
+    //    防御方差距：低等级玩家被打时按 (1-差距) 减伤（原版新人保护的另一半），怪物防御方差距恒为 0。
     const levelGap = (atkBonus.世界等级差距 || 0);
     const levelFactor = levelGap >= 1 ? 0.1 : Math.max(0.1, 1 / (1 - levelGap));
     const defLevelGap = Number(defBonus.世界等级差距 ?? 0);
@@ -5191,26 +5084,7 @@ export class CombatSystemService implements OnApplicationShutdown {
   }
 
   /**
-   * 计算反伤（对应原版 战斗相关.ecode 计算反伤() L4791-4873）
-   * 返回防御方应反弹给攻击方的绝对伤害值。
-   *
-   * 原版逻辑（逐行对照）：
-   *   L4806 恶毒好感≥100 且 色欲(30s)未冷却 → 返回 100（即反伤100%）
-   *   L4815 军姬好感≥40 且有剑阵增益 → 返回 100
-   *   L4824 装备要求(防御方,#荆棘之翼) → 倍率+0.15
-   *   L4827 装备要求(防御方,#小鱼发饰) 且 小鱼冷却(60s)未过 → 倍率+2
-   *   L4833 军姬2 当前生命>0 且 好感≥40 → 倍率+1+(2+技能等级×0.05)，军姬倍率限制=真
-   *   L4844 倍率!=0 时：
-   *     z2 = 防御方当前武器（无武器=拳头，物=100）
-   *     a2 = Σ(攻击方.属性.四伤 × z1.属性.四/100) × 攻击方.暴击伤害/100 × 攻击方.暴击/100
-   *     a2 = a2 × 伤害倍率/100
-   *     a1 = Σ(防御方.属性.四伤 × z2.属性.四/100) × 防御方.暴击伤害/100 × 防御方.暴击/100
-   *     a3 = 防御方当前生命+装甲+护盾
-   *     若 a2×倍率 > a3 则 a2=a3 否则 a2=a2×倍率
-   *     a1 = a2/a1×100（攻击方该受伤害占防御方理论伤害的百分比）
-   *     最终 += a1
-   *     若 军姬倍率限制：a1重取防御方总状态，若 最终 > (2+技能×0.05)×a1 则截断
-   *   L4873 返回 最终（百分比）
+   * 计算反伤，对应原版 战斗相关.ecode 计算反伤() L4791-4873（各步 L 号见方法内注释）。
    *
    * 本框架映射：原版返回的「百分比」按"防御方理论伤害(a1原始)"折算为绝对反伤值返回，
    * 即 绝对反伤 = 防御方理论伤害 × 最终/100，与 calcDamage 调用处直接扣攻击方 hp 的语义一致。
@@ -5337,13 +5211,12 @@ export class CombatSystemService implements OnApplicationShutdown {
    * 命中判定
    * 对应原版：a1 = 攻击方.命中/(1-差距)/防御方.闪避；几率判断(a1×100 - 固定闪避 + 最终命中)
    * hitRate 入参已是百分比（由 calcHitRate 计算：atkHit/defDodge*100 + 特效修正），
-   * 钳制 [5,95] 后做随机判定。
+   * 钳制 [0,100] 后做随机判定，不做保底/上限钳制。
    */
   checkHit(hitRate: number, dodgeRate: number = 0): boolean {
     // “闪避”技能写入100代表本次攻击必闪。
-    // 原版判定 = 几率判断(a1×100 - 固定闪避 + 最终命中)，无 [5,95] 保底钳制；
-    // 此前自造的 5% 命中保底会让注定打不中的攻击强行命中、也会掩盖真实命中差距，
-    // 已按原版口径移除（2026-09-07 玩家反馈“战斗手感与原版不同”的成因之一）。
+    // 原版判定 = 几率判断(a1×100 - 固定闪避 + 最终命中)，无 [5,95] 保底钳制：
+    // 加保底会让注定打不中的攻击强行命中、并掩盖真实命中差距，与原版手感不符。
     if (dodgeRate >= 100) return false;
     const effectiveHitRate = Math.max(0, Math.min(100, hitRate - (dodgeRate || 0)));
     return Math.random() * 100 < effectiveHitRate;
@@ -5358,9 +5231,9 @@ export class CombatSystemService implements OnApplicationShutdown {
     if (mustHit) return 100;
     const atkHit = (attacker.命中 || 0) + (attacker.命中2 || 0) || 100;
     // 防御方闪避：兼容 BonusData 中文键（闪避/闪避2 —— buildAttackerBonus/buildMonsterBonus
-    // 产物，怪物反击玩家链路传入的 {闪避,闪避2} 包装）与历史英文键（dodge/dodge2，
-    // GameMonster 行字段）。此前只读英文键，怪物攻击玩家时玩家闪避完全失效
-    // （defDodge 恒为 1 → 命中率 95% 封顶近乎必中），是"很难打得过"的直接根因之一。
+    // 产物，怪物反击玩家链路传入的 {闪避,闪避2} 包装）与英文键（dodge/dodge2，
+    // GameMonster 行字段）。两套都必须读：只读英文键时玩家被怪物攻击的闪避完全失效
+    // （defDodge 恒为 1 → 命中率封顶近乎必中）。
     const defDodgeRaw = Number(defender.闪避 ?? defender.dodge ?? 0)
       + Number(defender.闪避2 ?? defender.dodge2 ?? 0);
     const defDodge = defDodgeRaw > 0 ? defDodgeRaw : 1;
@@ -5501,7 +5374,7 @@ export class CombatSystemService implements OnApplicationShutdown {
    * 典型用法：若不存在「还能撑过 N 秒」的同名增益，则重新施加一个持续 N 秒的增益
    * （等效原版 获得增益 前先做有效期判定的写法）。
    *
-   * 时间单位：玩家 buffs 数组统一采用**秒级** expireAt（与 L706/L888/L3079/L7335 写法一致），
+   * 时间单位：玩家 buffs 数组统一采用**秒级** expireAt（与本文件所有 buffs 写入点一致），
    * 这里顺带兼容历史毫秒存量（≥1e12 视为毫秒）。markers2 数组则是毫秒级，不适用本方法。
    *
    * @param buff    增益条目（{ name, expireAt } / { 名称, 有效期至 }）
@@ -5524,10 +5397,7 @@ export class CombatSystemService implements OnApplicationShutdown {
     return nowMs / 1000 + Math.max(0, Number(seconds) || 0);
   }
 
-  /**
-   * 原版「文本四舍」：保留两位小数并去掉尾随零（12.50 → 12.5，13 → 13）。
-   * 与 item.service / home.service 中的同名辅助保持一致。
-   */
+  /** 原版「文本四舍」：保留两位小数并去掉尾随零（12.50 → 12.5，13 → 13）。 */
   private textRound4(value: number): string {
     const n = Number(value);
     if (!Number.isFinite(n)) return '0';
@@ -5536,31 +5406,14 @@ export class CombatSystemService implements OnApplicationShutdown {
 
   /**
    * 显示伤害倍率（对应原版 数据显示.ecode L996-1006 显示伤害倍率）
+   * 攻击加成 = (100 + (Σ四项 (1+伤2/100) - 4) × 100) × (1 + 攻击2/100)，仅 bl==1 时输出 "(倍率x%)"。
+   * 原版调用点（战斗相关.ecode）：L1561 未命中 / L1698 被闪避 / L3881 命中，均紧接攻击文本之后。
    *
-   * 【原文 L996-1006】
-   *   .子程序 显示伤害倍率, 文本型
-   *   .参数 攻击方, 玩家
-   *   .如果真 (攻击方.特殊序号 > 0)                          ' 仅玩家（使魔序号>0）；怪物为 -1
-   *     .如果真 (取成就熟练度 (攻击方.标记, “bl”, , ) == 1)      ' 设置项「显示倍率」
-   *         攻击方.属性.攻击加成 = (100 + (1 * (1 + 属性.电伤2/100) * (1 + 加成.电伤2/100)
-   *                            + 1 * (1 + 属性.物伤2/100) * (1 + 加成.物伤2/100)
-   *                            + 1 * (1 + 属性.火伤2/100) * (1 + 加成.火伤2/100)
-   *                            + 1 * (1 + 属性.冰伤2/100) * (1 + 加成.冰伤2/100) - 4) * 100)
-   *                            * (1 + 属性.攻击2/100) * (1 + 加成.攻击2/100)
-   *         返回 (加括号 (“倍率” + 文本四舍 (攻击方.属性.攻击加成) + “%”))
-   *
-   * 调用点（原版 战斗相关.ecode）：
-   *   L1561 未命中分支    文本 = 文本 + 特效 + 显示伤害倍率 (攻击方)
-   *   L1698 被闪避分支    文本 = 文本 + 特效 + 显示伤害倍率 (攻击方)
-   *   L3881 命中分支      w2 = 显示攻击文本 (z1, 显示类型, 攻击文本) + 显示伤害倍率 (攻击方)
-   *
-   * 框架差异说明（已逐项核对，不影响显示语义）：
-   *   原版「玩家.属性」与「玩家.加成」是两个独立结构体，"2"字段各乘一次；
-   *   本框架 buildAttackerBonus 已把两者合并为同一 bonus，并在 calculateFinalBonus
-   *   之后把"2"字段清零折算进最终伤害值。因此这里改用合并后的单一"2"值各乘一次
-   *   （取值来自 buildAttackerBonus 写入的 bonus.倍率来源 快照），
-   *   保证「显示的倍率」与「实际生效的伤害加成」同口径——
-   *   否则玩家看到的数字会与实际伤害不符，失去校验配装的意义。
+   * 框架差异说明（已逐项核对，不影响显示语义）：原版「玩家.属性」与「玩家.加成」是两个独立
+   * 结构体、"2"字段各乘一次；本框架 buildAttackerBonus 已合并两者，并在 calculateFinalBonus
+   * 之后把"2"字段清零折算进最终伤害值，因此这里改取 bonus.倍率来源 快照的合并后单一"2"值，
+   * 保证「显示的倍率」与「实际生效的伤害加成」同口径——否则玩家看到的数字与实际伤害不符，
+   * 失去校验配装的意义。
    *
    * @param attacker 攻击方快照（需含 specialSeq 与 markers）
    * @param bonus    攻击方加成（buildAttackerBonus 产物）
@@ -5635,8 +5488,6 @@ export class CombatSystemService implements OnApplicationShutdown {
   private async buildKillParticipantLines(monster: any, killerKey: string): Promise<string[]> {
     const lines: string[] = [];
     const markers = this.normalizeMarkerObject(monster.markers);
-    // 两位小数统一走 player-pool.util.round2（原局部副本已删除，2026-09-10 口径收敛）
-
     const maxHp = Number(monster.maxHp ?? monster.hp ?? 0) || 0;
     const maxShield = Number(monster.maxShield ?? monster.shield ?? 0) || 0;
     const maxArmor = Number(monster.maxArmor ?? monster.armor ?? 0) || 0;
@@ -5700,13 +5551,10 @@ export class CombatSystemService implements OnApplicationShutdown {
   }
 
   /**
-   * 处理怪物死亡
-   * 对应原版：怪物死亡后的掉落生成、经验分配、地图更新
-   *
-   * 注意：掉落物不再在此处调用 addToBackpack 单独写库。
-   * 原因：调用方(如 weaponAttack)在击杀后会整体 savePlayer(player)，
-   * 若此处已把掉落写入数据库，随后 savePlayer 用旧内存对象覆盖写回会把掉落抹掉。
-   * 因此这里只返回 drops，由调用方合并进内存玩家对象后统一持久化。
+   * 处理怪物死亡：对应原版 怪物死亡后的掉落生成、经验分配、地图更新。
+   * 掉落物不在本方法写库：调用方（如 weaponAttack）击杀后会整体 savePlayer(player)，
+   * 若此处已把掉落写入数据库，随后用旧内存对象覆盖写回会把掉落抹掉；
+   * 故这里只返回 drops，由调用方合并进内存玩家对象后统一持久化。
    */
   async handleMonsterDeath(
     monster: any,
@@ -5754,14 +5602,12 @@ export class CombatSystemService implements OnApplicationShutdown {
 
     // 掉落能力（原版 后台运作.ecode L846-857）：
     //   几率 × (1+掉落率/100) 判定；资源数量 × (1+掉落品质/100)；传说率进生成装备。
-    // 之前普通击杀恒传 dropMultiplier=1，面板掉落率/品质完全不生效。
     const attackerPlayer = attacker?.player ?? attacker;
     let dropRatePct = 0;
     let dropQualityPct = 0;
     let legendRate = 0;
     /**
-     * 三池「计算上限」（恶毒暴怒回满用）。与掉落能力复用**同一次** buildAttackerBonus 结果，
-     * 不再为击杀被动额外算一遍。
+     * 三池「计算上限」（恶毒暴怒回满用），与掉落能力复用**同一次** buildAttackerBonus 结果。
      */
     let attackerCaps: { hp?: number; shield?: number; armor?: number } | undefined;
     if (attackerPlayer) {
@@ -5858,14 +5704,11 @@ export class CombatSystemService implements OnApplicationShutdown {
           taskProgress.push({ actionName: '消耗活力', count: vitalityCost });
           // 原版 后台运作.ecode L868 添加成就(“消耗活力”,1,玩家.成就,玩家.任务)：
           // 任务由调用方统一 advance，成就必须写同一份 markers（称号条件数据源），
-          // 否则「消耗活力」称号条件恒为 0（markers 在下方 L5816 随玩家一起落库）。
+          // 否则「消耗活力」称号条件恒为 0（markers 在下方随玩家统一落库）。
           markers['消耗活力'] = (Number(markers['消耗活力']) || 0) + vitalityCost;
           // ===== 活力消耗提示（原版 后台运作.ecode L864-869）=====
-          // 【原文 L864】.判断开始 (玩家.活力 >= 1 && 取成就熟练度 (玩家.标记, "使用活力") == 0)
-          // 【原文 L865】    玩家.活力 = 玩家.活力 - 1
-          // 【原文 L866】    活力倍率 = 2
-          // 【原文 L867】    w = w + "#换行(" + 玩家.图片 + "活力剩余" + 文本取整 (玩家.活力) + ")得到了"
-          //                      + 文本四舍 (怪物.经验 * 2) + "经验"
+          // 原版：活力>=1 且 标记"使用活力"==0 → 活力-1、活力倍率=2，
+          // 文本 "(玩家图片活力剩余N)得到了 怪物经验×2 经验"。
           // 原版在文本里写的是“怪物经验×活力倍率”，本框架取本次实际结算经验 expGain（已含倍率）。
           const left = Math.max(0, Number(playerData.player.vitality || 0));
           vitalityText = `(${playerData.player.name || ''}活力剩余${Math.floor(left)})得到了${Math.round(expGain)}经验`;
@@ -6099,7 +5942,7 @@ export class CombatSystemService implements OnApplicationShutdown {
         outLines?.push(cdText('会心一击冷却减少了30秒', '会心一击的主动技能冷却减少了30秒', typeCdKey));
         if (this.reduceMarkers2Cooldown(markers2, '斩冷却', 30)) changed = true;
         // ⚠️原版 L3766 第二段「标记要求」误用 类型+"技能冷却"（疑似复制粘贴笔误），
-        //   此处按原版保留（与 setDrop 传说率段 L5291 的处理口径一致）。
+        //   此处按原版保留（与 setDrop 传说率段同口径）。
         outLines?.push(cdText('斩冷却减少了30秒', '斩的主动技能冷却减少了30秒', typeCdKey));
       }
     }
@@ -6109,7 +5952,7 @@ export class CombatSystemService implements OnApplicationShutdown {
       if (affinity >= 80) {
         outLines?.push('(暴怒)');
         // ⚠️ 原版减的是 **z1**（本次造成击杀的那把武器）的冷却，此处取 killerWeapon；
-        //    旧调用点未传时退回「当前武器」（连击/苇名剑法补击下二者可能不同）。
+        //    未传时退回「当前武器」（连击/苇名剑法补击下二者可能不同）。
         const weapons = this.safeParseJson<any[]>(player.weapons || playerData?.weapons || [], []);
         const curIdx = Math.max(0, (Number(player.currentWeapon) || 1) - 1);
         const curWeaponName = String(
@@ -6130,7 +5973,7 @@ export class CombatSystemService implements OnApplicationShutdown {
     }
 
     // 军姬2（原版 L3721-3728）：**攻击文本 == "万象a"** 且 jj3==1 → 清空主动技能冷却。
-    // 原版无好感门槛（此前误加 affinity>=40，且漏了 攻击文本 条件 → 任意击杀都会清冷却）。
+    // 原版无好感门槛；加好感门槛或漏判 攻击文本 都会让任意击杀清冷却。
     if (seq === 24 || type === '军姬2') {
       const markers = playerData?.markers || asJsonValue<any>(player.markers, {});
       const jj3 = Number(this.playerService.getMarkerValue(markers, 'jj3') || 0);
@@ -6277,23 +6120,15 @@ export class CombatSystemService implements OnApplicationShutdown {
 
   /**
    * 光荣弹（对应原版 战斗相关.ecode L4987-5018 子程序 光荣弹）
-   *
-   * 原版语义：当"死掉的"一方（防御方/攻击方）当前生命<=0 且装备了 #光荣弹(常量44)，
-   * 则以其作为攻击方、对"攻击者"发起一次**必中**反击。反击伤害按双方属性比计算总倍率 a1，
-   * 再以 a1%（百分比）作为总伤害倍率传入 造成伤害。
-   *
-   * 本版复刻核心场景：玩家(deadOne)死亡时装备光荣弹 → 必中反击怪物(attacker)。
-   * 临时装备 z2：物/电/冰/火 各+25、自带必中、护盾/装甲/生命 穿透各+50、名称"光荣弹"；
-   * 攻击文本="光荣弹a"；最终伤害 = 计算伤害 × (a1/100)（对齐原版 造成伤害 第7参 总倍率）。
-   *
-   * 注：原版攻击者可能是玩家或怪物、死者也可能是玩家或怪物。本版先实现"玩家死→反击怪物"
-   * 这一主流路径；"怪物带光荣弹反击玩家"的罕见场景（需怪物装备含 specialSeq=44）待怪物
-   * 装备系统补全后接入，此处不阻断主流程。
+   * 原版语义："死掉的"一方当前生命<=0 且装备 #光荣弹(常量44) → 以它为攻击方、对"攻击者"
+   * 发起一次**必中**反击；反击伤害按双方属性比算总倍率 a1（百分比），再作为总伤害倍率传入 造成伤害。
+   * 本版复刻主流路径"玩家死→反击怪物"：临时装备 z2 四系各+25、必中、三层穿透各+50、
+   * 名称"光荣弹"、攻击文本="光荣弹a"；最终伤害 = 计算伤害 × (a1/100)。
+   * "怪物带光荣弹反击玩家"需怪物装备含 specialSeq=44，待怪物装备系统补全后接入。
    *
    * @param deadOne 死者（本版为玩家，作攻击方）
    * @param attacker 攻击者（本版为怪物，作防御方，会被反击伤害）
    * @param playerData 玩家完整数据（含 equipment/bonus/map，供 buildAttackerBonus）
-   * @param map 地图对象
    * @param rawTimestamp 原始毫秒时间戳
    * @returns 光荣弹反击文本（含倍率括号），无触发则返回空串
    */
@@ -6379,11 +6214,9 @@ export class CombatSystemService implements OnApplicationShutdown {
   }
 
   /**
-   * 将掉落物合并进玩家内存对象背包（避免 addToBackpack 与 savePlayer 的覆盖冲突）
-   * 掉落物按同名叠加数量，与 playerService.addToBackpack 行为一致，
-   * 但只修改内存对象，由调用方最终 savePlayer 一次性写库。
-   * @param player 玩家对象（backpack 字段为 JSON 字符串）
-   * @param drops 掉落物列表
+   * 将掉落物合并进玩家内存对象背包（避免 addToBackpack 与 savePlayer 的覆盖冲突）：
+   * 按同名叠加数量，与 playerService.addToBackpack 行为一致，但只改内存对象，
+   * 由调用方最终 savePlayer 一次性写库。
    */
   private mergeDropsIntoPlayer(player: any, drops: any[]): void {
     if (!drops || drops.length === 0) return;
@@ -6403,15 +6236,12 @@ export class CombatSystemService implements OnApplicationShutdown {
   }
 
   /**
-   * 生成怪物掉落
-   * 对应原版掉落生成逻辑
-   * 根据怪物配置的掉落表判定每个掉落项是否触发
+   * 生成怪物掉落：按怪物配置的掉落表逐项判定是否触发（对应原版掉落生成逻辑）。
    */
   generateDrops(monster: any, dropMultiplier: number): any[] {
     const drops: any[] = [];
 
-    // 兼容两种数据来源：早期运行时对象使用 dropTable，转换后的真实怪物
-    // 配置将掉落表放在 bonus JSON 的 drops 字段中。
+    // 掉落表有两个来源：运行时对象的 dropTable，与怪物配置 bonus JSON 的 drops 字段；前者优先。
     const legacyDropTable = Array.isArray(monster?.dropTable)
       ? monster.dropTable
       : this.safeParseJson<any[]>(monster?.dropTable, []);
@@ -6419,11 +6249,9 @@ export class CombatSystemService implements OnApplicationShutdown {
     const bonusDropTable = Array.isArray(monsterBonus?.drops) ? monsterBonus.drops : [];
     const dropTable = legacyDropTable.length > 0 ? legacyDropTable : bonusDropTable;
 
-    // 没有掉落表 → 不掉任何东西（对齐原版：无「掉落」配置的怪物段，战利品为空）。
-    // 注：此处曾有一版「30% 掉怪物材料×(等级+1)」的自造兜底，但「怪物材料」在
-    // items.json / resources.json / 原版配置（_decoded_original.txt）中均不存在，
-    // 属幽灵物品（不能用、不能卖、图鉴查不到）；原版 [麒麟]/[玄武]/[朱雀]/[心之守望]/
-    // [兰音幼崽]/[普拉娜幼崽] 等段确无「掉落=」行，击杀即不掉。故删除该兜底。
+    // 没有掉落表 → 不掉任何东西（对齐原版：[麒麟]/[玄武]/[朱雀]/[心之守望]/[兰音幼崽]/
+    // [普拉娜幼崽] 等怪物段确无「掉落=」行，击杀即不掉）。不得自造兜底掉落：配置里不存在
+    // 的物品名是幽灵物品（不能用、不能卖、图鉴查不到）。
     if (dropTable.length === 0) {
       return drops;
     }
@@ -6443,7 +6271,7 @@ export class CombatSystemService implements OnApplicationShutdown {
       const dropRate = Math.max(0, Math.min(100, (Number.isFinite(chance) ? chance : 0) * multiplier));
       if (Math.random() * 100 >= dropRate) continue;
 
-      // 掉落数量只读规范键 quantity（同义旧键 count 已废弃）
+      // 掉落数量只读规范键 quantity；读同义旧键 count 会拿到 undefined 并错回落为 1
       const rawQuantity = dropEntry.quantity;
       const quantity = rawQuantity === undefined || rawQuantity === null || rawQuantity === ''
         ? 1
@@ -6471,11 +6299,7 @@ export class CombatSystemService implements OnApplicationShutdown {
     return drops;
   }
 
-  /**
-   * 计算怪物经验
-   * 对应原版经验计算
-   * 公式：基础经验 × (1 + (等级-1) × 0.1)
-   */
+  /** 计算怪物经验（对应原版经验计算）：基础经验 × (1 + (等级-1) × 0.1) */
   calcMonsterExp(monster: any): number {
     const baseExp = monster.exp || monster.baseExp || 10;
     const level = monster.level || 1;
@@ -6483,9 +6307,8 @@ export class CombatSystemService implements OnApplicationShutdown {
   }
 
   /**
-   * 处理特殊装备特效
-   * 对应原版200+种特殊装备效果
-   * 这是一个框架方法，根据武器特殊序号和攻防双方状态触发特效
+   * 特殊装备特效框架方法（原版共 200+ 种）：按武器特效序号与攻防双方状态触发，
+   * 只实现主结算链用到的几种。
    */
   processSpecialEffects(
     attacker: any,
@@ -6503,7 +6326,6 @@ export class CombatSystemService implements OnApplicationShutdown {
       extraPenetration: 0,
     };
 
-    // 根据武器特效序号触发不同效果
     switch (weapon.specialEffect) {
       case 45: // 斩首 - 目标状态低于30%时伤害×1.5
         if (defender) {
@@ -6542,11 +6364,9 @@ export class CombatSystemService implements OnApplicationShutdown {
         }
         break;
 
-      // 武器特殊序号特效
       default:
         if (weapon.specialSeq) {
-          // 根据specialSeq触发对应使魔/武器特效
-          // 此处为框架预留，具体特效由上层业务逻辑实现
+          // specialSeq 特效为框架预留，具体由上层业务逻辑实现
           if (weapon.specialSeq === 1001) { // 示例：雷火剑 - 伤害上限+50%
             result.damageMultiplier = 1.5;
             result.effectText = '【雷火剑】';
@@ -6558,22 +6378,16 @@ export class CombatSystemService implements OnApplicationShutdown {
     return result;
   }
 
-  /**
-   * 计算生命偷取
-   * 对应原版生命偷取逻辑
-   */
+  /** 生命偷取量 = 伤害 × 偷取率/100（对应原版生命偷取逻辑） */
   calcLeech(damage: number, leechRate: number): number {
     if (leechRate <= 0 || damage <= 0) return 0;
     return Math.floor(damage * leechRate / 100);
   }
 
-  // ==================== 私有辅助方法 ====================
+  // ===== 私有辅助方法 =====
 
   /**
-   * 获取武器数据
-   * 根据攻击者背包中的武器索引获取武器信息
-   * 索引0代表拳头（无武器）
-   * 对应原版：z1 = 攻击方.武器[武器]
+   * 获取武器数据：对应原版 z1 = 攻击方.武器[武器]，索引 0 代表拳头（无武器）。
    */
   private getWeaponData(attacker: any, weaponIndex: number): WeaponData {
     if (weaponIndex === 0) {
@@ -6589,7 +6403,6 @@ export class CombatSystemService implements OnApplicationShutdown {
       };
     }
 
-    // 从攻击者装备或背包中获取武器
     // 注意：attacker.weapons 可能是双表示行访问器（installCanonicalAccessors 的
     // getter 返回 JSON 文本）或历史字符串列，必须经 asJsonValue 归一化后再按索引取，
     // 否则字符串按字符索引会取到乱码字符（如 't'）导致攻击文本/伤害整体错乱（着装武器仍显示拳头）。
@@ -6642,7 +6455,7 @@ export class CombatSystemService implements OnApplicationShutdown {
       rawWeapon.anesthesia ?? rawWeapon.麻醉 ?? rawBonus.麻醉 ?? staticBonus.麻醉 ?? 0,
     );
 
-    // ========== 装备特效（原版 物品操作.ecode L1438-1475） ==========
+    // ===== 装备特效（原版 物品操作.ecode L1438-1475）=====
     // bx 段特效在此结算：缩放伤害属性、追加冷却、覆盖攻击文本、给出特效加成与语义标记。
     // 与展示路径共用 equipment-effect.util，杜绝“面板看得到、实战打不出”。
     const effectId = parseEffectIdFromData(rawWeapon.data)
@@ -6714,9 +6527,7 @@ export class CombatSystemService implements OnApplicationShutdown {
    * 解析单件装备/武器的属性加成
    * 存量物品只存 name/data：附加加成编码在 data 串（如 aa30 → 护盾+30），
    * 自带加成在静态装备定义 baseBonus；植入体/增幅器强化会直接写 bonus 对象。
-   * 返回的 bonus/baseBonus 供 buildAttackerBonus 并入玩家总属性。
-   * @param item 背包/装备栏中的原始物品对象
-   * @returns bonus（附加加成）与 baseBonus（自带加成）
+   * 返回的 bonus（附加加成）与 baseBonus（自带加成）供 buildAttackerBonus 并入玩家总属性。
    */
   private resolveItemBonus(item: any): { bonus: Record<string, number>; baseBonus: Record<string, number>; effectBonus: Record<string, number> } {
     const parseObj = (value: any): Record<string, number> => {
@@ -6752,7 +6563,7 @@ export class CombatSystemService implements OnApplicationShutdown {
     // 装备特效（原版 物品操作.ecode L1438-1475）：data 串 bx 段的特效加成叠加进“自带加成”，
     // 与展示路径（ItemService.parseEquipment）共用 equipment-effect.util 的同一实现。
     // 单独以 effectBonus 返回，由 buildAttackerBonus 并入总属性——不写回 baseBonus，
-    // 以免与静态自带加成、套装在 baseBonus 上叠加的等级加成互相污染（见 6458 注释）。
+    // 以免与静态自带加成、套装在 baseBonus 上叠加的等级加成互相污染。
     const effectBonus: Record<string, number> = {};
     const effectId = parseEffectIdFromData(rawData)
       || Number(item?.specialEffect ?? item?.特效 ?? def?.specialEffect ?? def?.特效 ?? 0) || 0;
@@ -6785,9 +6596,7 @@ export class CombatSystemService implements OnApplicationShutdown {
     return type.endsWith('武器') || type === '工具';
   }
 
-  /**
-   * 解析伤害类型字符串为数字常量
-   */
+  /** 伤害类型字符串 → 数字常量（物理/火焰/冰霜/雷电） */
   private resolveDamageType(type: string | number): number {
     if (typeof type === 'number') return type;
     const map: Record<string, number> = {
@@ -6800,10 +6609,8 @@ export class CombatSystemService implements OnApplicationShutdown {
   }
 
   /**
-   * 选择攻击目标
-   * 对应原版目标选择逻辑
-   * 非全体攻击时随机选择一个活着的怪物
-   * 全体攻击时选择所有活着的怪物
+   * 选择攻击目标（对应原版目标选择逻辑）：targetId/targetName 优先锁定，
+   * 全体攻击取所有存活怪物，否则随机一个。
    */
   private selectTargets(
     monsters: any[],
@@ -6843,7 +6650,6 @@ export class CombatSystemService implements OnApplicationShutdown {
       return alive;
     }
 
-    // 非全体攻击：随机选一个目标
     const targetIdx = Math.floor(Math.random() * alive.length);
     return [alive[targetIdx]];
   }
@@ -6942,10 +6748,8 @@ export class CombatSystemService implements OnApplicationShutdown {
   }
 
   /**
-   * 构建攻击者加成数据
-   * 合并玩家基础属性、装备加成、增益等
-   * 对应原版 加成计算.ecode _计算玩家()：按等级+熟练度成长。
-   * public：供信息显示/属性面板调用，展示"计算后"的成长属性。
+   * 构建攻击者加成数据（合并基础属性、装备加成、增益等），对应原版 加成计算.ecode
+   * _计算玩家()：按等级+熟练度成长。public：供信息显示/属性面板调用，展示"计算后"的成长属性。
    */
   buildAttackerBonus(
     player: any,
@@ -6962,7 +6766,6 @@ export class CombatSystemService implements OnApplicationShutdown {
   ): BonusData {
     // 原版 L1746-1760：每次计算玩家前先重置武器自带/加成，避免套装判断2
     // 写入的等级加成跨次累加。这里保留原始快照，供同一武器对象反复重置。
-    // 从玩家基础属性构建
     // 对齐原版 _计算玩家：加成从 0 起步（原版 玩家.加成 = 空加成 j），
     // 再由"等级成长 + 使魔专属 + 装备/套装"累加得出最终属性。
     // 注意：hp/shield/armor 以"上限字段"（maxHp/maxShield/maxArmor）为基数，
@@ -7034,7 +6837,7 @@ export class CombatSystemService implements OnApplicationShutdown {
       this.logger.warn(`武器自带加成重置失败: ${error.message}`);
     }
 
-    // ========== 玩家/使魔通用成长公式（对应原版 加成计算.ecode L1799-1833） ==========
+    // ===== 玩家/使魔通用成长公式（原版 加成计算.ecode L1799-1833）=====
     // 原版 _计算玩家 对所有特殊序号>0（即选了使魔的玩家）按等级+属性熟练度成长：
     //   - 暴击+3、暴击伤害+150+等级/10、攻击加成=暴击伤害+100
     //   - 速度=10+等级/5+闪避熟练/4*(1+等级/100)
@@ -7093,7 +6896,7 @@ export class CombatSystemService implements OnApplicationShutdown {
       bonus.速度 = player.speed || 100;
     }
 
-    // ========== 使魔专属加成（对应原版 _计算玩家 L1872+ 核心分支） ==========
+    // ===== 使魔专属加成（原版 _计算玩家 L1872+ 核心分支）=====
     // 按需补充高频使魔的专属规则（数值均来自原版，不臆造）
     const seq = player.specialSeq ?? 0;
     const skillLevel = player.type ? this.skillLevelFromMarkers(markers, player.type) : 0;
@@ -7336,7 +7139,7 @@ export class CombatSystemService implements OnApplicationShutdown {
         break;
       }
       case '2': { // 长萌（原版 L1976-1995）：护盾/装甲2+1+技能、火伤按装甲+护盾转化、火伤2+25；好感≥20 回复转命中
-        // 原版此分支没有「火伤×1.25」，此前多写的一行已删除（原版 L1976-1980）
+        // 原版 L1976-1980 此分支无「火伤×1.25」，勿加
         bonus.火伤2 = (bonus.火伤2 || 0) + 25;
         bonus.护盾2 = (bonus.护盾2 || 0) + 1 + skillLevel;
         bonus.装甲2 = (bonus.装甲2 || 0) + 1 + skillLevel;
@@ -7371,9 +7174,8 @@ export class CombatSystemService implements OnApplicationShutdown {
       }
       case '4': { // 剑圣：物伤2+1.25；好感≥20 近战武器时「剑道」；好感≥60「缘」按三池比例
         bonus.物伤2 = (bonus.物伤2 || 0) + 1.25;
-        // 剑道（原版 加成计算.ecode L2010-2016）：当前武器 != 0（排除拳头）
-        // **且** 武器.类型 == "近战武器" 才生效。此前写成 currentWeapon === 0 判为近战，
-        // 与原版条件恰好相反（空手白得 15+技能等级），已按原版纠正。
+        // 剑道（原版 加成计算.ecode L2010-2016）：当前武器 != 0（排除拳头）**且**
+        // 武器.类型 == "近战武器" 才生效；条件写反会让空手也白得 15+技能等级。
         if ((player.affinity || 0) >= 20 && Number(player.currentWeapon || 0) !== 0) {
           const weaponsD = playerData.weapons || this.playerService.safeJsonParse<any[]>(player.weapons, []);
           const curW = weaponsD[Number(player.currentWeapon) - 1];
@@ -7662,29 +7464,24 @@ export class CombatSystemService implements OnApplicationShutdown {
         break;
     }
 
-    // 尝试合并装备加成
-    // 存量装备物品通常只有 name/data（加成编码在 data 串中，自带加成在静态装备定义），
+    // 合并装备加成：存量装备物品通常只有 name/data（加成编码在 data 串中，自带加成在静态装备定义），
     // 必须先解析出 bonus（附加加成）与 baseBonus（自带加成）再并入总属性，
     // 否则穿戴装备后面板属性不会变化。
     try {
       const equips = playerData.equipment?.length
         ? playerData.equipment
         : this.playerService.safeJsonParse<any[]>(player.equipment, []);
-      // 装备强化（原版 加成计算.ecode L1673-1679：_计算玩家 聚合每件装备时调
-      // 计算装备强化，把 部位名+强化 熟练度按 熟练度/200 系数折算进自带属性再叠加，
-      // 受冥鱼技能放大、装备名逆向熟练度≥20 加成 25%；增幅器除外 L1661。
-      // 2026-09-09 补接：此前主结算链漏调导致强化只涨等级面板不动（仅预设预览生效）。
-      // 2026-09-10 收敛：熟练度键映射 / 增幅器排除 / 系数出口统一走
-      // itemSystemService.applyEquipReinforce，与装备栏展示链、预设预览同源
-      // （此前三处各拼一份 `xxx强化` 键 + 各算一次系数）。
+      // 装备强化（原版 加成计算.ecode L1673-1679：_计算玩家 聚合每件装备时调 计算装备强化，
+      // 把 部位名+强化 熟练度按 熟练度/200 系数折算进自带属性再叠加，
+      // 受冥鱼技能放大、装备名逆向熟练度≥20 加成 25%；增幅器除外 L1661）。
+      // 熟练度键映射 / 增幅器排除 / 系数出口统一走 itemSystemService.applyEquipReinforce，
+      // 与装备栏展示链、预设预览同源，勿在此另拼一份 `xxx强化` 键或重算系数。
       const equipDefOf = (name: string) =>
         typeof (this.staticData as any)?.getEquipmentByName === 'function'
           ? (this.staticData as any).getEquipmentByName(name) || null
           : null;
       for (const equip of equips) {
         const resolved = this.resolveItemBonus(equip);
-        // 装备强化：熟练度键=部位类型+强化（写入侧 handleEquipEnhance）；植入体的
-        // 植入体等级 键不匹配 植入体强化，熟练度=0 时 calcEquipReinforce 内部直接返回，无副作用
         const equipName = String(equip?.name ?? '');
         const eqDef = equipDefOf(equipName);
         const eqType = String(eqDef?.equipType ?? eqDef?.type ?? equip?.type ?? '');
@@ -7742,7 +7539,7 @@ export class CombatSystemService implements OnApplicationShutdown {
       // 忽略装备解析错误
     }
 
-    // ========== 套装加成（对应原版 _计算玩家 L2284 套装判断2 L3381-3444） ==========
+    // ===== 套装加成（原版 _计算玩家 L2284 套装判断2 L3381-3444）=====
     // 黑花嫁/白花嫁4件套、暴击熟练度→暴伤、武器等级加成（高斯步枪等+等级×2）
     try {
       const sets = this.playerService.safeJsonParse<any>(player.sets, {});
@@ -7765,7 +7562,7 @@ export class CombatSystemService implements OnApplicationShutdown {
       this.logger.warn(`套装加成计算失败: ${err.message}`);
     }
 
-    // ========== 法宝加成（对应原版 法宝加成 L3143-3232、法宝加成2 L3053-3096） ==========
+    // ===== 法宝加成（原版 法宝加成 L3143-3232、法宝加成2 L3053-3096）=====
     try {
       const sets = this.playerService.safeJsonParse<any>(player.sets, {});
       this.bonusService.calculateTreasureBonus(bonus, sets);
@@ -7774,7 +7571,7 @@ export class CombatSystemService implements OnApplicationShutdown {
       this.logger.warn(`法宝加成计算失败: ${err.message}`);
     }
 
-    // ========== 计算增益（对应原版 加成计算.ecode L81-L575） ==========
+    // ===== 计算增益（原版 加成计算.ecode L81-L575）=====
     try {
       this.bonusService.calculateGameBonus({
         bonus,
@@ -7794,7 +7591,7 @@ export class CombatSystemService implements OnApplicationShutdown {
       this.logger.warn(`计算增益处理失败: ${err.message}`);
     }
 
-    // ========== 好感追加分支（对应原版 _计算玩家 L2285-2315） ==========
+    // ===== 好感追加分支（原版 _计算玩家 L2285-2315）=====
     // 好感≥20：启木之本樱 命中+=物伤×0.05 且 物伤=0（原版 L2286-2291）
     // 好感≥80：安克雷奇 命中+=生命/100、闪避=命中+生命/100（L2293-2295）；星尘 护盾回复+=(护盾-当前护盾)/100（L2299-2303）
     // 好感≥100：长萌 装甲回复+=(装甲-当前装甲)/100（L2305-2309）
@@ -7819,7 +7616,7 @@ export class CombatSystemService implements OnApplicationShutdown {
       }
     }
 
-    // ========== 阿尔缇娜 a模式=1 全抗+50、生命+=四伤、四伤=1（原版 L2316-2328） ==========
+    // ===== 阿尔缇娜 a模式=1 全抗+50、生命+=四伤、四伤=1（原版 L2316-2328）=====
     if (seq === 7 && this.playerService.getMarkerValue(markers, 'a模式') === 1) {
       bonus.生命全抗 = (bonus.生命全抗 || 0) + 50;
       bonus.装甲全抗 = (bonus.装甲全抗 || 0) + 50;
@@ -7831,7 +7628,7 @@ export class CombatSystemService implements OnApplicationShutdown {
       bonus.电伤 = 1;
     }
 
-    // ========== 套装植入体 1-4 对应属性伤×1.25（原版 L2329-2339） ==========
+    // ===== 套装植入体 1-4 对应属性伤×1.25（原版 L2329-2339）=====
     try {
       const sets = this.playerService.safeJsonParse<any>(player.sets, {});
       if (sets.implant === 1) bonus.物伤 = (bonus.物伤 || 0) * 1.25;
@@ -7860,12 +7657,12 @@ export class CombatSystemService implements OnApplicationShutdown {
       this.logger.warn(`套装追加处理失败: ${err.message}`);
     }
 
-    // ========== 三回复 /10（原版 L2343-2345） ==========
+    // ===== 三回复 /10（原版 L2343-2345）=====
     bonus.生命回复 = (bonus.生命回复 || 0) / 10;
     bonus.装甲回复 = (bonus.装甲回复 || 0) / 10;
     bonus.护盾回复 = (bonus.护盾回复 || 0) / 10;
 
-    // ========== 脏弹/核废料（原版 L2362-2382） ==========
+    // ===== 脏弹/核废料（原版 L2362-2382）=====
     const pBuffs = playerData.buffs || [];
     if (hasActive(pBuffs, '脏弹')) {
       bonus.生命回复 = 0;
@@ -7881,7 +7678,7 @@ export class CombatSystemService implements OnApplicationShutdown {
       }
     }
 
-    // ========== 战斗宙斯盾/抗穿透护盾（原版 L2523-2535） ==========
+    // ===== 战斗宙斯盾/抗穿透护盾（原版 L2523-2535）=====
     // 当前护盾≥75% 且装备战斗宙斯盾：抗贯穿+100；当前护盾≥5% 且装备抗穿透护盾：抗贯穿+100
     try {
       const equips = this.playerService.safeJsonParse<any[]>(player.equipment, []);
@@ -7896,10 +7693,10 @@ export class CombatSystemService implements OnApplicationShutdown {
       // 忽略装备解析错误
     }
 
-    // ========== 闪避<1 → 1（原版 L2536-2538） ==========
+    // ===== 闪避<1 → 1（原版 L2536-2538）=====
     if ((bonus.闪避 || 0) < 1) bonus.闪避 = 1;
 
-    // ========== 纯洁无瑕/破刃之剑（原版 L2542-2559） ==========
+    // ===== 纯洁无瑕/破刃之剑（原版 L2542-2559）=====
     // 装备特效要求 + 未被击败/被击败 状态判定（标记2 "被击败"）
     try {
       const equips = this.playerService.safeJsonParse<any[]>(player.equipment, []);
@@ -7922,7 +7719,7 @@ export class CombatSystemService implements OnApplicationShutdown {
       // 忽略装备解析错误
     }
 
-    // ========== 卷土重来/线圈减伤（原版 L2596-2608） ==========
+    // ===== 卷土重来/线圈减伤（原版 L2596-2608）=====
     // 卷土重来增益 或 套装线圈>0：闪避=1、四伤÷2
     // 注意原版 L2599/L2605 疑似笔误：火伤=冰伤/2、冰伤=火伤/2（交叉赋值），按原版保留
     if (hasActive(pBuffs, '卷土重来')) {
@@ -7944,7 +7741,7 @@ export class CombatSystemService implements OnApplicationShutdown {
       // 忽略套装解析错误
     }
 
-    // ========== 宠物存活数量加成（原版 L2187-2221） ==========
+    // ===== 宠物存活数量加成（原版 L2187-2221）=====
     // 原版：b=宠物存活数量(玩家.地图, 玩家.QQ, c, d, e, 玩家.套装.白)
     //   - e≠0（有白）：物伤2×1.05
     //   - b≠0：小樱好感≥80 攻击2+b×10；军姬 攻击2+b×10、全抗+5×b
@@ -8001,7 +7798,7 @@ export class CombatSystemService implements OnApplicationShutdown {
       this.logger.warn(`宠物存活数量加成计算失败: ${err.message}`);
     }
 
-    // ========== 黑色兔子玩偶（原版 L2222-2238） ==========
+    // ===== 黑色兔子玩偶（原版 L2222-2238）=====
     // 装备黑色兔子玩偶：取最高属性系对应 伤2+10
     try {
       const equips = this.playerService.safeJsonParse<any[]>(player.equipment, []);
@@ -8031,7 +7828,7 @@ export class CombatSystemService implements OnApplicationShutdown {
       // 忽略装备解析错误
     }
 
-    // ========== 计算增益（对应原版 _计算玩家 末尾 + 计算buff L3097-3142） ==========
+    // ===== 计算增益（原版 _计算玩家 末尾 + 计算buff L3097-3142）=====
     // 原版 _计算玩家 删除过期增益(L1864-1871)后，由 计算buff() 把活跃增益并入玩家属性：
     //   - mqtx/湮灭/削弱闪避/xla/xlb/xlc 特殊效果
     //   - default 分支：在"增益列表"按名称查找，将其加成按增益模式叠加到玩家属性
@@ -8060,7 +7857,7 @@ export class CombatSystemService implements OnApplicationShutdown {
       this.logger.warn(`计算增益失败: ${err.message}`);
     }
 
-    // ========== 最终加成（对应原版 _计算玩家 末尾 calculateFinalBonus 调用） ==========
+    // ===== 最终加成（原版 _计算玩家 末尾 calculateFinalBonus 调用）=====
     // 原版将"玩家.属性"(基础)与"玩家.加成"(装备/套装/增益累加)分离，
     // 最后调用 calculateFinalBonus(玩家.属性, 玩家.加成) 合并：
     //   - 四系伤害 = (伤害 + 攻击) * (1 + 伤害2/100) * (1 + 攻击2/100)²
@@ -8124,12 +7921,10 @@ export class CombatSystemService implements OnApplicationShutdown {
     vitalityMarkers['活力2'] = nextMax;
     player.markers = vitalityMarkers; // Json 列直接写对象
 
-    // ========== 三池封顶（对应原版 _计算玩家 L2465：当前>属性.上限 时封顶） ==========
-    // 上限口径统一为「计算后属性」（含装备/增益加成，即面板分母）。此前唯一封顶点在
-    // recalcLevelStats 按基础字段 maxHp/maxShield/maxArmor 收敛，装备加成的余量被削掉，
-    // 当前值永远低于面板上限（实证：剑圣 生命 691/818 恒不满、奶回不满）。
-    // _计算玩家 每次运行都封顶，本函数即其对应物；当前>上限 的非法态在此统一收敛，
-    // 写库由调用方既有 savePlayer 链路承载。
+    // ===== 三池封顶（原版 _计算玩家 L2465：当前>属性.上限 时封顶）=====
+    // 上限口径必须是「计算后属性」（含装备/增益加成，即面板分母）；若按基础字段
+    // maxHp/maxShield/maxArmor 收敛，装备加成的余量会被削掉，当前值永远低于面板上限。
+    // _计算玩家 每次运行都封顶，本函数即其对应物；写库由调用方既有 savePlayer 链路承载。
     try {
       const capHp = Number(bonus.生命 || 0);
       const capShield = Number(bonus.护盾 || 0);
@@ -8174,7 +7969,6 @@ export class CombatSystemService implements OnApplicationShutdown {
    * 构建怪物加成数据
    */
   private buildMonsterBonus(monster: any): BonusData {
-    // 怪物三层抗性存于 bonus JSON（seed 解析进 GameMonster.bonus），需解析后读取
     let mb: any = {};
     // asJsonValue 容错读取：兼容 Prisma Json 列（对象）与历史字符串列两种来源
     mb = asJsonValue<Record<string, any>>(monster.bonus, {});
@@ -8468,16 +8262,12 @@ export class CombatSystemService implements OnApplicationShutdown {
     return pool;
   }
 
-  /**
-   * 对怪物应用伤害（三池扣血）
-   * 更新怪物对象的hp/shield/armor字段
-   */
+  /** 对怪物应用三池扣血（就地更新 hp/shield/armor），返回各池实际扣减量。 */
   private applyDamageToMonster(
     monster: any,
     totalDamage: number,
     poolDamage: PoolDamage,
   ): PoolDamage {
-    // 实际扣减
     const currentShield = monster.shield !== undefined ? monster.shield : (monster.maxShield || 0);
     const currentArmor = monster.armor !== undefined ? monster.armor : (monster.maxArmor || 0);
     const shieldDmg = Math.min(poolDamage.shield, currentShield);
@@ -8561,10 +8351,7 @@ export class CombatSystemService implements OnApplicationShutdown {
     }
   }
 
-  /**
-   * 格式化伤害文本
-   * 显示三池各扣了多少
-   */
+  /** 伤害文本：按「护盾-x 装甲-x 生命-x」拼三池扣减明细，全为空时回落总伤害整数。 */
   private formatDamageText(totalDamage: number, poolDamage: PoolDamage): string {
     const parts: string[] = [];
     if (poolDamage.shield > 0) parts.push(`护盾-${Math.floor(poolDamage.shield)}`);
@@ -8573,11 +8360,6 @@ export class CombatSystemService implements OnApplicationShutdown {
     return parts.join(' ') || `${Math.floor(totalDamage)}`;
   }
 
-  /**
-   * 把地图 JSON 中的召唤物/怪物运行时对象适配为 PlayerData 视图。
-   * 原版所有攻击方都使用同一个“玩家”结构体；当前数据库把怪物字段拆开，
-   * 这里仅做字段别名与 JSON 解析，不改变结算顺序或数值。
-   */
   /**
    * 战斗力历史最高记录（原版 加成计算.ecode L2474-2477 玩家 / L3032-3034 使魔）：
    * 当前计算战斗力超过历史记录时写入。玩家写成就 markers（随 savePlayer 落库）；
@@ -8647,6 +8429,11 @@ export class CombatSystemService implements OnApplicationShutdown {
     }
   }
 
+  /**
+   * 把地图 JSON 中的召唤物/怪物运行时对象适配为 PlayerData 视图。
+   * 原版所有攻击方都使用同一个“玩家”结构体；当前数据库把怪物字段拆开，
+   * 这里仅做字段别名与 JSON 解析，不改变结算顺序或数值。
+   */
   private createRuntimeActorData(actor: any): PlayerData {
     const parse = <T>(value: any, fallback: T): T => {
       if (value === undefined || value === null) return fallback;
@@ -8737,22 +8524,13 @@ export class CombatSystemService implements OnApplicationShutdown {
     return parts.join(' ') || `${Math.floor(totalDamage)}`;
   }
 
-  /**
-   * 安全解析 JSON 字符串
-   * 解析失败时返回默认值，避免字段缺失导致异常。
-   * @param v 待解析值（可能为字符串或已解析对象）
-   * @param def 默认值
-   * @returns 解析结果或默认值
-   */
+  /** 安全解析 JSON：字符串/已解析对象统一容错处理（数据库 String 列与运行时对象两种来源），失败返回默认值。 */
   private safeParseJson<T>(v: any, def: T): T {
-    // 字符串/已解析对象统一容错处理（数据库 String 列与运行时对象两种来源）
     return asJsonValue<T>(v, def);
   }
 
   /**
-   * 安全数值转换（原版 取数值 语义）
-   * 非法/缺失值回落 0，供装备特效等字段兜底。
-   * @param v 待转换值
+   * 安全数值转换（原版 取数值 语义）：非法/缺失值回落 0，供装备特效等字段兜底。
    * @returns 数值；NaN/undefined/null 返回 0
    */
   private safeNum(v: any): number {
@@ -8765,7 +8543,6 @@ export class CombatSystemService implements OnApplicationShutdown {
    * 对应原版 心无所扰(必中)/月落寸光(穿透蓄势)/反转童话(反转属性) 的一次性标记。
    * 调用后从玩家 buffs 中移除这些 onceAttack 标记，避免重复生效。
    * @param player 玩家对象（buff字段会被就地修改）
-   * @returns 聚合后的下次攻击标记数据
    */
   private consumeNextAttackBuffs(player: any): {
     mustHitNext: boolean;
@@ -8795,7 +8572,6 @@ export class CombatSystemService implements OnApplicationShutdown {
     const remain: any[] = [];
     for (const b of buffs) {
       if (b.onceAttack) {
-        // 聚合标记数据
         if (b.mustHitNext) {
           result.mustHitNext = true;
           result.mustHitChance = b.mustHitChance ?? 100;
@@ -8815,7 +8591,6 @@ export class CombatSystemService implements OnApplicationShutdown {
           result.anesthetizePercent = Number(b.anesthetizePercent ?? 15);
           result.anesthetizeDuration = Number(b.anesthetizeDuration ?? 600);
         }
-        // 消费：不保留该 buff
         continue;
       }
       remain.push(b);
@@ -8953,18 +8728,13 @@ export class CombatSystemService implements OnApplicationShutdown {
     return effectText;
   }
 
-  // ==================== 使魔专属战斗特效 ====================
+  // ===== 使魔专属战斗特效 =====
 
   /**
-   * 处理使魔专属战斗特效
-   * 在武器攻击流程中，根据玩家的当前使魔类型，触发专属战斗特效
-   * 对应原版：各种使魔的武器攻击特效处理
-   *
+   * 处理使魔专属战斗特效：武器攻击流程中按玩家当前使魔类型分发到对应特效处理，
+   * 返回修改后的攻击参数（对应原版各种使魔的武器攻击特效处理）。
    * @param player 玩家对象（含 type 字段标识当前使魔类型）
    * @param playerData 完整玩家数据（含 markers/buffs 等）
-   * @param weapon 当前使用的武器数据
-   * @param context 当前攻击上下文
-   * @returns 特效处理结果，包含修改后的攻击参数
    */
   processFamiliarEffects(
     player: any,
@@ -8990,10 +8760,8 @@ export class CombatSystemService implements OnApplicationShutdown {
       weaponDisplayName: weapon.name || '',
     };
 
-    // 获取当前使魔类型
     const familiarType = player.type || '';
 
-    // 根据使魔类型分发到对应的特效处理
     switch (familiarType) {
       case '战斗女仆':
         return this.processBattleMaidEffects(player, playerData, weapon, context, defaultResult);
@@ -9120,8 +8888,7 @@ export class CombatSystemService implements OnApplicationShutdown {
       result.markerOps = [{ key: '空间魔力', delta: -1 }];
     }
 
-    // 库洛魔力：120秒冷却（简化：每20秒最多获得一次），加攻击
-    // 原版通过增益持续机制实现，此处简化为每120秒刷新一次攻击加成
+    // 库洛魔力：原版靠增益持续机制实现，此处简化为每 120 秒最多刷新一次攻击加成
     const lastMagicTime = markers['库洛魔力时间'] || 0;
     const now = Date.now();
     if (now - lastMagicTime > 120000) {
@@ -9207,7 +8974,7 @@ export class CombatSystemService implements OnApplicationShutdown {
     const markers = playerData.markers || {};
     const affinity = markers['启木之本樱好感'] || 0;
     if (affinity >= 20) {
-      // 减少封印解除冷却（简化：记录最近触发时间，展示提示）
+      // 简化：仅回显提示，未真正减少"封印解除"冷却
       result.effectText += '【封印解除冷却减少】';
     }
     return result;
@@ -9236,36 +9003,30 @@ export class CombatSystemService implements OnApplicationShutdown {
 
     switch (chosen) {
       case 'rpg':
-        // RPG!：溅射数量+1，溅射伤害+25%，溅射伤害必中
         result.splashCount = 1;
         result.splashDamageMultiplier = 1.25;
         result.splashMustHit = true;
         result.effectText = '【战斗女仆·RPG!】';
-        // 触发RPG!时，全体攻击失效
         if (result.allAttack) {
           result.allAttack = false;
         }
         break;
 
       case 'machinegun':
-        // 机枪：命中提高15%，额外攻击一次
         result.hitRateModifier = 15;
         result.extraAttacks = 1;
         result.effectText = '【战斗女仆·机枪】';
-        // 触发机枪时，全体攻击失效
         if (result.allAttack) {
           result.allAttack = false;
         }
         break;
 
       case 'stun':
-        // 震撼弹：穿透+5%
         result.extraPenetration = 5;
         result.effectText = '【战斗女仆·震撼弹】';
         break;
 
       case 'fuelAir':
-        // 云爆弹：攻击+33%，全体攻击，伤害分摊
         result.damageMultiplier = result.damageMultiplier * 1.33;
         result.forceAllAttack = true;
         result.effectText = '【战斗女仆·云爆弹】';
@@ -9289,18 +9050,15 @@ export class CombatSystemService implements OnApplicationShutdown {
   ): FamiliarEffectResult {
     const result = { ...base };
 
-    // 检查玩家是否有"歼灭模式"增益
     const buffs = playerData.buffs || [];
     const hasAnnihilationMode = hasActive(buffs, '歼灭模式');
 
     if (hasAnnihilationMode) {
-      // 歼灭模式下，额外攻击次数+3
       result.extraAttacks = 3;
       result.effectText = '【伊卡洛斯·歼灭模式】';
     }
 
-    // 攻击闪避状态的目标时，偷取其闪避状态2秒
-    // 这个逻辑需要在攻击循环中判断目标是否有闪避增益，此处标记开启
+    // 偷取闪避需在攻击循环内按目标增益判定，此处只置标记
     result.stealDodge = true;
 
     return result;
@@ -9318,8 +9076,7 @@ export class CombatSystemService implements OnApplicationShutdown {
     context: AttackContext,
     base: FamiliarEffectResult,
   ): FamiliarEffectResult {
-    // 花园猫的闪避反击逻辑在攻击循环中通过 checkHit 后的回调触发
-    // 此处标记使魔类型，便于攻击循环中判断
+    // 闪避反击实际在攻击循环的 checkHit 后触发，此处仅按使魔类型标记
     return { ...base };
   }
 
@@ -9336,12 +9093,10 @@ export class CombatSystemService implements OnApplicationShutdown {
   ): FamiliarEffectResult {
     const result = { ...base };
     const markers = playerData.markers || {};
-    // 获取恶毒好感度，标记格式为"恶毒好感"
     const affinity = markers['恶毒好感'] || 0;
 
     if (affinity >= 60 && result.allAttack) {
-      // 好感≥60时，全体攻击变溅射（不丢失全体攻击效果）
-      // 保留 allAttack=true 的同时增加溅射标记
+      // 保留 allAttack=true 的同时增加溅射标记（不丢失全体攻击效果）
       result.splashCount = 1;
       result.effectText = '【恶毒·好感溅射】';
     }
@@ -9385,22 +9140,14 @@ export class CombatSystemService implements OnApplicationShutdown {
       result.effectText += `【甩枪+${penVal.toFixed(1)}】`;
     }
 
-    // 武器名显示
+    // 武器名显示（原版 火力特效文本前缀武器名）
     result.effectText = `【普拉娜·${weapon.name || '武器'}】${result.effectText}`;
     return result;
   }
 
   /**
-   * 处理武器特殊序号相关特效
-   * 对应原版武器特殊序号的效果处理
-   * - 机械触手(特殊序号90+): 武器冷却变为6秒
-   * - 雷火剑(特殊序号1001): 冷却变为1/3
-   * - 火神机枪: 冷却后自动再次攻击
-   * - 三千世界: 冷却后自动再次攻击
-   *
-   * @param weapon 武器数据
-   * @param baseCooldown 原始冷却时间
-   * @returns 修改后的冷却时间和自动连击标记
+   * 武器特殊序号特效（对应原版武器特殊序号的效果处理）：
+   * 机械触手(90) 冷却→6秒；雷火剑(1001) 冷却→1/3；火神机枪(1002)/三千世界(1003) 冷却后自动再次攻击。
    */
   processWeaponSpecialEffects(
     weapon: WeaponData,
@@ -9408,26 +9155,21 @@ export class CombatSystemService implements OnApplicationShutdown {
   ): { cooldown: number; triggerCombo: boolean; effectText: string } {
     const result = { cooldown: baseCooldown, triggerCombo: false, effectText: '' };
 
-    // 机械触手：武器冷却变为6秒
     if (weapon.specialSeq === 90 || weapon.name?.includes('机械触手')) {
       result.cooldown = 6;
       result.effectText = '【机械触手·冷却缩短】';
     }
 
-    // 雷火剑：冷却变为1/3
     if (weapon.specialSeq === 1001 || weapon.name?.includes('雷火剑')) {
       result.cooldown = Math.max(1, Math.floor(baseCooldown / 3));
       result.effectText = '【雷火剑·冷却极速】';
     }
 
-    // 火神机枪：冷却后自动再次攻击
     if (weapon.name?.includes('火神机枪') || weapon.specialSeq === 1002) {
-      // 标记触发自动连击
       result.triggerCombo = true;
       result.effectText = '【火神机枪·自动连击】';
     }
 
-    // 三千世界：冷却后自动再次攻击
     if (weapon.name?.includes('三千世界') || weapon.specialSeq === 1003) {
       result.triggerCombo = true;
       result.effectText = '【三千世界·自动连击】';
@@ -9436,16 +9178,8 @@ export class CombatSystemService implements OnApplicationShutdown {
     return result;
   }
 
-  /**
-   * 检查玩家是否有全体攻击标记
-   * 检查来源：装备加成、基础属性、增益状态
-   *
-   * @param player 玩家对象
-   * @param playerData 玩家完整数据
-   * @returns 是否有全体攻击标记
-   */
+  /** 是否有全体攻击标记，来源：装备加成（bonus/baseBonus）、玩家基础属性、增益状态。 */
   checkAllAttackFlag(player: any, playerData: any): boolean {
-    // 1. 检查装备加成中是否有全体攻击
     if (playerData.equipment && playerData.equipment.length > 0) {
       for (const equip of playerData.equipment) {
         if (equip.bonus && equip.bonus.全体攻击) {
@@ -9457,12 +9191,10 @@ export class CombatSystemService implements OnApplicationShutdown {
       }
     }
 
-    // 2. 检查玩家基础属性
     if (player.allAttack) {
       return true;
     }
 
-    // 3. 检查增益状态
     if (playerData.buffs && playerData.buffs.length > 0) {
       for (const buff of playerData.buffs) {
         if (buff.allAttack) {
@@ -9474,46 +9206,29 @@ export class CombatSystemService implements OnApplicationShutdown {
     return false;
   }
 
-  // ==================== 延时攻击系统 ====================
+  // ===== 延时攻击系统 =====
 
-  /**
-   * 延时攻击任务映射
-   * 记录每个用户的延时攻击定时器，key=userId
-   */
+  /** 延时攻击定时器，key=userId */
   private delayedAttackTimers: Map<number, NodeJS.Timeout> = new Map();
 
-  /**
-   * 延时攻击锁定状态
-   * 记录每个用户是否处于锁定状态，锁定期间不能执行其他操作
-   */
+  /** 锁定状态：锁定期间不能执行其他操作，key=userId */
   private lockStates: Map<number, boolean> = new Map();
 
   /**
-   * 安排延时攻击
-   * 武器有锁定时间时，在锁定时间结束后自动执行攻击
-   * 锁定期间玩家不能执行其他操作
-   *
-   * @param userId 用户ID
-   * @param weaponIndex 武器索引
+   * 安排延时攻击：武器有锁定时间时锁定结束后自动执行攻击，锁定期间玩家不能执行其他操作。
    * @param lockTime 锁定时间（秒）
-   * @returns 是否成功安排延时攻击
    */
   scheduleDelayedAttack(userId: number, weaponIndex: number, lockTime: number): boolean {
     if (lockTime <= 0) return false;
 
-    // 设置锁定状态
     this.lockStates.set(userId, true);
 
-    // 清除已有的延时攻击定时器
     this.clearDelayedAttack(userId);
 
-    // 在锁定时间结束后自动执行攻击
     const timer = setTimeout(async () => {
       try {
-        // 解除锁定状态
         this.lockStates.set(userId, false);
 
-        // 执行延时攻击
         const result = await this.weaponAttack(userId, weaponIndex, {
           noDelay: true, // 延时攻击无视冷却
           isDelayed: true,
@@ -9532,11 +9247,7 @@ export class CombatSystemService implements OnApplicationShutdown {
     return true;
   }
 
-  /**
-   * 清除用户的延时攻击
-   *
-   * @param userId 用户ID
-   */
+  /** 清除用户的延时攻击定时器并解除锁定 */
   clearDelayedAttack(userId: number): void {
     const existingTimer = this.delayedAttackTimers.get(userId);
     if (existingTimer) {
@@ -9546,51 +9257,29 @@ export class CombatSystemService implements OnApplicationShutdown {
     this.lockStates.set(userId, false);
   }
 
-  /**
-   * 检查用户是否处于锁定状态
-   *
-   * @param userId 用户ID
-   * @returns 是否锁定中
-   */
   isLocked(userId: number): boolean {
     return this.lockStates.get(userId) || false;
   }
 
-  // ==================== 怪物自动战斗循环 ====================
+  // ===== 怪物自动战斗循环 =====
 
-  /**
-   * 自动战斗定时器映射
-   * key=userId，value=定时器对象
-   */
+  /** 自动战斗定时器，key=userId */
   private autoCombatTimers: Map<number, NodeJS.Timeout> = new Map();
 
-  /**
-   * 开始自动战斗
-   * 当玩家进入战斗状态后，每5秒自动攻击一次
-   * 直到地图没有怪物或玩家退出战斗
-   *
-   * @param userId 用户ID
-   * @param weaponIndex 武器索引
-   * @returns 是否成功启动
-   */
+  /** 开始自动战斗：玩家进入战斗状态后每 5 秒自动攻击一次，直到地图没有怪物或玩家死亡/离场。 */
   startAutoCombat(userId: number, weaponIndex: number = 0): boolean {
-    // 如果已有自动战斗，先停止
     this.stopAutoCombat(userId);
 
-    // 每5秒自动攻击一次
     const timer = setInterval(async () => {
       try {
-        // 检查玩家是否还在战斗状态
         const playerData = await this.playerService.getPlayerData(userId);
         const { player } = playerData;
 
-        // 如果玩家死亡，停止自动战斗
         if (this.playerService.isPlayerDead(player)) {
           this.stopAutoCombat(userId);
           return;
         }
 
-        // 获取地图怪物
         const map = await this.mapService.getMapById(player.mapId);
         if (!map) {
           this.stopAutoCombat(userId);
@@ -9599,12 +9288,10 @@ export class CombatSystemService implements OnApplicationShutdown {
 
         const monsters = await this.mapService.getMapMonsters(map);
         if (monsters.length === 0) {
-          // 地图没有怪物了，停止自动战斗
           this.stopAutoCombat(userId);
           return;
         }
 
-        // 执行自动攻击
         const result = await this.weaponAttack(userId, weaponIndex, {
           noDelay: true,
           isAutoCombat: true,
@@ -9628,11 +9315,6 @@ export class CombatSystemService implements OnApplicationShutdown {
     return true;
   }
 
-  /**
-   * 停止自动战斗
-   *
-   * @param userId 用户ID
-   */
   stopAutoCombat(userId: number): void {
     const existingTimer = this.autoCombatTimers.get(userId);
     if (existingTimer) {
@@ -9642,12 +9324,6 @@ export class CombatSystemService implements OnApplicationShutdown {
     }
   }
 
-  /**
-   * 检查用户是否在自动战斗中
-   *
-   * @param userId 用户ID
-   * @returns 是否在自动战斗中
-   */
   isAutoCombatActive(userId: number): boolean {
     return this.autoCombatTimers.has(userId);
   }
@@ -9716,42 +9392,29 @@ export class CombatSystemService implements OnApplicationShutdown {
     }
   }
 
-  // ==================== 自动连击机制 ====================
+  // ===== 自动连击机制 =====
 
-  /**
-   * 自动连击计数映射
-   * key=userId，value={ weaponName, comboCount, timerId }
-   * 最多连击3次
-   */
+  /** 自动连击状态，key=userId；上限 30 次（原版 武器攻击 L526-545） */
   private comboState: Map<number, { weaponName: string; weaponIndex: number; comboCount: number; timer: NodeJS.Timeout | null }> = new Map();
 
   /**
-   * 触发自动连击
-   * 特定武器攻击后，在武器冷却结束时自动再次攻击
-   * 最多连击3次
-   *
-   * @param userId 用户ID
-   * @param weaponIndex 武器索引
+   * 触发自动连击：特定武器攻击后，在武器冷却结束时自动再次攻击，最多连击 30 次。
    * @param cooldown 冷却时间（秒）
-   * @param weaponName 武器名
    */
   triggerCombo(userId: number, weaponIndex: number, cooldown: number, weaponName: string): void {
-    // 获取或创建连击状态
     let state = this.comboState.get(userId);
 
+    // 换了武器就从头计连击数
     if (!state || state.weaponName !== weaponName) {
-      // 如果是新武器，重置连击计数
       state = { weaponName, weaponIndex, comboCount: 0, timer: null };
       this.comboState.set(userId, state);
     }
 
-    // 清除旧的连击定时器
     if (state.timer) {
       clearTimeout(state.timer);
       state.timer = null;
     }
 
-    // 连击次数+1
     state.comboCount++;
 
     // 最多连击30次（对齐原版 武器攻击 L526-545 连击上限30）
@@ -9762,13 +9425,11 @@ export class CombatSystemService implements OnApplicationShutdown {
       return;
     }
 
-    // 在武器冷却结束后自动再次攻击
     const timer = setTimeout(async () => {
       try {
         const state = this.comboState.get(userId);
         if (!state) return;
 
-        // 执行连击攻击
         const result = await this.weaponAttack(userId, weaponIndex, {
           noDelay: true,
           isCombo: true,
@@ -9786,11 +9447,7 @@ export class CombatSystemService implements OnApplicationShutdown {
     this.logger.log(`安排自动连击 userId=${userId}, weapon=${weaponName}, combo=${state.comboCount}/${30}`);
   }
 
-  /**
-   * 清除自动连击状态
-   *
-   * @param userId 用户ID
-   */
+  /** 清除自动连击状态（含待触发的定时器） */
   clearCombo(userId: number): void {
     const state = this.comboState.get(userId);
     if (state && state.timer) {
@@ -9799,16 +9456,9 @@ export class CombatSystemService implements OnApplicationShutdown {
     this.comboState.delete(userId);
   }
 
-  // ==================== 地图增益自动获取 ====================
+  // ===== 地图增益自动获取 =====
 
-  /**
-   * 应用地图增益
-   * 进入地图时自动获得地图的 mapBuffs
-   * 将地图的增益效果添加到玩家的 buffs 列表中
-   *
-   * @param player 玩家对象
-   * @param map 地图对象
-   */
+  /** 进入地图时自动获得地图增益：把 mapBuffs/建筑/召唤物产生的增益并入玩家 buffs 并落库。 */
   async applyMapBuffs(player: any, map: any): Promise<void> {
     try {
       const parseArray = (value: any): any[] => {
@@ -9820,7 +9470,8 @@ export class CombatSystemService implements OnApplicationShutdown {
       // mapBuffs 是原版地图“标记3”的持久化载体；没有有效期的静态增益按配置时长初始化。
       const mapBuffs = parseArray(map.mapBuffs).map((raw: any) => {
         const buff = { ...(raw || {}) };
-        // mapBuffs 列不在归一化中间件覆盖范围，存量数据可能残留英文旧别名 value，这里就地收敛为规范键 strength
+        // mapBuffs 列不在归一化中间件覆盖范围：存量条目可能仍是英文别名 value，
+        // 读强度前必须归一到规范键 strength
         if (buff.strength === undefined && buff.value !== undefined) {
           buff.strength = buff.value;
           delete buff.value;
@@ -9835,7 +9486,7 @@ export class CombatSystemService implements OnApplicationShutdown {
         return buff;
       });
 
-      // 原版地图标记离开地图即失效；兼容之前没有 source 标记的存量同名增益。
+      // 原版地图标记离开地图即失效：带 mapBuff/mapMarker 来源或与地图配置同名的旧条目一律剔除。
       let playerBuffs: any[] = parseArray(player.buffs);
       const configuredMapNames = new Set(
         mapBuffs.map((buff: any) => String(buff?.name ?? '')).filter(Boolean),
@@ -9955,7 +9606,7 @@ export class CombatSystemService implements OnApplicationShutdown {
     }
   }
 
-  // ==================== 宠物攻击真实结算 ====================
+  // ===== 宠物攻击真实结算 =====
 
   /**
    * 宠物攻击怪物（逐次真实结算，对齐原版 宠物攻击() 子程序）
@@ -9967,7 +9618,6 @@ export class CombatSystemService implements OnApplicationShutdown {
    * @param monster 目标怪物实例（GameMap 上的 MapMonster）
    * @param mapId 地图ID（用于击杀后写回怪物血量 / 掉落发放）
    * @param ownerUserId 宠物归属玩家ID（击杀经验/掉落归属）
-   * @returns 结算结果文本
    */
   async resolvePetVsMonster(
     pet: any,
@@ -10048,10 +9698,9 @@ export class CombatSystemService implements OnApplicationShutdown {
       }
     }
 
-    // 暴击判定
     const isCrit = this.checkCrit(petBonus.暴击 || 0);
 
-    // 伤害计算（宠物为攻击方、怪物为防御方，走统一三层引擎）
+    // 宠物为攻击方、怪物为防御方，走统一三层引擎
     const dmg = this.calcDamage(
       petBonus,
       monsterBonus,
@@ -10102,16 +9751,10 @@ export class CombatSystemService implements OnApplicationShutdown {
     return `${pet.name} 对 ${monster.name} 造成 ${finalDamage} 点伤害`;
   }
 
-  // ==================== 花园猫闪避反击处理 ====================
+  // ===== 花园猫闪避反击处理 =====
 
   /**
-   * 处理花园猫闪避反击
-   * 当玩家闪避攻击后，自动反击且必中
-   * 由上层在闪避判定时调用
-   *
-   * @param userId 用户ID
-   * @param weaponIndex 武器索引
-   * @returns 反击结果文本
+   * 花园猫闪避反击：玩家闪避成功后自动反击且必中，由上层在闪避判定时调用。
    */
   async handleGardenCatCounter(
     userId: number,
@@ -10124,14 +9767,12 @@ export class CombatSystemService implements OnApplicationShutdown {
     const playerData = sharedPlayerData ?? await this.playerService.getPlayerData(userId);
     const { player } = playerData;
 
-    // 检查使魔类型是否为花园猫
     if (player.type !== '花园猫') {
       return '';
     }
 
-    // 执行反击（必中）
-    // 从怪物反击链路进入时（reuseOuterLock=true）调用方已持有该用户的战斗锁，
-    // 必须跳过再次加锁，否则与外层 weaponAttack 互相等待造成死锁。
+    // 反击必中；reuseOuterLock=true 时调用方已持有该用户的战斗锁，必须跳过再次加锁，
+    // 否则与外层 weaponAttack 互相等待造成死锁。
     const result = await this.weaponAttack(userId, weaponIndex, {
       mustHit: true,
       attackText: '【花园猫·闪避反击】',
@@ -10147,25 +9788,17 @@ export class CombatSystemService implements OnApplicationShutdown {
     return '';
   }
 
-  // ==================== 行动无限制 ====================
+  // ===== 行动无限制 =====
 
   /**
    * 行动无限制（对应原版 战斗相关.ecode L5097-5172 子程序）
    *
    * 原版语义：检查玩家是否处于"被限制"状态，返回真=被限制（不可行动），假=可行动。
-   * 参数：
-   *   - 玩家：玩家对象（含 markers / markers2 / attackMode / 套装）
-   *   - 返回文本：引用参数，被限制时写入剩余时间提示
-   *   - s：当前秒（时间戳，秒）
-   *   - 炮击可：炮击模式下是否仍允许（默认真=炮击模式也允许）
-   *   - 无视理由：1移动 2复活 3采集 4工作 5躺下 6自动开采，对应数字可无视该限制
-   *   - 长须鲸开采：长须鲸开采时额外检查"自动开采2"
+   * 无视理由 取值：1移动 2复活 3采集 4工作 5躺下 6自动开采，对应数字可无视该限制；
+   * 炮击可=炮击模式下是否仍允许（默认真=炮击模式也允许）；长须鲸开采=额外检查"自动开采2"。
+   * 分支顺序按原版 1:1 还原（移动→复活→采集→工作→攻击模式→躺下→自动开采→长须鲸→麻痹）。
+   * markers2 标记（移动/复活/采集/工作/麻痹）采用秒级 expireAt（与原版 s 秒一致）。
    *
-   * 1:1 还原各.如果真分支顺序（移动→复活→采集→工作→攻击模式→躺下→自动开采→长须鲸→麻痹）。
-   * markers2 标记（移动/复活/采集/工作/麻痹）采用秒级 expireAt（与原版 s 秒一致，
-   * 与 game.service 内 markers2 增益冷却写法一致）。
-   *
-   * @param player 玩家对象
    * @param opts 可选参数（炮击可 / 无视理由 / 长须鲸开采）
    * @returns { restricted: boolean, text: string } restricted 为真表示被限制
    */
@@ -10251,43 +9884,16 @@ export class CombatSystemService implements OnApplicationShutdown {
     return { restricted: false, text: '' };
   }
 
-  // ==================== 玩家死亡 ====================
-
-  /**
-   * 玩家死亡判定（对应原版 战斗相关.ecode L5173-5231 子程序）
-   *
-   * 原版语义：玩家当前生命<=0 时，依次检查各种"免死/复活豁免"：
-   *   - 增益"卷土重来"存在 → 不死（额外文本）
-   *   - 军姬(特殊序号=16) 且有存活宠物 → 冷却"sf"60秒未过则森罗万象复活（生命/2）
-   *   - 装备"死亡行者"(specialSeq=16) 冷却90秒未过 → 复活（生命/2）
-   *   - 装备"石中剑"(specialSeq=-35) 冷却90秒未过 → 复活（生命/2）
-   *   - 否则 → 真死，w 文本="已经死掉了!你可以"复活使魔"或者"删除怪物""
-   * 返回真=真死；返回文本 w 写入死亡提示。
-   *
-   * 1:1 还原各.判断分支顺序（卷土重来→军姬→默认→b==1→死亡行者→石中剑→默认）。
-   * 依赖：playerData.buffs / playerData.equipment / playerData.markers2 / playerData.map.summons。
-   *
-   * @param playerData 玩家完整数据（含 player/markers/buffs/equipment/map）
-   * @returns { dead: boolean, extraText: string, deathText: string }
-   */
-
-
-
+  // ===== 玩家死亡 =====
 
   /**
    * 免死（对应原版 战斗相关.ecode L5020-5096 子程序 免死）
    *
    * 原版语义：防御方即将死亡时，按使魔/装备/增益决定能否免死（返回真=免死成功）。
-   * 覆盖分支：龙姬怒吼(b=2)、伊芙利特五番a(b=3)、战斗女仆守护3(b=5)、
-   * 吸血姬与分身互换生命、猫爪吊坠(b=4)、以及 五番a/猫爪 增益要求覆盖 b。
-   * b==2：总伤害 += 当前生命-1 且 当前生命=1（原版 L5080-5083）。
-   * b==3/4/5：当前生命保留，返回免死真（原版 L5084-5092）。
+   * b==2 龙姬怒吼：总伤害 += 当前生命-1 且 当前生命=1（原版 L5080-5083）；
+   * b==3/4/5 伊芙利特五番a / 猫爪吊坠 / 战斗女仆守护3：当前生命保留，返回免死真（原版 L5084-5092）。
    *
-   * 依赖：defender.buffs（增益）/ defender.markers2（冷却标记，原地修改）/
-   * defender.equipment（装备 specialSeq）/ defender.markers（取成就熟练度）/
-   * defender.specialSeq / defender.活力 / defender.currentHp。
-   *
-   * @param defender 防御方玩家/召唤物
+   * @param defender 防御方玩家/召唤物（buffs/markers2/equipment/markers/specialSeq/活力/currentHp 均在此读取）
    * @param buffs 增益数组（原地修改：五番a/猫爪 获得增益）
    * @param markers2 冷却标记数组（原地修改：五番冷却/猫爪冷却 时间间隔要求）
    * @param equipment 装备数组（specialSeq 命中）
@@ -10489,7 +10095,7 @@ export class CombatSystemService implements OnApplicationShutdown {
     };
   }
 
-  // ==================== 置掉落 ====================
+  // ===== 置掉落 =====
 
   /**
    * 置掉落（对应原版 战斗相关.ecode L5245-5317 子程序）
@@ -10503,7 +10109,7 @@ export class CombatSystemService implements OnApplicationShutdown {
    * ⚠️原版 L5291 传说率段比较误用 `玩家.属性.掉落品质`（疑似笔误，按原版保留）。
    *
    * @param attacker 攻击玩家（QQ、equipment）
-   * @param monsterMarkers 怪物.标记 数组（会被原地更新，返回新数组）
+   * @param monsterMarkers 怪物.标记 数组（只读；本方法返回其副本更新后的新数组）
    * @param stats 本次战斗算出的掉落能力（不写回玩家对象，仅用于怪物标记）
    * @returns 更新后的怪物标记数组
    */
@@ -10572,7 +10178,7 @@ export class CombatSystemService implements OnApplicationShutdown {
     ));
   }
 
-  // ==================== 挑战怪物 ====================
+  // ===== 挑战怪物 =====
 
   /**
    * 挑战怪物（对应原版 战斗相关.ecode L4726-4790 子程序）
@@ -10585,7 +10191,6 @@ export class CombatSystemService implements OnApplicationShutdown {
    * 1:1 还原各分段与 b 值映射（含 a>=900 精英兔子/露娜 分支）。
    *
    * @param a 挑战编号（整数）
-   * @returns 怪物名字
    */
   challengeMonsterName(a: number): string {
     const rand = (csv: string): string => {
@@ -10625,7 +10230,7 @@ export class CombatSystemService implements OnApplicationShutdown {
     return rand('熔岩巨人，防御节点，执行者，洛，海神龙，鹭，洛，可畏，柴郡，机械降神');
   }
 
-  // ==================== 掉落残骸 ====================
+  // ===== 掉落残骸 =====
 
   /**
    * 掉落残骸（对应原版 战斗相关.ecode L4947-4985 子程序）
@@ -10666,28 +10271,10 @@ export class CombatSystemService implements OnApplicationShutdown {
     return res;
   }
 
-  // ==================== 选择高血量目标 ====================
-
   /**
-   * 选择高血量目标（对应原版 战斗相关.ecode L5423-5438 子程序）
-   *
-   * 原版语义：遍历防御方数组，记录每个目标的 当前生命+当前装甲+当前护盾 总和与索引 a，
-   * 按数量升序排序（物品数量排序 默认从小到大），返回最后一个（即总和最大者）的索引耐久。
-   * 无目标返回 0。
-   *
-   * 1:1 还原：总和计算、升序排序、返回末位索引。
-   *
-   * @param defenders 防御方数组（每项含 当前生命/当前装甲/当前护盾 或 hp/armor/shield）
-   * @returns 最高血量目标的数组索引（无目标返回 0）
-   */
-  /**
-   * 取攻击文本（对应原版 数据显示.ecode L2413 子程序 取攻击文本）
-   *
-   * 原版语义：从全局 文本列表 中按名称查找攻击文本，命中返回该项，否则返回 文本列表[1]（默认第一项）。
-   * 本方法等价实现：从 StaticDataService 的 attack-texts 配置按 name 查找，未命中返回 { name: '' }。
-   *
+   * 取攻击文本（对应原版 数据显示.ecode L2413 子程序 取攻击文本）：
+   * 从全局 文本列表 按名称查找，未命中回落第一项（文本列表[1]）。
    * @param name 攻击文本名称（如 "自动步枪"）
-   * @returns 攻击文本对象（至少含 name 字段，原版 攻击文本 结构）
    */
   private getAttackTextByName(name: string): any {
     const list: any[] = this.staticData.getAllAttackTexts() || [];
@@ -10697,15 +10284,10 @@ export class CombatSystemService implements OnApplicationShutdown {
   }
 
   /**
-   * 叠加载具加成（对应原版 加成计算.ecode L3913-4076 子程序 叠加载具加成）
-   *
-   * 原版语义：把 目标加成 按 数量 累加进 加成（参考，原地修改）。
-   * 当 硅基核心加成 > 1 时，正向字段（原值>0）乘 硅基核心加成，负向字段（原值<=0）乘 核心负面降低 = 1 - (硅基核心加成-1)*2；
-   * 当 硅基核心加成 <= 1 时（本场景传 1），核心负面降低 = 1，正负字段均乘 数量（等价直接叠加）。
-   *
-   * 本方法 1:1 还原逐字段叠加逻辑（攻击2/生命2/护盾2/装甲2/闪避2/命中2/电伤2/火伤2/冰伤2/物伤2/溅射2/速度2/
-   * 生产/生命回复2/护盾回复2/装甲回复2/攻击次数/攻击/护盾/装甲/生命/闪避/命中/电伤/火伤/冰伤/物伤/溅射/速度）。
-   * 注意：原版每个字段都有「若>0 乘硅基核心加成 否则 乘核心负面降低」的二分支，本场景 硅基核心加成=1 → 核心负面降低=1 → 等价全乘 数量。
+   * 叠加载具加成（对应原版 加成计算.ecode L3913-4076 子程序 叠加载具加成）：
+   * 把 来源加成 按 数量 逐字段累加进目标加成对象（原地修改）。
+   * 原版每个字段都是「值>0 乘硅基核心加成，否则乘 核心负面降低 = 1-(硅基核心加成-1)*2」二分支；
+   * 本场景 siliconCore=1 → 核心负面降低=1 → 等价全部乘 数量。
    *
    * @param bonus 被累加的加成对象（原地修改）
    * @param target 来源加成对象
@@ -11128,27 +10710,6 @@ export class CombatSystemService implements OnApplicationShutdown {
   }
 
   /**
-   * 计算载具（对应原版 加成计算.ecode L3556-3912 子程序 计算载具）
-   *
-   * 原版语义：重新计算载具的各项属性（防御/武器/行走/功能上限与超限、加成叠加、硅基核心、
-   * 逆转力场、湮灭圣光/审判导弹等穿透、小雫/小凰等生产加成、超限判定），并在提供 s 且非产出时
-   * 处理 琪莎拉 自动回血；最终按 上限 标志决定产出分支。
-   *
-   * 本方法 1:1 还原 L3556-3912 全部属性计算逻辑；产出分支由 calculateVehicleProduction
-   * 对应原版 L3898-3911 的 取生产产出。
-   *
-   * 数据来源：原版 部件列表 全局 = staticData.getAllVehiclePartSpecs()（vehicle-parts.json，
-   * 由 e/源码解析成为txt/使魔大战.txt 类型=载具 节提取）；部件限制 全局（商店-部件限制）当前无数据 → 空数组。
-   *
-   * @param vehicle 载具对象（原地修改：重置并叠加属性/加成/上限等）
-   * @param s 长整数时间戳（可空；为空则跳过时间相关回血）
-   * @param calcOutput 是否计算产出（可空）
-   * @param achieve 玩家成就数组（计算产出时用，可空）
-   * @param tasks 玩家任务数组（计算产出时用，可空）
-   * @param productivity 生产力提高（可空）
-   * @param mapId 所在地图（可空）
-   */
-  /**
    * 对外提供原版「计算载具」的纯重算入口。
    * 生产系统先调用它得到载具加成、核心类型和超限标志，再执行「取生产产出」。
    */
@@ -11200,6 +10761,25 @@ export class CombatSystemService implements OnApplicationShutdown {
     };
   }
 
+  /**
+   * 计算载具（对应原版 加成计算.ecode L3556-3912 子程序 计算载具）
+   * 原版语义：重新计算载具的各项属性（防御/武器/行走/功能上限与超限、加成叠加、硅基核心、
+   * 逆转力场、湮灭圣光/审判导弹等穿透、小雫/小凰等生产加成、超限判定），并在提供 s 且非产出时
+   * 处理 琪莎拉 自动回血；最终按 上限 标志决定产出分支。
+   * 1:1 还原 L3556-3912 全部属性计算逻辑；产出分支（原版 L3898-3911 取生产产出）
+   * 由 calculateVehicleProduction 实现。
+   *
+   * 数据来源：原版 部件列表 全局 = staticData.getAllVehiclePartSpecs()（vehicle-parts.json，
+   * 由 e/源码解析成为txt/使魔大战.txt 类型=载具 节提取）；部件限制 全局（商店-部件限制）当前无数据 → 空数组。
+   *
+   * @param vehicle 载具对象（原地修改：重置并叠加属性/加成/上限等）
+   * @param s 长整数时间戳（可空；为空则跳过时间相关回血）
+   * @param calcOutput 是否计算产出（可空）
+   * @param achieve 玩家成就数组（计算产出时用，可空）
+   * @param tasks 玩家任务数组（计算产出时用，可空）
+   * @param productivity 生产力提高（可空）
+   * @param mapId 所在地图（可空）
+   */
   private computeVehicle(
     vehicle: any,
     s: number | null,
@@ -11454,22 +11034,10 @@ export class CombatSystemService implements OnApplicationShutdown {
   }
 
   /**
-   * 生成前线（对应原版 战斗相关.ecode L5319-5422 子程序 生成前线）
-   *
-   * 原版语义：在地图上为一个玩家（qq）生成一个"前线"召唤物（玩家结构）和"阵地"载具，
-   * 前者承担防御（武器来自地图建筑加成.攻击），后者提供后勤（零件=阵地核心+轻型装甲）。
-   * 已存在同名召唤物/载具则更新，否则新增。置成就熟练度 跟随/阵地。
-   *
-   * 逐行还原要点：
-   * - g.名称/类型="前线"、g.归属=qq、g.QQ="怪物前线"+qq+"sg"
-   * - g.属性.必中=true、生命=1、闪避=1、物伤=冰伤=电伤=火伤=1、命中=前线等级+1、特殊序号=-2
-   * - 武器 z：类型="射弹武器"、载具强制伤害=true、冷却=10
-   * - 遍历地图建筑：建筑.加成.攻击!=0 → 加一把武器（名称=建筑名、加成、攻击文本、属性=26/25/25/25×攻击×数量），c+=生命×数量
-   * - 无武器 → 默认"火力"自动步枪（属性26/25/25/25）
-   * - g.套装.增幅器=3、g.属性.攻击=1
-   * - 载具 zj：名称="阵地"、零件=[阵地核心×1, 轻型装甲×(10+c+前线等级)]、归属/驾驶员/编号=g.QQ，计算载具
-   * - 置成就熟练度("跟随"/"阵地", g.标记, 1)
-   * - 按 g2(已有召唤物)/zj.列表编号 决定 新增或更新 到 d.召唤物/d.载具
+   * 生成前线（对应原版 战斗相关.ecode L5319-5422 子程序 生成前线）：
+   * 为地图上的一个玩家（qq）生成"前线"召唤物（玩家结构，武器来自地图建筑加成.攻击）
+   * 与"阵地"载具（零件=阵地核心+轻型装甲，提供后勤），已存在则更新否则新增，
+   * 并置成就熟练度 跟随/阵地。逐段 L 号见方法内注释。
    *
    * 注：原版依赖全局 建筑列表（含 加成.攻击/加成.生命/攻击文本）。当前网页版 map.buildings 为生产建筑 JSON，
    * 暂无带 加成.攻击 的战斗建筑，故武器数组通常为空 → 走"火力自动步枪"默认分支；逻辑完整保留，待战斗建筑数据补全即生效。
@@ -11650,6 +11218,11 @@ export class CombatSystemService implements OnApplicationShutdown {
     return { summon: g, summons, vehicles };
   }
 
+  /**
+   * 选择高血量目标（对应原版 战斗相关.ecode L5423-5438 子程序）：
+   * 遍历防御方数组，按 当前生命+装甲+护盾 总和升序排序后取末位（总和最大者）的索引；无目标返回 0。
+   * @param defenders 防御方数组（每项含 当前生命/当前装甲/当前护盾 或 hp/armor/shield）
+   */
   selectHighHpTarget(defenders: any[]): number {
     if (!Array.isArray(defenders) || defenders.length === 0) return 0;
     const list = defenders.map((d: any, idx: number) => ({
@@ -11662,25 +11235,17 @@ export class CombatSystemService implements OnApplicationShutdown {
   }
 
   /**
-   * 地图战斗节拍单回合 + 续回合判定（对应原版 _主程序.ecode L200-535 覅攻击pd）
+   * 地图战斗节拍单回合 + 续回合判定（对应原版 _主程序.ecode L200-535 覅攻击pd，
+   * 各步 L 号见方法内注释）。
    *
-   * 原版逐行还原要点：
-   *   - L261-291 对地图每个怪物发起攻击（玩家武器 + 召唤物协同），含怪物闪避判定
-   *   - L320-499 召唤物协同攻击、闪避、扶人、天神降世、觉醒宠物攻击（战斗循环子系统）
-   *   - L502-505 有目标 → "gwlq" 2秒节流通过后 新建延时("覅攻击pd"+地图, 4) 自动续回合
-   *   - L507-530 无目标（"#没有目标"）/活动结束 → 修复载具并终止循环
-   *   - L202-206 入口 "gw"+地图 2秒节流；无怪物直接返回
-   *
-   * 本框架现状：weaponAttack 已实现"玩家攻击地图怪物 + 召唤物协同攻击(summonCoAttack)"，
-   * 故复用 weaponAttack 对所有地图怪物发起攻击；载具修复分支按原版 L507-530 独立实现。
-   * 原版 L320-499 的召唤物攻击循环由 runMapSummonAttacks 接入统一武器攻击；
-   * 觉醒宠物与怪物攻击分别由 weaponAttack 协同分支和 monsterCounterAttackOnePlayer 结算。
-   * 续回合调度由 MapBattleLoopService 承担（延时去重 + 回合执行 + 世界频道广播），
-   * 未注入循环服务时（存量单测直构）本方法保持单回合语义。
+   * 本框架分工：weaponAttack 已实现"玩家攻击地图怪物 + 召唤物协同攻击(summonCoAttack)"，
+   * 故复用 weaponAttack 对所有地图怪物发起攻击；原版 L320-499 的召唤物循环由 runMapSummonAttacks 接入；
+   * 觉醒宠物与怪物攻击分别由 weaponAttack 协同分支和 monsterCounterAttackOnePlayer 结算；
+   * 载具修复分支按原版 L507-530 独立实现。续回合调度由 MapBattleLoopService 承担
+   * （延时去重 + 回合执行 + 世界频道广播），未注入循环服务时（存量单测直构）本方法保持单回合语义。
    *
    * @param userId 玩家名义ID；0 表示延时回合（原版 QQ="0"，地图维度执行）
    * @param arg 地图参数（可选，原版按地图名定位，此处默认当前地图）
-   * @returns 结果文本
    */
   async adminAttackMap(userId: number, arg: string): Promise<string> {
     // userId>0：玩家名义（手动指令/玩家触发的立即结算）；userId=0：延时回合（原版 QQ="0"，
@@ -11700,7 +11265,7 @@ export class CombatSystemService implements OnApplicationShutdown {
     if (mapIndex > maps.length) return '';
 
     const nowMs = Date.now();
-    // 兼容存量数据：地图标记2容器必须为数组（历史种子曾误写 '{}'）
+    // 地图标记2 容器必须是数组：存量数据可能被写成 '{}'，直接当数组遍历会抛错
     const rawMapMarkers2 = this.playerService.safeJsonParse<any>(map.markers2, []);
     const mapMarkers2 = Array.isArray(rawMapMarkers2) ? rawMapMarkers2 : [];
     const cooldownText = { value: '' };
@@ -12009,8 +11574,8 @@ export class CombatSystemService implements OnApplicationShutdown {
     }
     // 原版 武器攻击 L69-92：每把武器出手前先查 攻击方.标记2 的「武器名+冷却」，
     // 冷却中该武器本回合直接跳过（不出手、无文本），出手通过时由 时间间隔要求 写入冷却标记。
-    // 频率失真修复：此前怪物每回合全部武器无冷却齐射（如剧毒飞龙三把武器冷却均 15 秒，
-    // 原版约 16 秒才各命中一轮，此前变成每 4 秒全中，受击频率约为原版 3 倍）。
+    // 少了这层冷却，怪物每回合都会全部武器齐射（如剧毒飞龙三把 15 秒冷却武器会变成
+    // 每 4 秒全中，受击频率约为原版 3 倍）。
     const nowMsWeapon = Date.now();
     for (const rawWeapon of weapons) {
       const weapon = rawWeapon ? this.getWeaponData(monster, weaponList.indexOf(rawWeapon) + 1) : undefined;
@@ -12262,7 +11827,7 @@ export class CombatSystemService implements OnApplicationShutdown {
         const row = await this.prisma.player.findFirst({
           where: {
             OR: [
-              // ownerQQ 存 qqNumber（User.qqNumber）或 player.id（familiar-system L465）
+              // ownerQQ 存 qqNumber（User.qqNumber）或 player.id（写入侧见 familiar-system）
               { user: { qqNumber: owner } },
               ...(Number.isFinite(numeric) && numeric > 0 ? [{ id: numeric }] : []),
             ],
@@ -12381,19 +11946,12 @@ export class CombatSystemService implements OnApplicationShutdown {
   }
 
   /**
-   * 延时攻击：按 QQ$武器 定位召唤物/怪物/玩家并以其武器攻击（对应原版 _主程序.ecode L536-674 覅公jj）
+   * 延时攻击：按 "QQ$武器名" 定位召唤物/怪物/玩家并以其武器攻击
+   * （对应原版 _主程序.ecode L536-674 覅公jj，三种模式见下方各分支的原版 L 号注释）。
+   * 本框架三种模式复用统一战斗模型：召唤物经 attackerOverride、怪物经
+   * monsterCounterAttackOnePlayer、玩家走 weaponAttack。
    *
-   * 原版三种模式：
-   *   1. 召唤物$武器（含"g"）：用召唤物武器攻击地图怪物2
-   *   2. 怪物$武器：怪物用武器攻击玩家数组（含幻时）
-   *   3. 玩家$武器（默认）：玩家用当前武器攻击地图怪物2
-   *
-   * 本框架三种模式均复用统一战斗模型：召唤物通过 attackerOverride 攻击怪物，
-   * 怪物通过 monsterCounterAttackOnePlayer 攻击玩家/召唤物，玩家走 weaponAttack。
-   *
-   * @param userId 用户ID
    * @param arg 形如 "QQ$武器名" 的参数
-   * @returns 结果文本
    */
   async delayedAttackByQQWeapon(userId: number, arg: string): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);

@@ -99,9 +99,9 @@ export class GameService {
     private readonly shortcutService: ShortcutService,
     private readonly statsService: StatsService,
     private readonly combatState: CombatStateService,
-    // —— 指令域子服务（P2/P3/P4 拆分收口，改为必选注入）——
+    // —— 指令域子服务（必选注入）——
     // 测试桩统一走 test/helpers/game-service-stub.factory.ts（createGameServiceStub），
-    // 按生产构造签名惰性挂载支撑层与全部子服务，不再依赖门面懒构造桥。
+    // 按生产构造签名惰性挂载支撑层与全部子服务。
     private readonly support: GameSupportService,
     private readonly rankingService: RankingCommandService,
     private readonly adminCommandService: AdminCommandService,
@@ -118,31 +118,25 @@ export class GameService {
     private readonly rescueWhiteService: RescueWhiteService,
     private readonly movementVehicleService: MovementVehicleService,
     private readonly gatherPanelService: GatherPanelService,
-    // —— 存量可选依赖（重构前即为 @Optional，兼容既有位置传参测试桩）——
+    // —— 可选依赖（@Optional 以兼容 Object.create / 位置传参的测试桩）——
     @Optional() private readonly autoMineService?: AutoMineService,
     // 活力上限与恢复公式共用规则服务，确保魅力历史值和旧存档兜底一致。
     @Optional() private readonly vitalityService?: VitalityService,
-    // 玩家状态收口入口（Actor 式写入口）。未注入时走 mutatePlayer 的等价回退路径。
+    // 玩家状态收口入口（Actor 式写入口）；是否启用由 GameSupportService.mutatePlayer 判定，未注入时走等价回退路径。
     @Optional() private readonly playerMutate?: PlayerMutateService,
     // 持久化延时任务（采集/移动/救援/装填/副本关闭的跨重启排程）。
-    // @Optional：测试桩以 Object.create 构造或老位置传参时走「无排程」降级，
-    // 由启动迁移（recoverOrphanDelayedMarkers）与既有扫描兜底。
+    // 未注入时走「无排程」降级，由启动迁移（recoverOrphanDelayedMarkers）与既有扫描兜底。
     @Optional() private readonly delayedTaskService?: DelayedTaskService,
-    // 图鉴服务（HandbookService）负责 20 分类的详情渲染与搜索；
-    // 用 @Optional 是为兼容现有 Object.create 测试桩，新测试请直接注入。
+    // 图鉴服务（HandbookService）负责 20 分类的详情渲染与搜索；新测试请直接注入。
     @Optional() private readonly handbookService?: HandbookService,
     // 全局熟练度（原版 全局标记）：技能面板「世界等级 / 怪物等级+」的唯一真相源。
-    // @Optional 兼容 Object.create / 位置传参的既有测试桩。
     @Optional() private readonly globalProficiency?: GlobalProficiencyService,
 ) {}
 
   /**
-   * 玩家状态变更的收口入口（对 PlayerMutateService.mutate 的薄封装）。
-   *
-   * 生产环境由 Nest 注入真实的 PlayerMutateService（Actor 式：锁内单一快照、
-   * 统一落库、货币审计、嵌套复用）。测试桩若不提供该依赖，则退化为等价的
-   * 「enqueueUserWrite + getPlayerData + fn + savePlayer」路径，保持旧行为不变，
-   * 避免逐个测试桩补依赖。
+   * 玩家状态变更的收口入口：委托 GameSupportService.mutatePlayer——
+   * 注入了 PlayerMutateService 时走 Actor 式（锁内单一快照、统一落库、货币审计、嵌套复用），
+   * 否则退化为「enqueueUserWrite + getPlayerData + fn + savePlayer」，测试桩无需补依赖。
    */
   private mutatePlayer<T>(userId: number, fn: (ctx: any) => Promise<T> | T): Promise<T> {
     return this.support.mutatePlayer(userId, fn);
@@ -301,10 +295,8 @@ export class GameService {
     return this.questDialogueService.handleViewUnit(userId, unitName);
   }
   async handleAttack(userId: number): Promise<string> {
-    // 调用完整的战斗系统进行武器攻击（索引0=拳头，默认攻击）
+    // 索引 0 = 拳头（默认攻击）；遗迹守卫波次推进已在 combat-system 击杀路径内处理
     const result = await this.combatSystem.weaponAttack(userId, 0, {});
-    // 返回攻击结果文本（含攻击描述、伤害、击杀、经验、掉落等信息）
-    // 遗迹守卫波次推进已在 combat-system 击杀路径内处理
     return result.result;
   }
 
@@ -511,7 +503,6 @@ export class GameService {
    * 判断当前玩家所在地图是否有匹配给定 gatherCmd 的固定资源。
    * 用于 ChatGateway 判定"该输入是否应作为采集指令处理"（避免被当作普通聊天广播）。
    * 对齐原版：采集指令运行时按当前地图资源2的"采集指令"匹配，无需预注册到指令表。
-   * @param userId 玩家ID
    * @param cmdName 采集指令名（如 打开箱子/打开休眠仓/收集木头/捡垃圾）
    * @returns true=当前地图存在该采集指令对应的资源
    */
@@ -582,10 +573,7 @@ export class GameService {
     return this.support.formatGatherNumber(value);
   }
 
-  /**
-   * 赠予物品
-   * 将背包中的物品赠予其他玩家
-   */
+  /** 赠予物品：把背包中的物品转给其他玩家 */
   async handleGive(userId: number, targetQQ: string, itemName: string, count: number): Promise<string>{
     return this.shopTradeService.handleGive(userId, targetQQ, itemName, count);
   }
@@ -746,12 +734,9 @@ export class GameService {
     return this.support.hasEquip(player, name);
   }
 
-  // ========== 玩家信息命令 ==========
+  // ===== 玩家信息命令 =====
 
-  /**
-   * 处理资源背包命令
-   * 从背包中筛选资源、材料、消耗品类型物品，输出格式与「背包」列表同构（见函数末尾注释）
-   */
+  /** 资源背包：从背包筛出资源/材料/消耗品，输出格式与「背包」列表同构 */
   async handleResourceBag(userId: number): Promise<string>{
     return this.gatherPanelService.handleResourceBag(userId);
   }
@@ -918,7 +903,7 @@ export class GameService {
     return this.support.secondsToTimeText(seconds);
   }
 
-  // ==================== 排行数据源记录（原版 _计算玩家 随每条指令结算） ====================
+  // ===== 排行数据源记录（原版 _计算玩家 随每条指令结算）=====
 
 
   /**
@@ -1170,11 +1155,7 @@ export class GameService {
     return this.support.updateOwnedSummonMode(userId, mode);
   }
 
-  /**
-   * 处理全部跟随命令
-   * 使所有属于当前玩家的宠物/使魔跟随
-   * 对应原版：全部跟随 命令
-   */
+  /** 全部跟随：使当前玩家的所有宠物/使魔跟随（对应原版 全部跟随 命令） */
   async handleFollowAll(userId: number): Promise<string>{
     return this.petCommandService.handleFollowAll(userId);
   }
@@ -1430,22 +1411,13 @@ export class GameService {
     return this.support.formatUptime(seconds);
   }
 
-  // ==================== 时间流逝完整计算 ====================
+  // ===== 时间流逝完整计算 =====
 
   /**
-   * 计算玩家离线时间补偿
-   * 玩家离线期间，根据时间差计算生命/护盾/装甲回复
-   * 回复公式：回复量 = 回复率 × 时间差 / 60
-   * 在玩家每次操作时自动调用，确保离线时间得到补偿
-   *
-   * 2026-09-06 Web 在线语义：离开计时以 WS 断开为起点、重连为终点
-   * （ChatGateway 断开/重连钩子会强制结算，把 lastOpTime 精确推进到断开/回连时刻）：
-   * - WS 在线时的指令结算照常补偿数值，但不输出「你离开了」横幅（活力提示保留）；
-   * - force=true 跳过 10 秒防抖（断开/重连时刻的强制结算用）；
-   * - showBanner=true 强制输出横幅（重连结算用，此刻 WS 已在线）。
-   *
-   * @param userId 用户ID
-   * @param opts force: 跳过防抖强制结算；showBanner: 无视在线状态输出离开横幅
+   * 离线时间补偿：按时间差结算生命/护盾/装甲回复，回复量 = 回复率 × 时间差 / 60，每次指令操作时调用。
+   * Web 在线语义：离开计时以 WS 断开为起点、重连为终点（ChatGateway 断开/重连钩子会强制结算，
+   * 把 lastOpTime 精确推进到断开/回连时刻）；WS 在线时的结算照常补偿数值但不输出「你离开了」横幅（活力提示保留）。
+   * @param opts force: 跳过 10 秒防抖（断开/重连时刻的强制结算用）；showBanner: 无视在线状态输出离开横幅
    * @returns 回复结果文本（无回复时返回空字符串）
    */
   async calculateTimeElapsed( userId: number, opts?: { force?: boolean; showBanner?: boolean }, ): Promise<string>{
@@ -1464,11 +1436,7 @@ export class GameService {
     return this.support.getCurrentMap(userId);
   }
 
-  /**
-   * 更新地图的建筑数据
-   * @param mapId 地图ID
-   * @param buildingsJson 建筑数据JSON字符串
-   */
+  /** 更新地图的建筑数据 */
   async updateMapBuildings(mapId: number, buildingsJson: string, resources2Json?: string): Promise<void>{
     return this.homeBuildService.updateMapBuildings(mapId, buildingsJson, resources2Json);
   }

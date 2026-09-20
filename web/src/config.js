@@ -1,18 +1,13 @@
 /**
- * 前端全局配置
- * 可在此调整前端连接后端的方式与指令前缀等。
- *
- * 说明：
- * - VITE_API_BASE：后端 HTTP 接口基础地址。开发时可用 Vite 代理(/api)，生产时同源或配反向代理。
- * - 通过 import.meta.env 读取 .env 变量，未设置则用默认值。
+ * 前端全局配置：连接后端的方式、指令前缀与各功能模块的展示/调参口径。
+ * 取值来自 import.meta.env（.env），未设置则用这里的默认值。
  */
 
 // 后端 HTTP API 地址（Vite 代理或同源，通常用相对路径 /api）
 export const API_BASE = import.meta.env.VITE_API_BASE || '/api';
 
-// 后端 WebSocket 地址（Socket.IO namespace /ws）
-// 开发环境后端运行在 3333，直接用完整地址最可靠（后端已配 CORS）；
-// 生产环境通常与前端同源，用相对路径 /ws 由反向代理转发。
+// 后端 WebSocket 地址（Socket.IO namespace /ws）：
+// 开发环境直连完整地址最可靠（后端已配 CORS），生产环境同源 /ws 由反向代理转发。
 export const WS_URL =
   import.meta.env.VITE_WS_URL || (import.meta.env.DEV ? 'http://localhost:3333/ws' : '/ws');
 
@@ -21,13 +16,10 @@ export const WS_URL =
 // 支持多个前缀(数组)。设为空数组则所有输入都尝试作为指令处理(需先注册指令)。
 export const COMMAND_PREFIXES = ['/', '！', '!'];
 
-// 版本号配置
-// 显示在界面右上角，用于标识当前前端版本，发布新版本时在此调整即可，无需改动视图代码。
+// 版本号：显示在界面右上角，发新版时在此调整
 export const APP_VERSION = '0.8.1';
 
-// GitHub Issue 反馈页地址
-// 头部「BUG 反馈」按钮的跳转目标；可通过环境变量 VITE_GITHUB_ISSUES_URL 覆盖，
-// 仓库迁移或改名时只需在此（或 .env）调整，无需改动视图代码。
+// GitHub Issue 反馈页地址：头部「BUG 反馈」按钮的跳转目标，可用 VITE_GITHUB_ISSUES_URL 覆盖
 export const GITHUB_ISSUES_URL =
   import.meta.env.VITE_GITHUB_ISSUES_URL || 'https://github.com/1592363624/smdz/issues';
 
@@ -133,11 +125,8 @@ export const COMMAND_SEARCH_CONFIG = {
 
 /**
  * 在线玩家展示配置（左下角状态栏：悬停「在线」看名单 + 上下线提示）
- *
- * 说明：
- * - 名单条数上限由后端配置（PRESENCE_ONLINE_LIST_LIMIT，默认 10）控制，
- *   前端不再二次截断，只按后端返回的列表展示，剩余人数用「还有 X 人」补足。
- * - 上下线提示的保留时长/条数属于纯前端展示行为，在此配置即可调整。
+ * 名单条数上限由后端配置（PRESENCE_ONLINE_LIST_LIMIT，默认 10）控制，前端只展示、不二次截断，
+ * 剩余人数用「还有 X 人」补足；上下线提示的时长/条数属纯前端展示行为，在此调整。
  */
 export const PRESENCE_CONFIG = {
   /** 上下线提示在状态栏中的保留时长（毫秒），默认 1 分钟 */
@@ -204,13 +193,9 @@ export const UPDATE_SETTINGS = {
 };
 
 /**
- * 家园院子（QQ 农场式格子）前端配置
- *
- * 所有展示口径与指令模板集中在此：改图标、改格子尺寸、改指令写法都不需要动视图代码。
- *
- * 重要约定：本页面的种植/收获/安装/拆除/领取**不新增写接口**，一律通过
- * commandApi.execute 发送与 QQ 端完全相同的文本指令（见 commands 模板），
- * 保证只有一条写路径、结算口径永不双轨。
+ * 家园院子（QQ 农场式格子）前端配置：展示口径与指令模板集中在此。
+ * 重要约定：种植/收获/安装/拆除/领取不新增写接口，一律经 commandApi.execute 发送
+ * 与 QQ 端完全相同的文本指令（见 commands 模板），保证只有一条写路径、结算口径不双轨。
  */
 export const HOME_YARD_CONFIG = {
   /** 地块网格：格子边长区间与间距（px），列数按容器宽度自适应 */
@@ -348,12 +333,9 @@ export const HOME_YARD_CONFIG = {
 };
 
 /**
- * 家园前线面板（FrontlineView）配置。
- *
- * 与后端 `server/src/modules/game/frontline-view.service.ts` 的只读视图一一对应；
- * 本页面的安装 / 拆卸 / 开始战斗 / 前往前线 **不新增写接口**，一律通过
- * commandApi.execute 发送与 QQ 端完全相同的文本指令（见 commands 模板），
- * 保证只有一条写路径、结算口径永不双轨。
+ * 家园前线面板（FrontlineView）配置，与后端 server/src/modules/game/frontline-view.service.ts
+ * 的只读视图一一对应。安装 / 拆卸 / 开始战斗 / 前往前线不新增写接口，一律经 commandApi.execute
+ * 发送与 QQ 端完全相同的文本指令（见 commands 模板），保证只有一条写路径、结算口径不双轨。
  */
 export const HOME_FRONTLINE_CONFIG = {
   /** 前线数据自动刷新间隔（毫秒）；操作后会立即再拉一次 */
@@ -414,13 +396,9 @@ export const HOME_FRONTLINE_CONFIG = {
 
 /**
  * 家园建造四步引导（圈地 → 开挖地基 → 建造地基 → 建造房子）前端配置
- *
- * 与后端 `server/src/modules/game/home-build-guide.util.ts` 一一对应：后端在四条
- * 建造指令的回包末尾追加引导文本，前端按 headerRegex 识别后渲染成带动画的引导卡片
- * （HomeBuildGuide.vue），QQ 端则直接读同一段纯文本。
- *
- * 重要约定：卡片上的按钮**不新增写接口**，一律发送与 QQ 端逐字相同的指令，
- * 保证只有一条写路径。
+ * 与后端 server/src/modules/game/home-build-guide.util.ts 一一对应：后端在四条建造指令回包末尾追加
+ * 引导文本，前端按 headerRegex 识别后渲染成引导卡片（HomeBuildGuide.vue），QQ 端直接读同一段纯文本。
+ * 卡片按钮不新增写接口，一律发送与 QQ 端逐字相同的指令，保证只有一条写路径。
  */
 export const HOME_BUILD_GUIDE_CONFIG = {
   /**

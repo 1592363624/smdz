@@ -1,5 +1,5 @@
 /**
- * 装备引用解析 + 按品质锁定/解锁 回归测试（2026-09-10）
+ * 装备引用解析 + 按品质锁定/解锁 回归测试
  *
  * 背景：玩家眼中的装备名是「基础名 + 品质码 + 可选·特效」（背包显示 冰雹S / 冰雹S·纯洁无瑕），
  * 而背包条目 item.name 只存基础名（冰雹），品质码在 item.data 首字符（s）。
@@ -7,7 +7,7 @@
  * 导致「锁定装备冰雹S」永远提示"背包中没有【冰雹S】装备"。
  *
  * 本测试锁定口径：解析与匹配必须是单一实现（equipment-ref.util），
- * 且带品质码时不得降级到任意品质（2026-09-06 品质错配事故的护栏）。
+ * 且带品质码时不得降级到任意品质（品质错配事故的护栏）。
  */
 import { ItemSystemService } from '../src/modules/game/item-system.service';
 import { PrismaService } from '../src/prisma/prisma.service';

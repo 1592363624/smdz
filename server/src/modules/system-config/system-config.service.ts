@@ -20,7 +20,7 @@ import {
   DEFAULT_CHECKIN_REWARDS_JSON,
   LEGACY_CHECKIN_REWARDS_JSON,
 } from '../game/checkin-config.defaults';
-// 每日抽奖默认配置（纯常量模块，无服务依赖）
+// 每日抽奖默认配置
 import {
   DEFAULT_LOTTERY_DAILY_LIMIT,
   DEFAULT_LOTTERY_POOL_EXCLUDE_JSON,
@@ -32,7 +32,7 @@ import {
   LOTTERY_TICKET_COST_KEY,
   LOTTERY_TICKET_ITEM_KEY,
 } from '../game/lottery-config.defaults';
-// 世界红包默认配置（纯常量模块：有效期/份数上限/可发放范围等，管理员可在线调整）
+// 世界红包默认配置（有效期/份数上限/可发放范围等）
 import {
   DEFAULT_RED_PACKET_CONFIG,
   DEFAULT_RED_PACKET_CONFIG_JSON,
@@ -40,7 +40,7 @@ import {
   RedPacketConfig,
   normalizeRedPacketConfig,
 } from '../../config/red-packet.config';
-// 全服世界事件默认配置（纯常量模块：周期/任务池/里程碑/奖励/buff，管理员可在线调整）
+// 全服世界事件默认配置（周期/任务池/里程碑/奖励/buff）
 import {
   WORLD_EVENT_CONFIG_KEYS as WEK,
   DEFAULT_WORLD_EVENT,
@@ -312,7 +312,7 @@ const DEFAULT_CONFIGS: SystemConfigDefault[] = [
     type: 'json',
     group: 'command',
   },
-  // ==================== 全服世界事件（worldEvent.*）====================
+  // ===== 全服世界事件（worldEvent.*）=====
   {
     key: WEK.enabled,
     value: String(DEFAULT_WORLD_EVENT.enabled),
@@ -600,8 +600,8 @@ export class SystemConfigService implements OnModuleInit {
         if (cfg.key === 'chat.privateMessages') {
           await this.upgradePrivatePlaceholder(existing);
         }
-        // 签到奖励表升级：初版默认含「签到礼包/累计签到礼包」，但物品表中并不存在这两个道具，
-        // 属于历史残留 → 改为默认空表。仅「恰好等于旧默认」的行被改写，管理员自定义过的表不动。
+        // 签到奖励表升级：旧默认含物品表中并不存在的「签到礼包/累计签到礼包」，
+        // 仅「恰好等于旧默认」的行被改写为新默认，管理员自定义过的表不动。
         if (cfg.key === CHECKIN_REWARDS_KEY && existing.value === LEGACY_CHECKIN_REWARDS_JSON) {
           await this.prisma.systemConfig.update({
             where: { key: cfg.key },
@@ -610,7 +610,7 @@ export class SystemConfigService implements OnModuleInit {
           this.cache.delete(cfg.key);
           this.logger.log('已升级签到奖励默认表（移除道具表中不存在的礼包物品）');
         } else if (cfg.key === CHECKIN_REWARDS_KEY) {
-          // 存量自定义奖励表：奖励条目的数量键由历史 count 收敛为规范键 quantity
+          // 自定义过的奖励表：条目数量键 count → 规范键 quantity
           await this.upgradeCheckinRewardEntries(existing);
         }
       } catch (err: any) {
@@ -678,10 +678,10 @@ export class SystemConfigService implements OnModuleInit {
   }
 
   /**
-   * 签到奖励表存量升级（幂等）：把奖励条目的数量键由历史 count 收敛为规范键 quantity。
+   * 签到奖励表存量升级（幂等）：奖励条目的数量键 count → 规范键 quantity。
    * 三张表（daily / consecutive / total）逐组逐条重写；quantity 已存在时以其为准
    * （旧键只是脏镜像），数值一律不动；无旧键时直接返回，不产生无谓写库。
-   * 与 upgradePrivatePlaceholder 同一写法：只在启动补默认配置时跑一次，小表、低频。
+   * 只在启动补默认配置时跑一次（小表、低频）。
    */
   private async upgradeCheckinRewardEntries(row: { value: string }): Promise<void> {
     if (!row?.value) return;
@@ -736,9 +736,7 @@ export class SystemConfigService implements OnModuleInit {
     return this.prisma.systemConfig.findMany({ orderBy: { id: 'asc' } });
   }
 
-  /**
-   * 获取单个配置项的原始记录（带 TTL 缓存）
-   */
+  /** 单个配置项的原始记录（带 TTL 缓存） */
   async findByKey(key: string) {
     const now = Date.now();
     const hit = this.cache.get(key);
@@ -752,7 +750,6 @@ export class SystemConfigService implements OnModuleInit {
 
   /**
    * 读取配置值(自动解析为对应类型)
-   * @param key 配置键
    * @param defaultValue 不存在时的默认值
    */
   async get<T = any>(key: string, defaultValue: T): Promise<T> {
@@ -761,9 +758,7 @@ export class SystemConfigService implements OnModuleInit {
     return this.parseValue<T>(row.type, row.value, defaultValue);
   }
 
-  /**
-   * 批量读取配置
-   */
+  /** 批量读取配置 */
   async getMany<T = any>(keys: string[]): Promise<Record<string, T>> {
     const rows = await this.prisma.systemConfig.findMany({
       where: { key: { in: keys } },
@@ -782,7 +777,6 @@ export class SystemConfigService implements OnModuleInit {
    */
   async set(key: string, value: any) {
     const row = await this.findByKey(key);
-    // 按类型序列化
     let serialized: string;
     let type: string;
     if (row) {
@@ -831,16 +825,10 @@ export class SystemConfigService implements OnModuleInit {
     return created;
   }
 
-  /**
-   * 快捷读取：指令前缀列表
-   */
   getCommandPrefixes(): Promise<string[]> {
     return this.get<string[]>('command.prefixes', ['/', '！', '!']);
   }
 
-  /**
-   * 快捷读取：是否必须带前缀才算指令
-   */
   getCommandRequirePrefix(): Promise<boolean> {
     return this.get<boolean>('command.requirePrefix', false);
   }
@@ -1072,9 +1060,7 @@ export class SystemConfigService implements OnModuleInit {
     for (const key of keys) this.cache.delete(key);
   }
 
-  /**
-   * 按配置类型解析存储值
-   */
+  /** 按配置类型解析存储值 */
   private parseValue<T>(type: string, raw: string, defaultValue: T): T {
     if (raw === '' && raw === undefined) return defaultValue;
     switch (type) {

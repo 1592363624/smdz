@@ -1,12 +1,6 @@
-/**
- * 指令引擎 DTO
- * 定义执行指令接口的入参。
- */
-
 import { ApiProperty } from '@nestjs/swagger';
 import { IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 
-/// 执行指令请求体
 export class ExecuteCommandDto {
   @ApiProperty({ description: '指令文本', example: 'info' })
   @IsString()

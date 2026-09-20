@@ -92,7 +92,7 @@ function makeService(options: {
     logger: { warn: jest.fn(), log: jest.fn(), error: jest.fn() },
   });
   // 自救「白」传送用例只关心目标地图的选择；真实移动链路由移动相关测试覆盖。
-  // P4 直连清理：rescue 经 DI 兄弟调 movement.performArrival——覆写挂到兄弟实例（原挂门面层）。
+  // rescue 经 DI 兄弟实例调 movement.performArrival——覆写要挂到兄弟实例，不是门面。
   ((service as any).rescueWhiteService.movement as any).performArrival = jest.fn(
     async (_userId: number, targetMapId: number, targetMapName: string) => {
       player.mapId = Number(targetMapId);

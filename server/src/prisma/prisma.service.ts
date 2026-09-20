@@ -53,7 +53,6 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
 
       const result = await next(params);
       try {
-        // Prisma 5 中间件参数的操作名字段是 action，此前误用 operation 导致事件永不触发
         const { model, action, args } = params as any;
         if (model && WRITE_OPERATIONS.has(action) && SYNC_MODELS.has(model)) {
           const ctx = writeContext.getStore();
@@ -80,12 +79,10 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     });
   }
 
-  /** 应用启动时建立数据库连接 */
   async onModuleInit() {
     await this.$connect();
   }
 
-  /** 应用销毁时断开数据库连接 */
   async onModuleDestroy() {
     await this.$disconnect();
   }

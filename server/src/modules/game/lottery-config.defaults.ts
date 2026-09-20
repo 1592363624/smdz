@@ -1,8 +1,6 @@
 /**
- * 抽奖系统默认配置（纯常量模块，不依赖任何服务）
- *
- * 遵循「配置项抽取」原则：每日次数、消耗凭证、奖池排除名单等
- * 全部可在后台「系统配置中心」在线调整，无需改代码或重启。
+ * 抽奖系统默认配置（纯常量模块，不依赖任何服务）。
+ * 每日次数、消耗凭证、奖池排除名单等均可在后台「系统配置中心」在线调整，无需改代码或重启。
  * 单独成文件的原因同 checkin-config.defaults：避免 system-config ↔ game 循环依赖。
  */
 
@@ -17,9 +15,7 @@ export const LOTTERY_POOL_EXCLUDE_KEY = 'game.lotteryPoolExclude';
 /** 抽奖总开关配置键 */
 export const LOTTERY_ENABLED_KEY = 'game.lotteryEnabled';
 
-/** 原实现：每人每天 1 次 */
 export const DEFAULT_LOTTERY_DAILY_LIMIT = 1;
-/** 原实现：消耗「凭证」x1 */
 export const DEFAULT_LOTTERY_TICKET_ITEM = '凭证';
 export const DEFAULT_LOTTERY_TICKET_COST = 1;
 
@@ -43,7 +39,7 @@ export const DEFAULT_LOTTERY_POOL_EXCLUDE_JSON = JSON.stringify(
 export interface LotteryDrawResult {
   ok: boolean;
   message: string;
-  /** 中奖数量：规范键 quantity（同义旧键 count 已废弃） */
+  /** 中奖数量（规范键 quantity） */
   reward?: { name: string; quantity: number; type: string };
   /** 是否因今日已抽满而失败 */
   dailyLimitHit?: boolean;
@@ -54,7 +50,7 @@ export interface LotteryDrawResult {
 /** 奖池条目（给前端滚动动画用） */
 export interface LotteryPoolEntry {
   name: string;
-  /** 中奖数量：规范键 quantity（同义旧键 count 已废弃） */
+  /** 中奖数量（规范键 quantity） */
   quantity: number;
   /** 资源 / 装备（武器） */
   kind: 'resource' | 'weapon';

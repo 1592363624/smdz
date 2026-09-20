@@ -234,7 +234,6 @@ function registerMonsters(mocks: any, mapId: number, monsters: any[]) {
   return monsters;
 }
 
-// ==================== 测试套件 ====================
 
 describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
   let mocks: ReturnType<typeof buildMocks>;
@@ -451,7 +450,6 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
 
       await combat.weaponAttack(2, 1, { mustHit: true });
 
-      // 修复点：冷却标记使用当前武器名「雷火剑」而非「拳头」
       const markers2 = parseJson(player.markers2, []);
       const cooldownEntry = markers2.find((m: any) => m.name === '雷火剑冷却');
       expect(cooldownEntry).toBeDefined();
@@ -706,7 +704,6 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       const stillThere = mocks.monstersByMap.get(1)!.find((m: any) => m.id === 1001);
       if (stillThere) expect(stillThere.hp).toBeLessThan(30);
       else expect(result.killed).toContain('史莱姆');
-      // 造成伤害 > 0
       expect(result.damageDealt).toBeGreaterThan(0);
     });
   });
@@ -762,7 +759,6 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       const phantom = monsterBuffs.find((b: any) => b.name === '幻时');
       expect(phantom).toBeDefined();
       expect(phantom.expireAt).toBeGreaterThan(Date.now());
-      // 文本可见
       expect(lines.join('\n')).toContain('被幻时凝固');
     });
 
@@ -1344,7 +1340,7 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
 
     // ---------- 武器特殊序号判断（复刻 战斗相关.ecode 造成伤害 L1827-1867） ----------
     it('仿真尾巴(-36)：攻击方其他武器处于冷却 → 这些武器 CD-5，result 含「仿真尾巴」', async () => {
-      // markers2 容器内 expireAt 为毫秒（与武器冷却 L322 约定一致）
+      // markers2 容器内 expireAt 为毫秒（与武器冷却的约定一致）
       const player = makePlayer({
         userId: 2,
         weapons: [

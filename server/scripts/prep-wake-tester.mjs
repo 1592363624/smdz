@@ -77,7 +77,7 @@ async function main() {
     const wakeCmd = await prisma.command.findFirst({ where: { name: '唤醒' } });
     console.log('Command 唤醒:', wakeCmd ? `id=${wakeCmd.id} enabled=${wakeCmd.enabled}` : '缺失!');
 
-    // 4. monseters 有遗迹守卫
+    // 4. monsters 表是否有遗迹守卫
     const guard = await prisma.$queryRawUnsafe(
       `SELECT name FROM monsters WHERE name = '遗迹守卫' LIMIT 1`,
     ).catch(() => null);

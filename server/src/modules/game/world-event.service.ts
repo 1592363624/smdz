@@ -1,16 +1,9 @@
 /**
- * 全服世界事件服务（Phase 1）。
- *
- * 玩法：按 day/week/month 开一个全服共同目标（可从任务池随机抽一条），进度取「世界熟练度」点数
- * 差值（复用 GlobalProficiencyService，零新增计数、零改战斗链路），跨 25/50/75/100% 里程碑逐级解锁
- * 全服 buff，达成后可领一次世界奖励。未达成世界等级照常涨（原有压力不变），只是拿不到额外奖励。
- *
- * 单一真相源约束：
- *  - 进度 = 当前世界熟练度点数 − 周期起始快照；本服务不另存进度。
- *  - 全服 buff 由「已达成里程碑 ∩ buff 配置」派生，缓存到内存供 4 个生效点同步读（见 getActiveBuffValues）。
- *
- * 零侵入 & 门禁：本文件与 world-event.util / config 均为新建，不触碰 combat-system（G9 零余量）、
- * game.service（G1/G6）、game-command.handler（G5）。
+ * 全服世界事件：按 day/week/month 开一个全服共同目标（可从任务池随机抽一条），进度取「世界熟练度」
+ * 点数差值（复用 GlobalProficiencyService），跨 25/50/75/100% 里程碑逐级解锁全服 buff，
+ * 达成后可领一次世界奖励；未达成世界等级照常涨（原有压力不变），只是拿不到额外奖励。
+ * 单一真相源：进度 = 当前世界熟练度点数 − 周期起始快照（本服务不另存进度），
+ * 全服 buff 由「已达成里程碑 ∩ buff 配置」派生并缓存到内存，供生效点同步读（见 getActiveBuffValues）。
  */
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
@@ -114,7 +107,7 @@ export class WorldEventService implements OnModuleInit {
     );
   }
 
-  // ==================== 配置读取 ====================
+  // ===== 配置读取 =====
 
   private async loadConfig(): Promise<RuntimeConfig> {
     const [
@@ -184,7 +177,7 @@ export class WorldEventService implements OnModuleInit {
     };
   }
 
-  // ==================== 周期查询 ====================
+  // ===== 周期查询 =====
 
   private async getActiveCycle(): Promise<Cycle | null> {
     return (await this.prisma.worldEventCycle.findFirst({
@@ -204,7 +197,7 @@ export class WorldEventService implements OnModuleInit {
     return settled;
   }
 
-  // ==================== 进度 ====================
+  // ===== 进度 =====
 
   /** 进度 = 世界熟练度当前点数 − 周期起始快照；点数被管理员下调时自愈重置基准 */
   async currentProgress(cycle: Cycle): Promise<{ current: number; goal: number; percent: number }> {
@@ -223,7 +216,7 @@ export class WorldEventService implements OnModuleInit {
     return { current, goal, percent };
   }
 
-  // ==================== 周期流转 ====================
+  // ===== 周期流转 =====
 
   /** 自动开启入口（cron 调用）：受 enabled + autoStart 双重门控 */
   private async ensureActiveCycle(cfg: RuntimeConfig): Promise<Cycle | null> {
@@ -301,7 +294,7 @@ export class WorldEventService implements OnModuleInit {
     return adjustGoal(baseGoal, actual, cfg.goalAdjustMin, cfg.goalAdjustMax);
   }
 
-  /** 解锁达成但未解锁的里程碑；返回是否发生变化 */
+  /** 解锁已达成但 reached 里还没有的里程碑：落库 reached、重算 buff 缓存，并按配置逐档公屏播报 */
   private async checkMilestones(cycle: Cycle, cfg: RuntimeConfig): Promise<void> {
     const { percent } = await this.currentProgress(cycle);
     const reached: Record<string, string> =
@@ -388,9 +381,9 @@ export class WorldEventService implements OnModuleInit {
     });
   }
 
-  // ==================== buff 同步缓存 ====================
+  // ===== buff 同步缓存 =====
 
-  /** 生效点（schedule / checkin-reward / time-settle）同步读取当前全服 buff，零 async、零环 */
+  /** 生效点（schedule / checkin-reward / time-settle）同步读当前全服 buff，无需 await、不引入异步依赖 */
   getActiveBuffValues(): ActiveBuffValues {
     return this.buffCache;
   }
@@ -408,7 +401,7 @@ export class WorldEventService implements OnModuleInit {
     return hit.map((b) => b.label).join('、');
   }
 
-  // ==================== cron ====================
+  // ===== cron =====
 
   @Cron('0 */10 * * * *') // 每 10 分钟：开周期 / 里程碑 / 结算 / 进度推送
   async worldEventTick(): Promise<void> {
@@ -433,7 +426,7 @@ export class WorldEventService implements OnModuleInit {
     }
   }
 
-  // ==================== 发奖 ====================
+  // ===== 发奖 =====
 
   private rewardEntriesFor(cfg: RuntimeConfig, percent: number): CheckinRewardEntry[] {
     const m = cfg.rewards.find((r) => Number(r.percent) === percent);
@@ -498,7 +491,7 @@ export class WorldEventService implements OnModuleInit {
     return `✅ 领取成功！\n${lines.join('\n')}\n（第 ${cycle.cycleId} 周期 · ${okTiers.join(' / ')}% 里程碑）`;
   }
 
-  // ==================== 面板 / API ====================
+  // ===== 面板 / API =====
 
   /** 「世界事件」指令回执（纯文本，Q 群可读，字符进度条不依赖颜色） */
   async viewPanel(userId: number): Promise<string> {
@@ -594,7 +587,7 @@ export class WorldEventService implements OnModuleInit {
     };
   }
 
-  // ==================== 管理指令 ====================
+  // ===== 管理指令 =====
 
   async adminCommand(userId: number, args: string[]): Promise<string> {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
@@ -654,7 +647,7 @@ export class WorldEventService implements OnModuleInit {
     }
   }
 
-  // ==================== 历史归档（结算时追加，最多 20 条） ====================
+  // ===== 历史归档（结算时追加，最多 20 条）=====
 
   private async archiveHistory(cycle: Cycle, cfg: RuntimeConfig): Promise<void> {
     const goal = Number(cycle.goalPoints) || 1;

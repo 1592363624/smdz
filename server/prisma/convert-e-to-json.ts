@@ -1,25 +1,20 @@
 /**
- * 使魔大战3 数据转换工具（一次性/可重复运行）
+ * 使魔大战3 数据转换工具（可重复运行：e/ 源数据变更后重新执行即可重建 JSON）
  *
  * 功能：将易语言导出的原始配置文件（e/使魔大战.txt、e/0.txt、e/@Constant.ecode、e/@Resource/*.txt）
  * 解析并转换为结构化 JSON，存放到 prisma/data/ 目录。
  *
- * 转换后的 JSON 是「游戏固定配置数据」的**运行时单一数据源（single source of truth）**：
- *  - 架构改革后（2026-08-15），固定配置已从数据库表彻底移除，
- *    运行时由 StaticDataService（server/src/modules/game/static-data.service.ts）
- *    直接从 prisma/data/*.json 懒加载+缓存读取，**不再写入数据库**。
- *  - 因此本工具产出的 JSON 不仅是"seed 数据"，更是游戏逻辑运行的直接数据来源。
- *    策划改数值 = 直接编辑 JSON → 重启或调用 StaticDataService.refresh() 热重载即生效。
- *
- * 运行：npx ts-node prisma/convert-e-to-json.ts
+ * 产出的 JSON 是「游戏固定配置数据」的运行时单一数据源：固定配置不入库，
+ * 运行时由 StaticDataService（server/src/modules/game/static-data.service.ts）
+ * 直接从 prisma/data/*.json 懒加载+缓存读取。
+ * 策划改数值 = 直接编辑 JSON → 重启或调用 StaticDataService.refresh() 热重载即生效。
  *
  * 设计要点：
- *  - 映射逻辑（map*To*）产出的对象结构，即 StaticDataService 读取后各 service 消费的数据结构，
- *    与改造前数据库 upsert 的字段保持一致，保证零漂移、平滑迁移。
- *  - seed-data.ts（动态数据 GameMap/GameVehicle）仍会读取部分 JSON，但固定配置
- *    （怪物/物品/装备/使魔/配方/任务等）不再入库。
- *  - 本工具可重复运行：e/ 数据变更后重新执行即可重建 JSON。
+ *  - map*To* 产出的对象结构即各 service 消费的字段结构，改动须与 StaticDataService 读取口径对齐。
+ *  - 动态数据（GameMap/GameVehicle）由 seed-data.ts 读取同一批 JSON 入库。
  *  - 数据归属：`e/` 易语言源码已被 .gitignore 忽略、不进部署；`prisma/data/` 进版本控制并随部署分发。
+ *
+ * 运行：npx ts-node prisma/convert-e-to-json.ts
  */
 
 import * as fs from 'fs';
@@ -37,8 +32,8 @@ try {
 // 易语言源码实际位于 原版易语言源代码/源码/ 子目录下（带中文目录名）
 const ROOT_DIR = path.resolve(__dirname, '../../');
 const ECODE_DIR = path.resolve(ROOT_DIR, '原版易语言源代码/源码');
-// 原版主配置：易语言源码 原版易语言源代码/源码/使魔大战.txt。
-// 当前导出为 UTF-8（无 BOM）完整版，包含全部 140 个称号等完整配置。
+// 原版主配置：原版易语言源代码/源码/使魔大战.txt；
+// _decoded_original.txt 是它的完整解码导出（含全部称号等配置），存在时优先作为数据源。
 const COMPLETE_DATA_FILE = path.resolve(ROOT_DIR, '_decoded_original.txt');
 const DATA_FILE = path.resolve(ECODE_DIR, '使魔大战.txt');
 const RECIPE_DATA_FILE = fs.existsSync(COMPLETE_DATA_FILE) ? COMPLETE_DATA_FILE : DATA_FILE;
@@ -47,7 +42,7 @@ const CONSTANT_FILE = path.resolve(ECODE_DIR, '@Constant.ecode');
 const RESOURCE_DIR = path.resolve(ECODE_DIR, '@Resource');
 const OUT_DIR = path.resolve(__dirname, 'data');
 
-// ========== 通用解析 ==========
+// ===== 通用解析 =====
 
 interface ConfigSection {
   name: string;
@@ -100,7 +95,7 @@ function parseConfigFile(filePath: string): ConfigSection[] {
   return sections;
 }
 
-// ========== 字段解析辅助 ==========
+// ===== 字段解析辅助 =====
 
 function parseSpaceSeparatedString(str: string): string[] {
   return str.split(/\s+/).map((s) => s.trim()).filter((s) => s);
@@ -109,8 +104,8 @@ function parseSpaceSeparatedString(str: string): string[] {
 /**
  * 解析「逗号分隔」的名单字段。
  * 原版 [商店] 副本 / 副本2 这类名单用中英文逗号分隔（如 “CELL研究中心,CELL总部,...”），
- * 运行时由「随机文本」按逗号随机取一项。若按空白切分会把整串当成单个候选名，
- * 生成出来的副本入口将指向不存在的地图（2026-09-13 修复）。
+ * 运行时由「随机文本」按逗号随机取一项；若按空白切分会把整串当成单个候选名，
+ * 生成出来的副本入口将指向不存在的地图。
  */
 function parseCommaSeparatedString(str: string): string[] {
   return str.split(/[,，\s]+/).map((s) => s.trim()).filter((s) => s);
@@ -120,8 +115,7 @@ function parseSemicolonString(str: string): string[] {
   return str.split(/[;；]/).map((s) => s.trim()).filter((s) => s);
 }
 
-// 输出键名统一为 quantity（物品域规范键，见 field-contract.util.ts 的 ITEM_MERGES）。
-// 原版源码里该字段叫「数量」（读配置项3 的“产出”），仅解析逻辑沿用原版格式，输出键名收敛为英文规范名。
+// 输出键名为物品域规范键 quantity（见 field-contract.util.ts 的 ITEM_MERGES）；原版该字段叫「数量」。
 function parseItemCountString(str: string): Array<{ name: string; quantity: number }> {
   if (!str || !str.trim()) return [];
   const result: Array<{ name: string; quantity: number }> = [];
@@ -281,7 +275,7 @@ function parseDamageString(damageStr: string): Record<string, number> {
   return properties;
 }
 
-// ========== 常量映射（@Constant.ecode） ==========
+// ===== 常量映射（@Constant.ecode） =====
 
 interface ConstantMappings {
   weapons: Record<string, number>;
@@ -327,7 +321,7 @@ function parseConstantEcode(): ConstantMappings {
   return { weapons, familiars, equipment };
 }
 
-// ========== 各类型映射（与 seed-data.ts 字段一致） ==========
+// ===== 各类型映射（与 seed-data.ts 字段一致） =====
 
 function mapWeaponToEquipment(section: ConfigSection, specialSeq: number) {
   const fields = section.fields;
@@ -408,8 +402,7 @@ function mapEquipmentToEquipment(section: ConfigSection, specialSeq: number) {
     bonus,
     baseBonus: {},
     properties: propertiesObj,
-    // 词条(affixes) 直接取自原版"属性"字段（空格分隔），对应原版 数据存取.ecode L513：
-    //   z.词条 = 分割文本(读配置项3(p, w[a], "属性", "随机"), " ", )
+    // 词条(affixes) 同样取自原版"属性"字段（数据存取.ecode L513）
     affixes: parseSpaceSeparatedString(fields['属性'] || ''),
     attackText: attackTextObj,
     buffs: [],
@@ -449,10 +442,9 @@ function mapMonsterToMonster(section: ConfigSection) {
     type: '怪物',
     description: fields['说明'] || '',
     // 原版 数据存取.ecode L551-602 的「怪物」分支**不读取「等级」字段**，
-    // 故原版怪物等级恒为 0 = 走动态公式（加成计算 L2711 / L2796：
+    // 怪物等级恒为 0 = 动态公式哨兵（加成计算 L2711 / L2796：
     // 显示熟练度等级(全局标记,物种名) + 显示熟练度等级(全局标记,"世界")）。
-    // 此处曾写 `parseInt(...) || 1`，既凭空发明了配置等级，又把 0 这个
-    // 「动态」哨兵值吞成 1，导致动态分支永远打不开（怪物恒 1 级）。
+    // 兜底值不能写成 1，否则动态分支永远打不开（怪物恒 1 级）。
     level: parseInt(fields['等级']) || 0,
     hp: parseFloat(fields['生命']) || 100,
     maxHp: parseFloat(fields['生命']) || 100,
@@ -652,10 +644,9 @@ function parseUnlockRequirements(str: string): Array<{ name: string; quantity: n
 
 function mapTitleToTitle(section: ConfigSection) {
   const fields = section.fields;
-  // 称号的 奖励/要求 是“名称+数量”紧凑后缀格式（如 “经验胶囊10 水晶100 能量块60 发带1”、
-  // “发送指令10”），与解锁需求同格式 —— 必须用 parseUnlockRequirements 解析。
-  // 此前误用按“名称,数量”逗号切分的 parseItemCountString，导致 140 个称号的
-  // 条件与奖励全部解析为空数组（2026-09-13 修复）。
+  // 称号的 奖励/要求 是“名称+数量”紧凑后缀格式（如 “经验胶囊10 水晶100 发送指令10”），
+  // 与解锁需求同格式 —— 必须用 parseUnlockRequirements 解析；
+  // 用按逗号切分的 parseItemCountString 会把条件与奖励全部解析成空数组。
   const rewards = parseUnlockRequirements(fields['奖励'] || '');
   const requirements = parseUnlockRequirements(fields['要求'] || '');
   // 加成字段（升级经验/采集/掉落率等）全量收进 bonus 对象留存：
@@ -811,12 +802,8 @@ function mapDialogueToNpc(section: ConfigSection) {
 
 function mapTaskToTask(section: ConfigSection) {
   const fields = section.fields;
-  // 任务配置使用“名称数量”的紧凑格式（如“能量块5 经验胶囊5”），
-  // 与称号/制造等使用“名称,数量”的字段格式不同。
+  // 奖励/要求 均为「名称数量」紧挨格式（见 parseNameCountString），不是「名称,数量」逗号格式
   const rewards = parseNameCountString(fields['奖励'] || '');
-  // 原版 数据存取.ecode L652~L656：要求字段按空格分割为「名称数量」紧挨格式（如 移动1 / 发送"观察附近"1），
-  // 再用 去数字(取末尾文字) + 取数字(取末尾数字) 拆分成 名称 + 数值。
-  // 注意：不能用 parseItemCountString（它按逗号「名称,数量」解析），否则会全部解析为空。
   const requirements = parseNameCountString(fields['要求'] || '');
   // 原版 数据存取.ecode L664：任务.任务 = 分割文本(读配置项3(p, w[a], "任务", ""), " ", )
   // 即完成本任务后自动激活的后续任务名（空格分隔），对应 GameTask.nextTasks。
@@ -942,7 +929,7 @@ function mapUpdateToUpdateLog(section: ConfigSection) {
   return { name: section.name, content };
 }
 
-// ========== 蓝图（0.txt） ==========
+// ===== 蓝图（0.txt） =====
 
 interface BlueprintData {
   name: string;
@@ -1050,7 +1037,7 @@ function parsePurchaseTypeValue(typeStr: string): BlueprintData | null {
   } catch { return null; }
 }
 
-// ========== @Resource 文本 ==========
+// ===== @Resource 文本 =====
 
 function readResourceTexts(): { setEffects: any[]; flavorTexts: any[]; seedItems: string[] } {
   const setEffects: any[] = [];
@@ -1078,7 +1065,7 @@ function readResourceTexts(): { setEffects: any[]; flavorTexts: any[]; seedItems
   return { setEffects, flavorTexts, seedItems };
 }
 
-// ========== 主流程 ==========
+// ===== 主流程 =====
 
 // 命令行 --only=a,b：只重建指定 JSON 文件（不带该参数则全量重建）
 const ONLY_KEYS: string[] | null = (() => {
@@ -1088,13 +1075,12 @@ const ONLY_KEYS: string[] | null = (() => {
 })();
 
 function writeJson(name: string, data: any) {
-  // --only=titles 只重建指定文件（逗号分隔可多个），避免整库重刷覆盖
-  // 已手工校准过的其它 JSON（2026-09-13 称号修复引入）。
+  // 只重建 --only 白名单内的文件，避免整库重刷覆盖已手工校准过的其它 JSON
   if (ONLY_KEYS && !ONLY_KEYS.includes(name.replace(/\.json$/, ''))) return;
   if (!fs.existsSync(OUT_DIR)) fs.mkdirSync(OUT_DIR, { recursive: true });
   const file = path.join(OUT_DIR, name);
   fs.writeFileSync(file, JSON.stringify(data, null, 2), 'utf-8');
-  // 数组直接取 length；对象按首个数组字段或键值对计数
+  // 计数：数组取 length，对象取键数
   const count = Array.isArray(data)
     ? data.length
     : (data && typeof data === 'object' ? Object.keys(data).length : 0);

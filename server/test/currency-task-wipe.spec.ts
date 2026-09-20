@@ -5,10 +5,10 @@ import { parseJson } from './parse-json.util';
 /**
  * 正式库事故回归：「主线-继续询问」任务在非 mutate 上下文结算（advance 自己读档
  * findUnique 原始行 → saveTaskState → getPlayerData 活态 → savePlayer）时，
- * 旧实现用 Object.assign 把「未物化货币条目的原始背包」整列写回活态，savePlayer
- * 提取货币因「权威快照（货币列存在）但背包条目缺失」把 钻石/召唤券 误清为 0。
+ * 若用 Object.assign 把「未物化货币条目的原始背包」整列写回活态，savePlayer
+ * 提取货币会因「权威快照（货币列存在）但背包条目缺失」把 钻石/召唤券 误清为 0。
  *
- * 修复后：
+ * 口径：
  *  - saveTaskState 对 backpack 走「保留活态独有条目 + 叠加流程增量」的合并；
  *  - 货币提取仅在对象经 getPlayerData 物化（_currencyMirror 存在）时才允许清零。
  */
@@ -28,7 +28,7 @@ function makePrisma(rows: any[]) {
       update: jest.fn(async ({ where, data }: any) => {
         const cv = where?.id_version;
         if (!cv) {
-          // 2026-09-11 起 persistPlayer 按 where.userId（unique）落库，mock 同步双键匹配
+          // persistPlayer 按 where.userId（unique）落库，故 mock 需双键匹配
           const rowById = rows.find((r) =>
             (where?.userId !== undefined && r.userId === where.userId)
             || (where?.id !== undefined && r.id === where.id));
@@ -171,7 +171,7 @@ describe('任务结算不误清货币（正式库「主线-继续询问」事故
     raw.backpack = JSON.stringify(bp);
     await service.savePlayer(raw);
 
-    expect(rows[0].diamonds).toBeCloseTo(1055.75, 5); // 修复前被清 0
+    expect(rows[0].diamonds).toBeCloseTo(1055.75, 5); // 未物化 _currencyMirror 时会被清 0
     expect(rows[0].tickets).toBeCloseTo(21.11, 5);
   });
 

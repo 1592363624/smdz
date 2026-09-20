@@ -1,32 +1,18 @@
 /**
- * 过期时间统一工具（增益/标记容器通用）
- *
- * 背景：项目历史原因，玩家增益（Player.buffs）、标记2（Player.markers2）、
- * 怪物增益（GameMonster.buffs）中的到期时间戳存在两套写入口径：
- *  - 秒级时间戳：如战斗层 `Date.now() / 1000 + duration`（多数战斗/技能写入）
- *  - 毫秒时间戳：如物品层 `nowMs + duration * 1000`、中文 key `有效期至`
- * 混用导致「倒计时算成 0:00 却永不过期」「过期增益仍被判定生效」等问题。
- *
- * 本工具把「读取侧」统一到毫秒口径：任何位置判断增益/标记是否有效，
- * 都调用 isActive / toExpireMs，保证两种口径的存量数据都能被正确识别。
- *
- * 判断标准与 combat-state.normalizeBuffItem 保持一致：数值 < 1e12 视为秒。
- * （1e12 毫秒 ≈ 2001-09-09，秒级时间戳 1.7e9 远小于它，毫秒级 1.7e12 大于它）
- *
- * 【判断粒度=秒（用户硬性约定）】存储可以保留毫秒，但**一切有效性判断
- * 必须先把两侧时间戳取整到秒再比较**（floorSec），即同一秒内视为同一时刻。
- * 子秒精度对游戏无意义，禁止依赖毫秒差的判定行为。
+ * 过期时间统一工具（增益 / 标记容器通用）：判断有效性一律走 isActive / toExpireMs。
+ * 到期时间戳存在两套口径：战斗层写秒级、物品层写毫秒级，读取侧统一归一化为毫秒
+ * （数值 < 1e12 视为秒，与 combat-state.normalizeBuffItem 一致）。
+ * 【判断粒度=秒（硬性约定）】存储可保留毫秒，但一切有效性判断必须先用 floorSec 把两侧
+ * 取整到秒再比较，同一秒内视为同一时刻；禁止依赖毫秒差的判定行为。
  */
 
 /** 1 秒 = 1000 毫秒（原版易语言 #转秒） */
 export const SECOND_MS = 1000;
 
-/** 秒/毫秒分界阈值：小于它按秒处理 */
+/** 秒/毫秒分界阈值：小于它按秒处理（1e12 毫秒 ≈ 2001-09-09，当前秒级时间戳远小于它） */
 const MS_THRESHOLD = 1e12;
 
-/**
- * 毫秒时间戳取整到秒（判断粒度=秒的统一入口）
- */
+/** 毫秒时间戳取整到秒（判断粒度=秒的统一入口） */
 function floorSec(ms: number): number {
   return Math.floor(ms / SECOND_MS);
 }
@@ -34,11 +20,10 @@ function floorSec(ms: number): number {
 /**
  * 取出条目到期时间并归一化为毫秒时间戳。
  *
- * 只读**规范键** `expireAt`（规范名见 field-contract.util.ts，中文别名「有效期至」
- * 已在读档/落库边界被收敛删除，业务层不再兜底中文键）。
+ * 只读规范键 `expireAt`（规范名见 field-contract.util）：中文别名「有效期至」在持久化边界
+ * 已被收敛掉，读它拿到的是 undefined，业务层不再兜底。
  * `expireTime` 是采集冷却（gather-panel）写入的另一英文键，保留兼容读取。
  *
- * @param it 增益/标记条目
  * @returns 毫秒时间戳；0 表示无期限（永久有效）
  */
 export function toExpireMs(it: any): number {
@@ -51,9 +36,6 @@ export function toExpireMs(it: any): number {
 /**
  * 判断条目是否仍在有效期内
  * @param it 增益/标记条目（无到期时间视为永久有效，与原版无期限增益语义一致）
- * @param nowMs 当前毫秒时间戳（默认取系统时间）
- *
- * 判断粒度为秒：两侧均取整到秒后比较（同一秒内视为同一时刻）。
  */
 export function isActive(it: any, nowMs: number = Date.now()): boolean {
   const expire = toExpireMs(it);
@@ -61,23 +43,19 @@ export function isActive(it: any, nowMs: number = Date.now()): boolean {
   return floorSec(expire) > floorSec(nowMs);
 }
 
-/**
- * 取条目名称（只读规范键 name，规范名见 field-contract.util.ts）
- */
+/** 取条目名称（只读规范键 name，规范名见 field-contract.util） */
 export function itemName(it: any): string {
   return String(it?.name ?? '');
 }
 
 /**
- * 给 markers2 容器中指定名称的条目补写 `kind` 冷却类型标签（方案B）。
+ * 给 markers2 容器中指定名称的条目补写 `kind` 冷却类型标签。
  *
- * 背景：面板（buildPendingActions）按 `kind` 渲染冷却文案，未打标签的条目
- * 按原版「武器名+冷却」约定兜底为武器冷却。某些冷却经通用链路
- * （如 combat-state 的「时间间隔要求」）写入、无法在写入处直接声明类型，
- * 由调用方在写入后紧跟本函数补标签。
+ * 面板（buildPendingActions）按 `kind` 渲染冷却文案，未打标签的条目按原版
+ * 「武器名+冷却」约定兜底为武器冷却。某些冷却经通用链路（如 combat-state 的
+ * 「时间间隔要求」）写入、无法在写入处声明类型，由调用方在写入后紧跟本函数补标签。
  *
- * 语义：条目不存在时不做任何事；已存在时覆盖 kind（同一标记名的类型固定，覆盖无副作用，
- * 且能让历史无标签的存量条目在下次触发写入时获得分类）。
+ * 语义：条目不存在时不做任何事；已存在时覆盖 kind（同一标记名的类型固定，覆盖无副作用）。
  */
 export function tagMarkerKind(list: any, name: string, kind: string): void {
   const arr = Array.isArray(list) ? list : [];
@@ -87,25 +65,21 @@ export function tagMarkerKind(list: any, name: string, kind: string): void {
 
 /**
  * 判断增益数组中是否存在「指定名称且未过期」的条目
- * @param list 增益/标记数组（可为 JSON 字符串）
- * @param name 增益名称
- * @param nowMs 当前毫秒时间戳
+ * @param list 增益/标记数组（非数组按空数组处理，不解析 JSON 字符串）
  */
 export function hasActive(list: any, name: string, nowMs: number = Date.now()): boolean {
   const arr = Array.isArray(list) ? list : [];
   return arr.some((it: any) => itemName(it) === name && isActive(it, nowMs));
 }
 
-/**
- * 查找「指定名称且未过期」的条目
- */
+/** 查找「指定名称且未过期」的条目 */
 export function findActive(list: any, name: string, nowMs: number = Date.now()): any | undefined {
   const arr = Array.isArray(list) ? list : [];
   return arr.find((it: any) => itemName(it) === name && isActive(it, nowMs));
 }
 
 /**
- * 过滤出仍在有效期内的条目（无到期时间的永久条目保留）
+ * 过滤出仍在有效期内的条目（无到期时间的永久条目保留），
  * 用于展示与「读取即生效判定」两处，避免过期增益残留。
  */
 export function filterActive(list: any, nowMs: number = Date.now()): any[] {
@@ -126,7 +100,7 @@ export function shortenBuff(list: any[], name: string, seconds: number, nowMs: n
   for (let i = list.length - 1; i >= 0; i -= 1) {
     const it = list[i];
     if (itemName(it) !== name) continue;
-    // 只读规范键 expireAt（中文别名「有效期至」已由持久化边界收敛删除）
+    // 只读规范键 expireAt（别名与秒/毫秒口径见 toExpireMs）
     const raw = Number(it?.expireAt ?? 0);
     if (!raw) { list.splice(i, 1); changed = true; continue; } // 无到期时间的异常条目直接清掉
     const isMs = raw >= MS_THRESHOLD;
@@ -147,12 +121,10 @@ export function shortenBuff(list: any[], name: string, seconds: number, nowMs: n
  * 与「到期时刻」型的区别：容器里存的是**上次触发的时刻**（过去值），
  * 判定用 `now - last >= 间隔`；常见于 Player.markers 里的冷却键（袖剑冷却、光棱…）。
  * 传入 0/undefined 视为「从未触发」→ 返回 true（可以触发）。
- *
- * 存量数据可能是秒也可能是毫秒，内部统一归一化，无需数据迁移。
+ * 传入时刻可能是秒也可能是毫秒，内部统一归一化。
  *
  * @param stamp 上次触发时刻（秒或毫秒时间戳，取 markers[key] 的值）
  * @param intervalMs 间隔（毫秒，建议书写为 N * SECOND_MS）
- * @param nowMs 当前毫秒时间戳
  */
 export function isDueSince(stamp: any, intervalMs: number, nowMs: number = Date.now()): boolean {
   const last = toExpireMs({ expireAt: stamp });
@@ -160,18 +132,14 @@ export function isDueSince(stamp: any, intervalMs: number, nowMs: number = Date.
   return floorSec(nowMs) - floorSec(last) >= intervalMs / SECOND_MS;
 }
 
-/**
- * 取「上次触发至今」经过的秒数（触发时刻型容器用，最低 0）
- */
+/** 取「上次触发至今」经过的秒数（触发时刻型容器用，最低 0） */
 export function elapsedSecondsSince(stamp: any, nowMs: number = Date.now()): number {
   const last = toExpireMs({ expireAt: stamp });
   if (!last) return 0;
   return Math.max(0, (nowMs - last) / SECOND_MS);
 }
 
-/**
- * 生成「从现在起 seconds 秒后到期」的毫秒时间戳（写入增益时统一使用）
- */
+/** 生成「从现在起 seconds 秒后到期」的毫秒时间戳（写入增益时统一使用） */
 export function expireAfter(seconds: number, nowMs: number = Date.now()): number {
   return nowMs + seconds * SECOND_MS;
 }
@@ -191,11 +159,9 @@ export function isActiveBeyond(it: any, seconds: number, nowMs: number = Date.no
 
 /**
  * 冷却剩余毫秒：0 表示「无该标记」或「已过期」。
- *
- * 与 remainSeconds 的区别：这里把「无到期时间」也当作 0（不在冷却中），
- * 与历史写法 `marker && marker.expireAt > now` 的短路结果一致；
- * 而 isActive 把无到期时间视为永久有效（用于增益，不用于冷却）。
- * 判断/取值粒度=秒：剩余值向下取整到整秒（毫秒尾巴抹掉）。
+ * 与 isActive 的区别：无到期时间在这里算 0（不在冷却中，冷却语义下无期限＝未持有），
+ * 与内联写法 `marker && marker.expireAt > now` 的短路结果一致；isActive 则把无到期时间
+ * 视为永久有效（用于增益，不用于冷却）。剩余值向下取整到整秒（毫秒尾巴抹掉）。
  */
 export function remainMs(it: any, nowMs: number = Date.now()): number {
   const expire = toExpireMs(it);
@@ -203,18 +169,14 @@ export function remainMs(it: any, nowMs: number = Date.now()): number {
   return Math.floor((expire - nowMs) / SECOND_MS) * SECOND_MS;
 }
 
-/**
- * 剩余秒数（用于显示倒计时，最低 0）
- */
+/** 剩余秒数（用于显示倒计时，最低 0） */
 export function remainSeconds(it: any, nowMs: number = Date.now()): number {
   const expire = toExpireMs(it);
   if (!expire) return 0;
   return Math.max(0, Math.floor((expire - nowMs) / SECOND_MS));
 }
 
-/**
- * 把剩余秒数格式化为 m:ss
- */
+/** 把剩余秒数格式化为 m:ss */
 export function formatRemain(seconds: number): string {
   const s = Math.max(0, Math.floor(seconds));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
@@ -242,12 +204,11 @@ export function formatDurationText(ms: number): string {
  * 副本入口从开启时刻起有有效期（game.dungeonEntryLifetimeHours，默认 24h）、
  * 到期由清扫任务自动关闭；观察附近/查看地图在入口名后附上剩余时间供玩家判断。
  *
- * @param expireAt 入口到期毫秒时间戳；<=0 表示无倒计时（历史存量入口），返回空串
- * @param nowMs 当前毫秒时间戳
+ * @param expireAt 入口到期毫秒时间戳；<=0 表示无倒计时（存量入口），返回空串
  */
 export function formatDungeonEntryRemaining(expireAt: number, nowMs: number = Date.now()): string {
   if (!Number.isFinite(expireAt) || expireAt <= 0) return '';
-  // 判断/显示粒度=秒（项目约定），毫秒尾巴不参与计算
+  // 判断/显示粒度=秒（见文件头约定），毫秒尾巴不参与计算
   const remainSec = Math.floor((expireAt - nowMs) / SECOND_MS);
   if (remainSec <= 0) return '已过期';
   const hours = Math.floor(remainSec / 3600);

@@ -1,7 +1,4 @@
-/**
- * AstrBot 对接服务
- * 处理机器人指令的执行与玩家绑定查询。
- */
+/** AstrBot 对接服务：机器人指令执行与玩家绑定查询。 */
 
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -13,7 +10,6 @@ import { ShortcutService } from '../game/shortcut.service';
 export interface BotCommandPayload {
   /** 机器人身份标识(如QQ号) */
   botIdentity: string;
-  /** 原始指令文本 */
   message: string;
   /** 可选：频道名(默认世界频道) */
   channelName?: string;
@@ -29,12 +25,7 @@ export class BotService {
     private readonly shortcutService: ShortcutService,
   ) {}
 
-  /**
-   * 处理来自 AstrBot 的指令
-   * 1. 根据 botIdentity(QQ号) 找到绑定的网页用户
-   * 2. 构造指令上下文，来源标记为 ASTRBOT
-   * 3. 调用指令引擎执行，返回结果文本供机器人回复
-   */
+  /** 执行来自 AstrBot 的指令，返回结果文本供机器人回复。 */
   async handleBotCommand(payload: BotCommandPayload) {
     const { botIdentity, message } = payload;
 
@@ -44,7 +35,6 @@ export class BotService {
       select: { id: true, username: true },
     });
 
-    // 默认世界频道
     const channel = await this.prisma.channel.findFirst({ where: { name: '世界频道' } });
 
     this.logger.log(`[AstrBot] 收到指令: ${message} (来自 ${botIdentity})`);

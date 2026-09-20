@@ -1,27 +1,7 @@
 /**
- * 字段规范契约（SSOT）—— 历史别名字段 → 英文规范名 的唯一映射表 + 归一化器
- *
- * 背景：项目为兼容老存档，同一语义在历史演进中出现过多套字段名（英文 / 中文 / 拼音），
- * 且不少写入点「只改其中一个」，导致同一实体的同义字段互相不一致（典型：背包条目
- * 显示 385 却按 count=5 判定建造数量）。本文件是**唯一**的别名映射来源：
- *
- *   1. 任何位置的读写口径统一以本表为准，禁止在各业务模块自建别名兜底；
- *   2. 所有持久化边界（玩家读档/落库、地图读写、怪物/载具读写）必须过归一化器，
- *      保证内存与数据库里永远只有规范键；
- *   3. 规范键一律英文（与 Prisma 列名 / TS 接口一致），中文只保留在「内容语义」上：
- *      加成属性名（生命/闪避/暴击…）、标记名（采集木头…）、道具名等**值**不动。
- *
- * 收敛规则（applyAliases）：
- *   - 规范键已存在 → 以规范键为准，直接删除同义旧键（旧键是镜像是脏数据）；
- *   - 规范键缺失   → 把旧键的值迁到规范键，再删除旧键。
- *   两种情况都保证「一次归一化后不再出现旧键」。
- *
- * 特殊合并（同义不同名的两个英文键，非中英之别）：
- *   - 物品域 count → quantity（历史掉落物/旧存档用 count）
- *   - 增益域 value → strength
- *
- * 标记域（marker）只作用于**数组形态**的标记条目（`[{名称,数值}]` → `[{name,value}]`）；
- * `markers` 为字典时，字典键就是标记名本身（内容语义），任何情况都不收敛。
+ * 字段规范契约（SSOT）：历史别名 / 中文字段 → 英文规范键的唯一映射表 + 持久化边界归一化器。
+ * 任何位置的读写口径一律以本表为准，禁止业务模块自建别名兜底；规范键一律英文，
+ * 中文只保留在「内容语义」上（加成属性名、标记名、道具名等**值**不动）。
  */
 
 /** 物品条目（背包 / 装备 / 武器 / 安全箱 / 掉落物 / 载具零件 / 红包道具 / 商店商品） */
@@ -35,10 +15,7 @@ export const ITEM_ALIASES: Record<string, string> = {
   耐久等级: 'durabilityLevel',
 };
 
-/**
- * 物品域同义英文键合并表：旧键 → 规范键。
- * count 是掉落物/旧存档遗留的数量字段，语义完全等于 quantity。
- */
+/** 物品域同义英文键合并表（旧键 → 规范键）：count 与 quantity 语义完全相同。 */
 export const ITEM_MERGES: Record<string, string> = {
   count: 'quantity',
 };
@@ -51,7 +28,7 @@ export const BUFF_ALIASES: Record<string, string> = {
   是否叠加时间: 'stackTime',
 };
 
-/** 增益域同义英文键合并表：value 与 strength 同义（战斗层曾用 value 表示强度） */
+/** 增益域同义英文键合并表（旧键 → 规范键）：value 与 strength 同义。 */
 export const BUFF_MERGES: Record<string, string> = {
   value: 'strength',
 };
@@ -128,12 +105,10 @@ export const SUMMON_ALIASES: Record<string, string> = {
 };
 
 /**
- * 标记 / 成就 / 熟练度条目（markers 数组元素、原版「技能」数组成员、achievements 数组）
+ * 标记 / 成就条目（markers 数组元素、achievements 数组）：统一为 `{name, value}`。
  *
  * ⚠️ 仅适用于**数组形态**的条目；`markers` 若为字典 `{ 标记名: 数值 }`，
  * 字典键就是标记名本身（内容语义），绝不能按本表收敛。
- * 历史写法混用：`{name, 数值}`（战斗掉落记录）、`{名称, 数值}`（战斗状态机）、
- * `{name, value}`（家园标记）——统一为 `{name, value}`。
  */
 export const MARKER_ALIASES: Record<string, string> = {
   名称: 'name',
@@ -160,10 +135,8 @@ export const MAP_RESOURCE_ALIASES: Record<string, string> = {
 };
 
 /**
- * 地图资源/建筑域同义英文键合并表。
- * 「有多少个」在项目内的规范键统一为 quantity（与物品域一致）；
- * count 是早期建造/安装逻辑留下的旧写法（home.service 注释亦声明
- * 「count 为静态配置和历史存档用法，进入计算前归一化为 quantity」）。
+ * 地图资源/建筑域同义英文键合并表（旧键 → 规范键）：count → quantity。
+ * 静态配置与旧存档仍带 count，必须在进入计算前归一化；归一化后直接读 count 拿到的是 undefined。
  */
 export const MAP_RESOURCE_MERGES: Record<string, string> = {
   count: 'quantity',
@@ -222,7 +195,7 @@ export function normalizeEntryKeys(obj: any, domain: FieldDomain): boolean {
   for (const key of Object.keys(obj)) {
     const canonical = lookup.get(key);
     if (canonical === undefined) continue;
-    // 规范键已存在时以规范键为准：旧键只是镜像，直接丢弃
+    // 规范键缺失时才迁移旧键的值；无论是否冲突，旧键一律删除，保证归一化后不再出现旧键
     if (obj[canonical] === undefined) obj[canonical] = obj[key];
     delete obj[key];
     changed = true;
@@ -231,10 +204,7 @@ export function normalizeEntryKeys(obj: any, domain: FieldDomain): boolean {
   return changed;
 }
 
-/**
- * 就地归一化一组条目（数组或对象字典）。
- * @returns 是否发生了改动
- */
+/** 就地归一化一组条目（数组或对象字典）；返回是否发生了改动。 */
 export function normalizeEntryList(list: any, domain: FieldDomain): boolean {
   if (!list || typeof list !== 'object') return false;
   const arr = Array.isArray(list) ? list : Object.values(list);
@@ -246,9 +216,7 @@ export function normalizeEntryList(list: any, domain: FieldDomain): boolean {
 }
 
 /**
- * 归一化 markers / achievements 容器。
- *
- * 只处理**数组形态**（历史写法 `[{名称,数值}]` / `[{name,数值}]` → `[{name,value}]`）；
+ * 归一化 markers / achievements 容器：`[{名称,数值}]` / `[{name,数值}]` → `[{name,value}]`。
  * 字典形态 `{ 标记名: 数值 }` 的键是标记名（内容语义），一律不动。
  */
 export function normalizeMarkers(markers: any): boolean {
@@ -258,14 +226,10 @@ export function normalizeMarkers(markers: any): boolean {
 /**
  * 读取标记数值（标记读取的唯一口径）。
  *
- * 支持两种规范形态：
- *   - 字典：`{ 标记名: 数值 }`
- *   - 数组：`[{ name, value }]`
- * 旧别名（名称/数值）应由边界归一化器（normalizeMarkers）先收敛，这里不再兜底，
- * 避免「同一语义两套字段名各自被不同位置读到」的历史问题重演。
+ * 支持两种规范形态：字典 `{ 标记名: 数值 }` 与数组 `[{ name, value }]`。
+ * 旧别名（名称/数值）不在此兜底，调用前必须先过边界归一化器（normalizeMarkers）。
  *
  * @param markers markers 容器（数组或字典，允许为空/非法值）
- * @param name 标记名
  * @returns 数值（取不到或非法时返回 0）
  */
 export function readMarkerValue(markers: any, name: string): number {
@@ -285,8 +249,6 @@ export function readMarkerValue(markers: any, name: string): number {
  * 字典形态直接按键赋值。
  *
  * @param markers markers 容器（数组或字典）
- * @param name 标记名
- * @param value 数值
  * @returns 是否发生了写入（容器非法时返回 false）
  */
 export function writeMarkerValue(markers: any, name: string, value: number): boolean {
@@ -378,7 +340,7 @@ export function normalizePlayerRow(player: any): boolean {
   return normalizeOwnedContainers(player);
 }
 
-/** 地图行中需要归一化的列 → 归属域（含每列的下钻规则） */
+/** 地图行中需要归一化的列 → 归属域 */
 const MAP_LIST_COLUMNS: Array<{ field: string; domain: FieldDomain }> = [
   { field: 'items', domain: 'item' },
   { field: 'resources', domain: 'mapResource' },
@@ -438,10 +400,7 @@ export function normalizeMonsterRow(monster: any): boolean {
   return normalizeOwnedContainers(monster);
 }
 
-/**
- * 归一化载具行（GameVehicle）：自身 JSON 列与地图载具条目同构
- * （零件/内置零件走物品域、配方走载具域、标记2 走增益域）。
- */
+/** 归一化载具行（GameVehicle）：自身 JSON 列与地图载具条目同构，复用 normalizeVehicleEntry。 */
 export function normalizeVehicleRow(vehicle: any): boolean {
   return normalizeVehicleEntry(vehicle);
 }

@@ -54,16 +54,12 @@ export class StatsService {
     }
   }
 
-  /** 获取在线人数 */
+  /** 在线人数 */
   getOnlineCount(): number {
     return StatsService.onlineUsers.size;
   }
 
-  /**
-   * 判断指定用户是否在线
-   * @param userId 用户ID
-   * @returns true=在线 / false=离线
-   */
+  /** 判断指定用户是否在线 */
   isOnline(userId: number): boolean {
     return StatsService.onlineUsers.has(userId);
   }
@@ -106,13 +102,9 @@ export class StatsService {
   /**
    * 获取在线玩家显示名清单（最多 limit 条）
    *
-   * 名字优先级与游戏内展示保持一致：角色派生名 > 角色基础名 > 账号昵称 > 用户名。
+   * 名字优先级与游戏内展示一致：角色派生名 > 角色基础名 > 账号昵称 > 用户名。
    * 只取前 limit 个在线用户，避免大服一次广播带出超大名单（前端以"另有 X 人"补足）。
-   *
-   * 性能：名字按 onlineListCacheTtlMs 缓存（默认 60 秒）。上下线都会触发统计广播，
-   * 玩家进出频繁时如果每次都全量查库取名，会形成明显的数据库热点；
-   * 这里缓存「id → 名字」映射，名单本身每次按当前在线 ids 实时组装，
-   * 因此上下线即时生效，只有新出现的 id 才需要增量查库。
+   * 取名走 onlineNameCache（见该字段注释），因此上下线即时生效、只有新 id 才查库。
    *
    * @param limit 返回条数上限，缺省取配置值
    */

@@ -9,7 +9,7 @@
  *    StatsService / MapService / PrismaService 真实实例（连远程 smdz 库）。
  *  - 动态创建两个测试账号（User + Player，同地图、标记为在线），避免干扰真实玩家。
  *  - 测试1 全图反击：A 攻击后怪物反击，断言同图另一在线玩家 B 也被反击扣血
- *    （验证"只反击攻击者"简化已废除，全图筛选生效）。
+ *    （验证全图筛选生效，不是「只反击攻击者」）。
  *  - 测试2 卷土重来：把 B 血量压到 1，怪物反击必中且高伤 → B 死亡 →
  *    断言 B 进入"卷土重来"状态（生命保持 0 不回血 + buffs 含"卷土重来"，靠增益闪避=1 免死，60 秒冷却内不重复触发）。
  *  - afterAll 清理两个测试账号（User 级联删 Player）。
@@ -89,7 +89,7 @@ describe('怪物反击全图 + 卷土重来（真实远程库端到端）', () =
     mapService = app.get(MapService);
     statsService = app.get(StatsService);
 
-    // 防复发清理（2026-09-06 事故）：进程中断导致 afterAll 未执行时，e2e 测试地图会
+    // 防复发清理：进程中断导致 afterAll 未执行时，e2e 测试地图会
     // 泄漏进真实库并被定时任务当成普通地图（累计吸走货舱/能量元素、挂副本入口）。
     // 每次测试启动先按命名标记清一次历史残留，保证幂等。
     try {
@@ -156,8 +156,8 @@ describe('怪物反击全图 + 卷土重来（真实远程库端到端）', () =
     return playerService.getPlayerData(uid);
   }
 
-  // 复刻怪物攻击全图防御方的收集逻辑（原内联于 weaponAttack 步骤9，现已迁入
-  // 地图延时回合 runMapMonsterAttack；此处保留同等筛选：在线由 onlineUsers、
+  // 复刻怪物攻击全图防御方的收集逻辑（内联反击已按原版语义移出 weaponAttack 步骤9，
+  // 由地图延时回合 runMapMonsterAttack 承担；此处保留同等筛选：在线由 onlineUsers、
   // 存活、非隐匿模式/炮冠），逐个调用 monsterCounterAttackOnePlayer。
   async function monsterCounterAttackAll(attacker: any, map: any): Promise<string[]> {
     const monster = await getMonster();
@@ -205,7 +205,7 @@ describe('怪物反击全图 + 卷土重来（真实远程库端到端）', () =
     const afterB = await getPlayer(uidB);
 
     // 全图反击生效：文本应同时含对"你"(攻击者)和"端到端测试b"(非攻击者)的攻击动作，
-    // 证明"只反击攻击者"简化已废除，全图筛选（在线/存活/非隐匿/非炮冠）生效。
+    // 证明不是「只反击攻击者」，全图筛选（在线/存活/非隐匿/非炮冠）生效。
     // 怪物对每位防御方独立做命中/闪避判定 → 可能"造成...伤害"也可能"被...闪避了"，两种均证明全图反击发生。
     const text = lines.join('\n');
     expect(text).toContain('你');                            // 攻击者 A 被怪物攻击（含"攻击你"/"向你发起攻击"）

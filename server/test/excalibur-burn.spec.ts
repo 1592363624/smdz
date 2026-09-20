@@ -1,10 +1,10 @@
 /**
  * 誓约胜利之剑（excalibur）完整复刻回归测试
  *
- * 覆盖本轮补齐的三块逻辑（对照原版 使魔技能.ecode L1406-1440 / 战斗相关.ecode L1930 /
+ * 覆盖三块逻辑（对照原版 使魔技能.ecode L1406-1440 / 战斗相关.ecode L1930 /
  * 加成计算.ecode L421-425）：
  *  1. 施放后写入 "ex" 自增益 15 秒（装备库洛牌时 ×1.25），
- *     引擎侧 saber 好感≥40 带"ex"受击免伤（combat-system L812/L1652 已有消费者）
+ *     引擎侧 saber 好感≥40 带"ex"受击免伤（combat-system.service 已有消费者）
  *  2. 本次攻击三层穿透 +15（extraPenetrationFlat 注入 attackerBonus）
  *  3. 命中后给怪物挂 "sa" 灼烧标记（30秒），地图战斗节拍按 物攻/10×经过秒数 结算持续伤害
  */
@@ -241,7 +241,7 @@ describe('誓约胜利之剑（excalibur）复刻', () => {
     });
     const buffs = parseJson(defender.buffs, []);
     expect(buffs.some((b: any) => b.name === 'ex')).toBe(true);
-    // 引擎 L812/L1652 两处消费按 name==='ex' 精确匹配，锁定字段名防回归
+    // 引擎两处消费按 name==='ex' 精确匹配，锁定字段名防回归
     expect(buffs[0].expireAt).toBeGreaterThan(Date.now() / 1000 - 60);
   });
 
@@ -258,8 +258,8 @@ describe('誓约胜利之剑（excalibur）复刻', () => {
     defBonus.闪避 = 200; // 保证被命中而非闪避
     defBonus.命中 = 200;
 
-    // 直接调用玩家对战免伤判定所在的内层：用 calcDamage 前置的 forcedMult 分支不易单独触达，
-    // 这里通过 L1652 所在函数的行为级入口——玩家对战未开放，改为直接验证 buff 存在性与引擎读取：
+    // 玩家对战免伤未开放，calcDamage 前置的 forcedMult 分支也不易单独触达，
+    // 这里改为直接验证 buff 存在性与引擎读取：
     const buffs = parseJson(defender.buffs, []);
     expect(buffs.some((b: any) => b.name === 'ex')).toBe(true);
     // 引擎两处消费者存在性由 tsc 与全量测试保障；此处锁定数据契约字段名
@@ -392,7 +392,7 @@ function makeSaberPlayer(affinity: number, skillLevel: number, overrides: any = 
   return {
     // ⚠️ 使魔类型取数据权威名：familiars.json name="saber"（小写）。
     // 好感/熟练度标记键 = `${player.type}好感`，写成 'Saber'(大写) 时
-    // getAffinity 恒返回 0 → 好感分层 buff 永不触发（对应源码 L1480 的注释）。
+    // getAffinity 恒返回 0 → 好感分层 buff 永不触发。
     id: 1, userId: 1, name: 'saber', type: 'saber', specialSeq: 19,
     level: 10, hp: 100, maxHp: 100, shield: 50, maxShield: 50, armor: 30, maxArmor: 30,
     mapId: 1, affinity, skillLevel, markers2: '[]', weapons: '[]', equipment: '[]',

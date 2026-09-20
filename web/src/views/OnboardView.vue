@@ -285,15 +285,12 @@
 
 <script setup>
 /**
- * 使魔契约引导页（新手首屏仪式）
- *
- * 定位：未选择使魔（player.type 为空）的玩家进入主界面前的全屏引导页。
- * 数据与写入均复用指令侧的唯一实现，本页只负责呈现与编排：
+ * 使魔契约引导页：未选择使魔（player.type 为空）的玩家进入主界面前的全屏引导。
+ * 本页只做呈现与编排，数据与写入复用指令侧唯一实现，避免出现第二条换使魔通道：
  *   - 只读：GET /game/familiar/gate → GameService.getFirstFamiliarGate 同源同口径
  *     （可选集合 = 静态定义 !noSummon 过滤后的原始序，与 QQ 两列编号菜单一一对应）
  *   - 写入：POST /game/familiar/choose → FamiliarSystemService.chooseFirstFamiliar
  *     （内部即「选择使魔确认<名称>」，清空初始数据 / 写角色 / 领教程任务 / 升级提示）
- * 已开局的玩家访问本页会被直接送回主界面，避免出现第二条换使魔通道。
  */
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
@@ -436,7 +433,7 @@ async function seal() {
     // （否则错误提示会盖在只播了一半的演出上）。
     const settled = await Promise.allSettled([familiarApi.choose(selected.value.name), minShow]);
     const api = settled[0];
-    // 演出节拍已走完，先清掉剩余步进定时器再切换阶段，避免残留回调改写已废弃文案
+    // 演出节拍已走完：切阶段前先清掉剩余步进定时器，避免残留回调回头改写节奏文案
     clearSealTimers();
 
     if (api.status === 'fulfilled' && api.value?.success) {

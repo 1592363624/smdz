@@ -19,7 +19,7 @@
             <div class="name-row">
               <span class="name">{{ user?.nickname || user?.username }}</span>
               <button v-if="!nicknameEditing" class="nickname-edit-btn" title="修改昵称" @click.stop="openNicknameEdit">✏️</button>
-              <!-- 当前使魔：原「我的」面板顶部独占一行展示，现合并进用户卡片省掉一行高度 -->
+              <!-- 当前使魔徽标：贴在昵称右侧，不单独占一行 -->
               <span v-if="playerInfo?.type" class="user-marker" :title="'当前使魔：' + playerInfo.type">{{ playerInfo.type }}</span>
             </div>
             <!-- 昵称行内编辑 -->
@@ -57,7 +57,7 @@
         <button class="sidebar-tab" :class="{ active: sidebarTab === 'me' }" @click="sidebarTab = 'me'">
           <span class="tab-icon">👤</span>我的
         </button>
-        <!-- 家园：跳转到独立全屏页面（侧栏空间不足以展示格子院落，改为 /home）；前线面板从家园页顶栏切换进入 -->
+        <!-- 家园：跳独立全屏页 /home（侧栏放不下格子院落）；前线面板从家园页顶栏切换进入 -->
         <button
           class="sidebar-tab"
           title="打开家园院子（独立页面）"
@@ -274,7 +274,7 @@
             <div class="name-row">
               <span class="name">{{ user?.nickname || user?.username }}</span>
               <button v-if="!nicknameEditing" class="nickname-edit-btn" title="修改昵称" @click.stop="openNicknameEdit">✏️</button>
-              <!-- 当前使魔：原「我的」面板顶部独占一行展示，现合并进用户卡片省掉一行高度 -->
+              <!-- 当前使魔徽标：贴在昵称右侧，不单独占一行 -->
               <span v-if="playerInfo?.type" class="user-marker" :title="'当前使魔：' + playerInfo.type">{{ playerInfo.type }}</span>
             </div>
             <!-- 昵称行内编辑 -->
@@ -450,7 +450,7 @@
           </div>
         </div>
 
-        <!-- 家园：已迁移为独立页面 /home（侧栏空间不足以展示格子院落） -->
+        <!-- 地图 Tab：当前区域 / 子区域 / 全部地图 / 附近玩家 -->
         <div v-show="mobileTab === 'map'" class="tab-pane">
           <div class="map-connections" v-if="mapOverview">
             <div class="mc-current">
@@ -606,8 +606,7 @@
       />
 
       <!-- 消息列表 -->
-      <!-- 滚动意图：滚轮/触摸上翻/拖滚动条 → 解除贴底跟随；布局变化（图片/大卡片迟到渲染）
-           引发的滚动不再被误判为"用户翻历史"，因此不会再聊着聊着停到中间 -->
+      <!-- 滚动意图：仅滚轮 / 触摸上翻 / 拖滚动条算用户主动翻历史，才解除贴底跟随；图片/大卡片迟到渲染引起的布局变化不算 -->
       <div ref="msgList" class="messages" @scroll="onMsgScroll"
            @wheel.passive="onWheelIntent"
            @touchstart.passive="onTouchStartIntent"
@@ -822,7 +821,7 @@
         <div class="ip-empty" v-else>当前地图为孤立区域</div>
       </div>
 
-      <!-- 全部地图（原左侧地图Tab迁移至此，可折叠、点击快速传送） -->
+      <!-- 全部地图：可折叠，点击条目发 go 指令快速传送 -->
       <div class="ip-block" v-if="mapOverview">
         <h4 class="ip-title ip-fold" @click="allMapsCollapsed = !allMapsCollapsed">
           <span class="ip-caret">{{ allMapsCollapsed ? '▶' : '▼' }}</span>
@@ -1080,18 +1079,11 @@
 
 <script setup>
 /**
- * 公屏聊天页（增强版）
- * 核心功能：
- * - Socket.IO 实时连接后端公屏频道，接收/广播消息
- * - 输入框支持普通聊天 与 /指令，带指令自动补全
- * - 展示玩家信息面板（等级、HP、位置）
- * - 快捷操作按钮（背包、信息、地图、攻击）
- * - 地图连接显示
- * - 消息类型彩色区分（聊天、指令、系统、游戏、战斗、信息）
+ * 公屏聊天页：Socket.IO 实时收发指令/系统消息 + 指令自动补全 +
+ * 玩家状态侧栏、地图信息面板、常用指令、反馈工单、公告与部署更新弹窗。
  */
 import { ref, onMounted, onUnmounted, nextTick, computed, watch } from 'vue';
 import { useRouter } from 'vue-router';
-// 玩家状态面板（桌面侧栏 + 手机抽屉复用；战斗力/任务/装备/增益一屏展示）
 import PlayerStatusPanel from '../components/PlayerStatusPanel.vue';
 import PendingActionBar from '../components/PendingActionBar.vue';
 import WorldEventBar from '../components/WorldEventBar.vue';
@@ -1117,11 +1109,11 @@ import {
 } from '../config';
 import AnnRichText from '../components/AnnRichText';
 import GameHighlight from '../components/GameHighlight.vue';
-// 血量预警/死亡状态全屏特效层（三边呼吸光效、受击快闪、死亡三段式反馈）
+// 血量预警 / 死亡状态全屏特效层
 import HealthVfx from '../components/HealthVfx.vue';
-// 结构化长消息（背包/属性/装备）在公屏的网格卡片渲染（纯前端展示层优化，不影响后端/AstrBot 文本）
+// 结构化长消息（背包/属性/装备）网格卡片渲染：纯前端展示层，不影响后端/AstrBot 文本
 import RichSystemCard from '../components/RichSystemCard.vue';
-// 家园建造四步引导卡片（圈地→开挖地基→建造地基→建造房子），识别后端引导文本后渲染
+// 家园建造四步引导卡片（圈地→开挖地基→建造地基→建造房子）
 import HomeBuildGuide from '../components/HomeBuildGuide.vue';
 import BattleCard from '../components/BattleCard.vue';
 import CommandPalette from '../components/CommandPalette.vue';
@@ -1138,7 +1130,7 @@ import { searchCommands, hitLabel } from '../utils/commandSearch';
 
 const router = useRouter();
 const ui = useUiStore();
-// 集中状态：指令列表 / 连接与服务器统计 / 玩家信息（从本地 ref 下沉到 Pinia store）
+// 集中状态（Pinia store）：指令列表 / 连接与服务器统计 / 玩家信息
 const commandStore = useCommandStore();
 const connectionStore = useConnectionStore();
 const playerStore = usePlayerStore();
@@ -1166,9 +1158,8 @@ const msgList = ref(null);
 const inputEl = ref(null);
 
 /**
- * 开局门闸：未完成「是否需要引导」判定的这段时间主界面不显示。
- * 否则新玩家会先看到一帧空壳主界面再被跳转到契约引导页（闪现感很廉价）。
- * 判定通过后置 true，主界面才真正参与布局（也保证移动端测高拿得到真实尺寸）。
+ * 开局门闸：判定「是否需要引导」完成前不渲染主界面，避免新玩家先看到一帧空壳页再被跳转；
+ * 也保证移动端测高时拿得到真实布局尺寸。
  */
 const bootReady = ref(false);
 
@@ -1184,10 +1175,8 @@ function toggleShowOthers() {
   if (showOthersMsg.value) scrollToBottom();
 }
 
-// 预解析后的渲染视图：每条消息 { id, msg, segs }，segs 是 parseContent 的缓存结果。
-// 避免模板里对全部消息重复执行书名号/💡正则（消息越多越卡的主因），新消息只需解析一次。
-// 用 WeakMap 按「消息对象」缓存解析结果：除非命令列表（commands）变化，否则同一条消息
-// 在任意次重新渲染（新消息插入、过滤开关切换等）都直接复用，滚动不会再重复跑几百条正则。
+// 预解析渲染视图：segs 是 parseContent 的缓存结果，用 WeakMap 按消息对象缓存，
+// 避免模板对全部消息重复跑书名号/💡 正则（消息越多越卡的主因）；命令列表变化时才重算。
 const msgParseCache = new WeakMap();
 function cachedParseMsg(m) {
   const cmds = commands.value;
@@ -1218,19 +1207,17 @@ const messageViews = computed(() =>
       rich: p.rich,
       battle: p.battle,
       homeGuide: p.homeGuide,
-      // 性能优化：历史消息（非最新 3 条）启用 content-visibility，视口外跳过布局与绘制。
+      // 历史消息（非最新 3 条）启用 content-visibility，视口外跳过布局与绘制：
       // 消息上限 300 条 + 背包/战斗大卡片，全量渲染是公屏滑动卡顿主因；
-      // 最新 3 条不加（滚动到底的 scrollHeight 计算与自动滚底始终基于真实布局，不受估算高度影响）。
+      // 最新 3 条不加，保证自动滚底的 scrollHeight 计算基于真实布局。
       cv: i < visibleMessages.value.length - 3,
     };
   }),
 );
 
 /**
- * 判断消息内容是否应走富卡片（网格）渲染
- * - 背包："🎒 背包 (N种):" 头 + "1. xxx ×N" 行
- * - 属性面板："【名字】Lv.N" 头 + 装备/属性行
- * 仅为前端展示层判定，不改变/replace 任何原始文本（后端与 AstrBot 兼容不受影响）
+ * 判断消息内容是否走富卡片（网格）渲染：背包 / 制造配方清单 / 属性面板三类头部格式
+ * 仅为前端展示层判定，不改写任何原始文本（后端与 AstrBot 兼容不受影响）
  */
 function isRichCardContent(text) {
   if (!text || typeof text !== 'string') return false;
@@ -1260,14 +1247,9 @@ function isRichCardContent(text) {
 }
 
 /**
- * 识别家园建造引导文本，取出当前进度步数（1-4）。
- *
- * 后端在「圈地 / 开挖地基 / 建造地基 / 建造房子」的回包末尾追加统一格式的引导块
- * （见 server/src/modules/game/home-build-guide.util.ts），这里只做展示层识别，
- * 不改变原文；不匹配时返回 0（按普通系统消息渲染）。
- *
- * @param {string} text 消息正文
- * @returns {number} 进度步数，非引导消息返回 0
+ * 识别家园建造引导块并取出进度步数（1-4，非引导消息返回 0）。
+ * 后端在「圈地 / 开挖地基 / 建造地基 / 建造房子」回包末尾追加统一格式引导块
+ * （见 server/src/modules/game/home-build-guide.util.ts），这里只做展示层识别、不改原文。
  */
 function parseHomeBuildGuideStep(text) {
   if (!text || typeof text !== 'string') return 0;
@@ -1277,25 +1259,17 @@ function parseHomeBuildGuideStep(text) {
   return step >= 1 && step <= HOME_BUILD_GUIDE_CONFIG.total ? step : 0;
 }
 
-/**
- * 系统公告前缀常量（须与后端 admin.service.sendAnnouncement 写入的前缀一致）
- * 服务端持久化公告时会在正文前拼上该前缀，用于消息流识别与留档；
- * 但弹窗本身已有「📢 系统公告」标题，正文再出现一次即冗余，展示前需剥离。
- */
+/** 系统公告前缀：须与后端 admin.service.sendAnnouncement 写入的前缀一致；弹窗标题已表明是公告，展示前剥离正文里的这一份 */
 const ANN_PREFIX = '【系统公告】';
 
-/**
- * 判断一条消息是否为 GM 系统公告
- * 公告统一改为弹窗展示，不再出现在公屏消息流中（服务端仍持久化留档）
- */
+/** 公告一律走弹窗展示、不进公屏消息流（服务端仍持久化留档） */
 function isAnnouncementMsg(m) {
   return m.type === 'system' && typeof m.content === 'string' && m.content.startsWith(ANN_PREFIX);
 }
 
 /**
- * 公告正文归一化：剥离服务端加上的「【系统公告】」前缀
- * 实时推送（socket 载荷已是原始正文）与历史补弹（整条消息含前缀）共用此入口，
- * 保证两条路径展示完全一致。
+ * 公告正文归一化：剥离服务端加的「【系统公告】」前缀。
+ * 实时推送（载荷已是原始正文）与历史补弹（整条含前缀）共用，保证两条路径展示一致。
  */
 function normalizeAnnContent(content) {
   const text = String(content ?? '');
@@ -1329,7 +1303,6 @@ let socket = null;
 // ===== 状态栏「在线」悬浮名单 + 上下线提示 =====
 /** 上下线提示（store 统一维护，到期自动移除；保留时长见 PRESENCE_CONFIG） */
 const presenceNotices = computed(() => connectionStore.presenceNotices);
-/** 悬浮面板是否展开 */
 const onlinePanelOpen = ref(false);
 /** 延迟关闭定时器：让鼠标从数字滑到面板上时不闪断 */
 let onlinePanelCloseTimer = null;
@@ -1360,7 +1333,6 @@ function scheduleCloseOnlinePanel() {
   }, PRESENCE_CONFIG.hoverCloseDelayMs);
 }
 
-// 玩家信息
 const playerInfo = computed(() => playerStore.info);
 
 // ===== 个人设置弹窗（左下角「设置」入口，后续用户设置功能统一收纳于此） =====
@@ -1399,9 +1371,7 @@ function applyMapUpdate(payload) {
 const nearbyPlayers = ref([]);
 // 附近玩家是否已成功加载过（用于移动端空态展示）
 const nearbyLoaded = ref(false);
-// 附近玩家定时刷新计时器
 let nearbyTimer = null;
-// 可@玩家列表定时刷新计时器
 let atPlayersTimer = null;
 // 玩家/地图面板兜底轮询计时器：socket 推送万一丢失时定期校准
 let panelTimer = null;
@@ -1411,12 +1381,11 @@ const allMapsCollapsed = ref(true);
 // 手机端菜单状态
 const mobileMenuOpen = ref(false);
 
-// 桌面端左侧栏 Tab 切换（me=个人；地图信息统一在右侧信息面板展示。指令入口改为 Ctrl+K / 顶栏 ⌨️）
+// 桌面端左侧栏 Tab 切换（me=个人）；地图信息统一在右侧信息面板，指令入口为 Ctrl+K / 顶栏 ⌨️
 const sidebarTab = ref('me');
 // 手机端抽屉 Tab 切换（与桌面端独立，避免互相干扰）
 const mobileTab = ref('me');
 
-// 回到底部按钮
 const showScrollBtn = ref(false);
 // 是否「贴底跟随最新消息」（QQ 式滚动行为）：默认跟随，永远看着最新一条。
 // 只由用户真实滚动意图解除（滚轮/触摸/拖动滚动条），布局变化一律不算，详见 onMsgScroll
@@ -1456,11 +1425,10 @@ let favMsgTimer = null;
 const dragIndex = ref(-1);
 const dragOverIndex = ref(-1);
 
-// 加载我的常用指令
 async function loadFavorites() {
   try {
     const res = await userApi.getFavorites();
-    // 兼容后端返回的字符串数组（早期格式）或 {cmd,label} 对象数组，统一归一化
+    // 兼容后端可能返回的字符串数组格式，统一归一化成 { cmd, label }
     const list = Array.isArray(res.data) ? res.data : [];
     favoriteCommands.value = list.map((it) =>
       typeof it === 'string' ? { cmd: it, label: it } : { cmd: it.cmd, label: it.label || it.cmd }
@@ -1470,7 +1438,6 @@ async function loadFavorites() {
   }
 }
 
-// toast 提示
 function showFavMsg(text) {
   favMsg.value = text;
   if (favMsgTimer) clearTimeout(favMsgTimer);
@@ -1565,15 +1532,12 @@ async function removeFavorite(cmd) {
   }
 }
 
-// 拖拽排序：拖拽开始记录索引
 function onFavDragStart(idx) {
   dragIndex.value = idx;
 }
-// 拖拽经过某一项：记录目标索引，便于视觉反馈
 function onFavDragOver(idx) {
   dragOverIndex.value = idx;
 }
-// 拖拽放下：交换顺序并提交
 async function onFavDrop(idx) {
   const from = dragIndex.value;
   dragIndex.value = -1;
@@ -1597,7 +1561,7 @@ function toggleFavEdit() {
   if (!favEditing.value) favMsg.value = '';
 }
 
-// ---------- 常用指令 分享 / 导入（跨账号复用，纯前端实现，无需后端改动） ----------
+// ---------- 常用指令 分享 / 导入（跨账号复用，纯前端实现） ----------
 // 分享码格式：{ v: 1, items: [{ cmd, label }] }，经 UTF-8 安全的 Base64 编码后输出
 // 导入面板开关与分享码输入内容
 const favImporting = ref(false);
@@ -1798,10 +1762,8 @@ const mentionableByName = computed(() => {
 });
 
 /**
- * 解析 @提及 的展示名：能匹配到玩家且昵称「@安全」（中英文/数字/下划线，可被后端解析）时
- * 显示 @昵称；否则保持原文（用户名或原昵称），保证右键回填后仍能 @ 到人
- * @param {string} name @ 后面的名字（用户名或昵称）
- * @returns {string} 带 @ 前缀的展示文本
+ * 解析 @提及 的展示名（返回带 @ 前缀的文本）：能匹配到玩家且昵称「@安全」（中英文/数字/下划线，可被后端解析）
+ * 时显示 @昵称；否则保持原文（用户名或原昵称），保证右键回填后仍能 @ 到人
  */
 function mentionDisplayText(name) {
   const p = mentionableByName.value.get(name);
@@ -1832,16 +1794,15 @@ async function loadDevLoginStatus() {
   }
 }
 
-// 是否为"旧版QQ绑定"：早期版本把 QQ 互联 openid（32位hex）写进了 qqNumber，
-// 导致与 AstrBot 机器人传入的真实QQ号匹配不上。这里判定 qqNumber 是否为
-// 5-12 位纯数字QQ号，若不是则视为旧绑定，提示玩家换绑为真实QQ号。
+// 旧版 QQ 绑定判定：qqNumber 只接受 5-12 位纯数字真实 QQ 号；
+// 存量数据里存的是 QQ 互联 32 位 hex openid，与 AstrBot 机器人传入的 QQ 号匹配不上，
+// 命中此判定即视为未绑定，提示玩家换绑为真实 QQ 号。
 const isLegacyQqBind = computed(() => {
   const qq = user.value?.qqNumber;
   if (!qq) return false;
   return !/^\d{5,12}$/.test(qq);
 });
 
-// 头像的 title 提示文本
 const avatarTitle = computed(() => {
   if (isAdmin.value) return '点击进入管理后台';
   if (user.value?.externalId) return `点击复制 OpenID: ${user.value.externalId}`;
@@ -1863,7 +1824,6 @@ const nicknameInput = ref('');
 const nicknameError = ref('');
 const nicknameBusy = ref(false);
 
-// 打开昵称编辑（回填当前昵称）
 function openNicknameEdit() {
   nicknameInput.value = user.value?.nickname || '';
   nicknameError.value = '';
@@ -1900,7 +1860,7 @@ const maskedOpenId = computed(() => {
   return `${id.slice(0, 6)}...${id.slice(-4)}`;
 });
 
-// 绑定引导展开开关：默认收起，点「⚠️ 未绑定」才展开，避免常驻占高
+// 绑定引导展开开关
 const bindHintOpen = ref(false);
 // 未绑定时的 hover 提示：给出完整绑定指令（展开区也显示同样内容，兼容移动端无 hover）
 const bindHintTitle = computed(() =>
@@ -1913,7 +1873,6 @@ const bindHintTitle = computed(() =>
 const copyTip = ref('');
 let copyTipTimer = null;
 
-// 复制 OpenID 到剪贴板
 function copyOpenId() {
   const id = user.value?.externalId;
   if (!id) return;
@@ -1953,8 +1912,7 @@ function isOwnSystemMessage(m) {
   return self === undefined ? true : m.sender.id === self;
 }
 
-// 消息样式分类（增强版：支持更多消息类型）
-// 系统消息额外区分「自己的」与「别人的」，用于颜色区分（自己的保持金色高亮，别人的暗淡）
+// 消息样式分类：系统消息额外区分「自己的」与「别人的」，用于颜色区分（自己的保持金色高亮，别人的暗淡）
 function msgClass(m) {
   if (m.type === 'system') return isOwnSystemMessage(m) ? 'system' : 'system system-other';
   if (m.type === 'command') return 'command';
@@ -1967,8 +1925,6 @@ function msgClass(m) {
 /**
  * 是否为「自己发出的私密消息」——需要额外打 🔒 标记的那类。
  * 他人看到的私密消息内容本身就是占位文案（占位文案默认自带 🔒 图标），再叠加标记只会重复。
- * @param {object} m 消息对象
- * @returns {boolean}
  */
 function isPrivateSelfMsg(m) {
   return m?.visibility === 'private' && isOwnSystemMessage(m);
@@ -1980,8 +1936,6 @@ function isPrivateSelfMsg(m) {
  * - 普通聊天和玩家指令（chat/command）→ 本人 own（右侧）、他人 other（左侧）
  * 说明：指令触发的公屏结果多为"系统广播"（如"某某移动到某地"），
  * 它们即便带玩家 sender，也应居中展示，与玩家主动发起的对话气泡区分开。
- * @param {object} m 消息对象
- * @returns {string} 'own' | 'other' | 'center'
  */
 function msgAlign(m) {
   // 系统回复统一居中；command 是玩家实际发送的指令，应按发送者左右排列
@@ -1997,19 +1951,12 @@ function msgAlign(m) {
 // 仅对玩家实际发出的消息（chat/command，带发送者）生效，系统/战斗/卡片消息不受影响
 let msgClickTimer = null; // 单击延迟派发定时器：等待可能到来的双击，避免单击复制与双击重发同时触发
 
-/**
- * 判断是否为玩家发送的消息气泡（单击/双击交互的作用范围）
- * @param {object} m 消息对象
- * @returns {boolean}
- */
+/** 判断是否为玩家发送的消息气泡（单击/双击交互的作用范围） */
 function isUserMsg(m) {
   return !!m.sender && (m.type === 'chat' || m.type === 'command');
 }
 
-/**
- * 气泡单击：延迟 260ms 确认不是双击后，复制消息原文到剪贴板
- * @param {object} msg 消息对象
- */
+/** 气泡单击：延迟 260ms 确认不是双击后，复制消息原文到剪贴板 */
 function onMsgClick(msg) {
   if (!isUserMsg(msg)) return;
   if (msgClickTimer) return; // 已有待派发的单击，说明这是双击的第一击，交给 dblclick 处理
@@ -2019,10 +1966,7 @@ function onMsgClick(msg) {
   }, 260);
 }
 
-/**
- * 气泡双击：取消待派发的单击，直接把这条消息原样重发一遍
- * @param {object} msg 消息对象
- */
+/** 气泡双击：取消待派发的单击，直接把这条消息原样重发一遍 */
 function onMsgDblClick(msg) {
   if (!isUserMsg(msg)) return;
   if (msgClickTimer) {
@@ -2032,10 +1976,7 @@ function onMsgDblClick(msg) {
   resendMsg(msg);
 }
 
-/**
- * 复制消息原文到剪贴板（clipboard API 失败时降级为隐藏文本域 + execCommand）
- * @param {object} msg 消息对象
- */
+/** 复制消息原文到剪贴板（clipboard API 失败时降级为隐藏文本域 + execCommand） */
 function copyMsgContent(msg) {
   const text = (msg.content || '').trim();
   if (!text) return;
@@ -2060,9 +2001,8 @@ function copyMsgContent(msg) {
 }
 
 /**
- * 重发消息：走统一发送入口 sendChatMessage（受发言频率限制约束）
+ * 重发消息：走统一发送入口 sendChatMessage（受发言频率限制约束），
  * socket 未连接时降级为填入输入框
- * @param {object} msg 消息对象
  */
 function resendMsg(msg) {
   const text = (msg.content || '').trim();
@@ -2075,12 +2015,7 @@ function resendMsg(msg) {
   }
 }
 
-/**
- * 将游戏文本中的 "#换行" 标记（原版 #换行符）转换为真实换行符
- * 兜底处理历史消息：早期入库的消息可能仍带着字面 "#换行" 标记
- * @param {string} text - 原始文本
- * @returns {string} 转换后的文本
- */
+/** 把游戏文本里的 "#换行" 标记（原版 #换行符）转成真实换行；存量消息里仍有字面 "#换行" */
 function normalizeLineBreaks(text) {
   if (typeof text !== 'string' || !text.includes('#换行')) return text;
   return text.split('#换行').join('\n');
@@ -2088,19 +2023,11 @@ function normalizeLineBreaks(text) {
 
 /**
  * 解析消息内容，将可点击的指令名转换为可交互片段
- *
- * 匹配规则（按优先级）：
- *   1. 「指令名」—— 中文书名号包裹的精确指令名（最高优先级）
- *   2. 💡 输入/使用/发送 指令名 说明文字 —— 后端提示格式，提取动词后的第一个词作为指令名
- *
- * 关键修复：原正则 /(输入|使用|发送)(\s+)([^\s]+)/g 会错误匹配
- *   "💡 输入 背包 查看你拥有的物品" → 把"查看你拥有的物品"当指令名
- *   原因：正则把"输入"后的第一个词(背包)当成前缀的一部分，取了后面的词。
- *   新逻辑：明确"输入/使用/发送"后的第一个独立词就是指令名，后面的是说明文字。
- *
- * @param {string} content - 原始消息文本
- * @param {Array} cmdList - 已加载的指令列表（用于验证指令名有效性）
- * @returns {Array} 解析后的片段数组，每项 { type: 'text'|'command', text, displayText?, source? }
+ * 匹配优先级：1. 「指令名 参数」中文书名号；2. 「💡 输入/使用/发送 指令名 说明文字」后端提示格式
+ * 模式 2 必须取动词后的第一个独立词作为指令名（取后一个词会把说明文字当成指令名），
+ * 且两种模式都要能在已知指令名/别名里命中，否则按普通文本渲染，避免点到无效内容报错。
+ * @param cmdList 已加载的指令列表，用于校验提取出的指令名是否有效
+ * @returns 片段数组，每项 { type: 'text'|'command'|'mention', text, displayText?, source? }
  */
 function parseContent(content, cmdList) {
   // 先把 "#换行" 标记转为真实换行（配合 white-space: pre-line 正常折行显示）
@@ -2142,7 +2069,6 @@ function parseContent(content, cmdList) {
   if (lastIndex < content.length) {
     const remaining = content.slice(lastIndex);
     // 匹配以 💡 开头的提示行：💡 + 动词 + 指令名 + 可选说明文字
-    // 关键改进：明确动词后的第一个独立词是指令名，后面都是说明
     const hintRegex = /^💡\s*(输入|使用|发送|试试|尝试)\s+([^\s]+)(?:\s+(.*?))?$/gm;
     let hintLastIdx = 0;
     let hintMatch;
@@ -2181,7 +2107,7 @@ function parseContent(content, cmdList) {
     }
   }
 
-  // 如果没有任何匹配，返回原始文本
+  // 无任何匹配时原样返回
   if (segments.length === 0) {
     return [{ type: 'text', text: content }];
   }
@@ -2214,14 +2140,10 @@ function parseContent(content, cmdList) {
 }
 
 /**
- * 快速发送指令（智能模式）
- * - 如果指令不需要参数（argsSchema 为空数组）→ 直接通过 socket 发送
- * - 否则 → 填入输入框，便于补充参数后手动发送
- * @param {string} name - 指令名
+ * 快速发送指令：无参数指令（argsSchema 为空）直接发送，需要参数的填入输入框待补充
  */
 function quickSend(name) {
   if (!name) return;
-  // 查找该指令是否需要参数（通过 argsSchema 判断）
   const cmd = commands.value.find(c => c.name === name);
   // argsSchema 为空数组 "[]" 或不存在时，视为无参数指令，直接发送
   const needParams = cmd && cmd.argsSchema && cmd.argsSchema !== '[]';
@@ -2268,9 +2190,7 @@ function onPaletteSelect(name) {
 }
 
 /**
- * 右键点击提示指令：将指令内容填入输入框（不发送）
- * 便于用户先查看/补充参数，确认后再手动发送
- * @param {string} name - 指令名
+ * 右键点击提示指令：将指令内容填入输入框（不发送），便于先查看/补充参数再手动发送
  */
 function quickFill(name) {
   if (!name) return;
@@ -2284,8 +2204,6 @@ function quickFill(name) {
  * 取适合填入输入框的 @ 名称：优先昵称（对玩家更直观可读），
  * 但 @ 提及按「中英文/数字/下划线」解析，含空格/表情等符号的昵称会被截断，
  * 此时退回用户名，保证一定能 @ 到人
- * @param {object} p { username, nickname }
- * @returns {string}
  */
 function atMentionName(p) {
   if (!p) return '';
@@ -2297,7 +2215,6 @@ function atMentionName(p) {
 /**
  * 右键点击消息中的玩家名：把 "@昵称 " 填入输入框（@提及该玩家）
  * 后端 @ 匹配支持按昵称精确解析，优先填入 "@昵称 " 更直观（昵称不可用时退回用户名）
- * @param {object} sender 消息发送者 { id, username, nickname }
  */
 function quickAtUser(sender) {
   if (!sender) return;
@@ -2307,7 +2224,6 @@ function quickAtUser(sender) {
   closeAtAutocomplete();
   nextTick(() => {
     inputEl.value?.focus();
-    // 光标定位到末尾
     inputEl.value?.setSelectionRange(input.value.length, input.value.length);
   });
 }
@@ -2412,7 +2328,6 @@ function onInputKeyup() {
   }
   if (filteredCommands.value.length && input.value.trim()) {
     showAutocomplete.value = true;
-    // 重置选中索引
     if (autocompleteIndex.value >= filteredCommands.value.length) {
       autocompleteIndex.value = 0;
     }
@@ -2711,10 +2626,7 @@ let suppressHeaderRevealUntil = 0;
 //   ① 只有「用户真实滚动意图」（滚轮/触摸/拖拽滚动条）才解除贴底，布局变化一律不算；
 //   ② 贴底状态由一个低频守护定时器维持：只在外界内容（scrollHeight）变长时才补滚一次，
 //      用户一旦接管立即停手 —— 与微信/QQ「始终停在最新消息」的行为一致。
-// 距底部多少像素内仍视为「贴底」。原 150px 过大：用户刚上滑几十像素就会被判为
-// 「还在底部」而立即贴回 → 表现为"往上滑一点点又弹回最下面"。缩小到 40px 后，
-// 只有真正贴近底部才跟随，上滑查看历史更符合 QQ 的直觉。
-const SCROLL_BOTTOM_THRESHOLD = 40; // 距底部多少像素内仍视为「贴底」
+const SCROLL_BOTTOM_THRESHOLD = 40; // 贴底容差（像素）：过大会让用户刚上滑几十像素就被判定仍在底部并立即贴回
 const USER_SCROLL_INTENT_MS = 300; // 用户滚动意图有效期：窗口内的滚动动作才算「用户在滚」
 let userScrollIntentAt = 0; // 最近一次用户滚动意图时间戳
 let bottomFollowTimer = 0; // 贴底守护定时器句柄（0 = 未运行）
@@ -2765,15 +2677,10 @@ function stopBottomFollow() {
 }
 
 /**
- * 启动低频贴底守护：只要 stickToBottom 为真，每 120ms 采样一次 scrollHeight，
- * 只有当内容真的变长（新消息/图片/卡片迟到布局）时才补滚回底部。
- *
- * 关键改进（修复"往上滑一点点又弹回底部 / 滑不动"）：
- * 旧实现用 rAF 每帧无条件对比「离底距离」，用户即使在 40px 贴底区内小幅上滑，
- * 也会被下一帧强行拽回底部——尤其鼠标拖滚动条不刷新用户意图时间戳，完全滑不动；
- * 且每帧读 scrollHeight 强制 layout，滚动时还掉帧。
- * 新实现不比较「离底距离」而比较「scrollHeight 是否变长」：用户上滑翻历史时
- * scrollHeight 不变，守护永不抢滚动条；只在内容长高时才跟随，与 QQ 行为一致。
+ * 启动低频贴底守护：stickToBottom 为真时每 120ms 采样一次 scrollHeight，
+ * 只有内容真的变长（新消息/图片/卡片迟到布局）才补滚回底部。
+ * 判据必须是「scrollHeight 是否变长」而不是「离底距离」：用户上滑翻历史时 scrollHeight 不变，
+ * 守护就永不抢滚动条（否则每帧无条件对比离底距离会把人一直拽回底部，且读 scrollHeight 强制 layout 掉帧）。
  */
 function startBottomFollow() {
   if (bottomFollowTimer || !stickToBottom) return;
@@ -2804,16 +2711,11 @@ function scrollToBottom() {
   });
 }
 
-// ===== 首次加载/刷新「持续贴底」兜底 =====
-// 初始的 scrollToBottom 只保证 Vue 渲染完那一帧滚到底，但之后字体加载完成、
-// 战斗卡/公告配图渲染、移动端头部收起、--vh 视口计算等仍会让 scrollHeight 继续增长，
-// 滚动位置便停在"中间"。这里做短时间的持续贴底：内容高度再变化就继续滚到底，
-// 直到用户主动滚动接管（stickToBottom=false 即停止，绝不与用户抢滚动条）。
-// 监听消息区容器自身高度变化（键盘弹出/头部收起等），高度一变即重新贴底
+// ===== 首次加载/刷新贴底 =====
+// 字体加载、战斗卡/公告配图渲染、移动端头部收起、--vh 重算都会让 scrollHeight 迟到增长，
+// 单次滚底会停在"中间"；内容高度再变化就继续滚到底，直到用户主动滚动接管（stickToBottom=false）。
 let pinBottomResizeObs = null;
 function pinBottomOnLoad() {
-  // 常驻贴底循环由 scrollToBottom 在渲染完那一帧接管：
-  // 字体/图片/战斗卡/content-visibility 等迟到布局都会被它继续兜住
   scrollToBottom();
   // 字体加载完成后文本行高会变，显式再贴一次底（不支持 fonts API 时静默跳过）
   document.fonts?.ready
@@ -2869,9 +2771,7 @@ function onMsgScroll() {
   }
 }
 
-// ============================================================
-// 手机端顶部操作栏：默认收起，滑动消息列表时滑出
-// ------------------------------------------------------------
+// ===== 手机端顶部操作栏：默认收起，滑动消息列表时滑出 =====
 // 设计取舍：
 // 1) 头部收起会「让出」整块高度给消息区 → 属于布局变化，必须同步补偿 scrollTop，
 //    否则正在阅读的正文会整体跳动（收起时上跳、展开时下跳）。
@@ -2880,7 +2780,6 @@ function onMsgScroll() {
 // 3) 只在贴底（实时消息流）状态下自动收起；用户上滑看历史时保持展开，
 //    否则 2.6s 后头部收回会连带正文跳一下。
 // 4) 仅 ≤768px 生效（CSS 规则在媒体查询内，桌面端类名无任何效果）。
-// ============================================================
 const MOBILE_HEADER_MQ = '(max-width: 768px)';
 const HEADER_AUTO_HIDE_MS = 2600; // 停止滑动后多久自动收回
 const HEADER_INITIAL_PEEK_MS = 2000; // 进入页面先展示一次（让用户知道顶部入口存在），再自动收起
@@ -3078,7 +2977,7 @@ async function resetMyData() {
   }
 }
 
-// 加载玩家信息和地图连接
+// 加载玩家信息（地图总览见 loadMapOverview）
 async function loadPlayerInfo() {
   try {
     const res = await gameApi.playerInfo();
@@ -3149,7 +3048,6 @@ async function onPendingComplete() {
   if (ok) await loadPlayerInfo();
 }
 
-// 加载附近玩家列表（当前区域同一地图内的其他玩家）
 async function loadNearbyPlayers() {
   try {
     const res = await gameApi.nearbyPlayers();
@@ -3173,13 +3071,11 @@ async function loadMentionablePlayers() {
 /**
  * 悬浮世界聊天窗的轻提示回调（抢红包结果 / 红包发出 / 背包读取失败等）
  * 统一转成页面 Toast，保证提示样式与其它功能一致。
- * @param {{type?: string, message?: string}} payload
  */
 function onFloatingNotify(payload) {
   if (payload?.message) showToast(payload.message, payload.type || 'info');
 }
 
-// 加载服务器统计（总人数、在线人数）
 async function loadServerStats() {
   try {
     const res = await gameApi.stats();
@@ -3189,7 +3085,6 @@ async function loadServerStats() {
   }
 }
 
-// 移动端视图高度修复函数
 let setViewportHeight = null;
 
 // ===== 全局 Toast 轻提示 =====
@@ -3200,14 +3095,12 @@ let lastChatSendAt = 0;
 /** 发送间隔（秒），由后端配置下发；缺失时按 0.2 兜底 */
 const chatRateLimitSec = ref(0.2);
 /**
- * 显示一条轻提示（自动消失）
- * @param {string} message 提示内容
- * @param {string} type 类型：info / error / success
+ * 显示一条轻提示（3 秒后自动消失）
+ * @param type info / error / success
  */
 function showToast(message, type = 'info') {
   const id = ++toastId;
   toasts.value.push({ id, message, type });
-  // 3 秒后自动移除
   setTimeout(() => {
     toasts.value = toasts.value.filter((t) => t.id !== id);
   }, 3000);
@@ -3246,7 +3139,6 @@ function pushHighlight(payload) {
  * 尚未埋点的历史路径（以及 AstrBot 等其它渠道回传的内容）。
  * 关键约束：只认归属自己的消息——别人完成任务时公屏也会广播同款文本，
  * 绝不能给别人放动画。
- * @param {object} msg 公屏消息
  */
 function highlightFromMessage(msg) {
   if (!msg || typeof msg.content !== 'string') return;
@@ -3374,8 +3266,8 @@ function formatDeployTime(ts) {
 }
 
 /**
- * 点击附近玩家：把 "@昵称 " 填入输入框（原「私聊」功能已下线，改为快速 @ 提及）
- * @param {object} p 附近玩家对象（含 userId / nickname / username / online）
+ * 点击附近玩家：把 "@昵称 " 填入输入框（快速 @ 提及，后端按昵称精确解析）
+ * @param p 附近玩家对象（含 userId / nickname / username / online）
  */
 function atNearbyPlayer(p) {
   if (!p) return;
@@ -3408,14 +3300,12 @@ function toggleFeedbackPanel() {
   }
 }
 
-/** 关闭反馈面板 */
 function closeFeedbackPanel() {
   feedbackPanelOpen.value = false;
 }
 
 /**
- * 加载"我的反馈工单"列表
- * 同时根据每个工单的 unreadCount 字段汇总头部未读红点
+ * 加载"我的反馈工单"列表，并按各工单 unreadCount 汇总头部未读红点
  */
 async function loadFeedbackTickets() {
   try {
@@ -3432,10 +3322,6 @@ async function loadFeedbackTickets() {
   }
 }
 
-/**
- * 加载单个反馈工单详情
- * @param {number} id 工单ID
- */
 async function loadFeedbackDetail(id) {
   try {
     const res = await feedbackApi.detail(id);
@@ -3457,15 +3343,11 @@ async function openFeedbackTicket(ticket) {
   }
 }
 
-/** 进入新建反馈表单 */
 function startNewFeedback() {
   feedbackView.value = 'create';
 }
 
-/**
- * 新建反馈附件选择：调用上传接口得到可访问 URL 列表
- * @param {Event} e 文件输入 change 事件
- */
+/** 新建反馈附件选择：调用上传接口得到可访问 URL 列表 */
 async function onFbFilesChange(e) {
   const files = Array.from(e.target.files || []);
   e.target.value = '';
@@ -3480,10 +3362,8 @@ async function onFbFilesChange(e) {
 }
 
 /**
- * 通用：处理从剪贴板粘贴的图片，自动上传并加入附件列表
- * 用户在文本框中直接 Ctrl+V 粘贴截图时触发，无需手动选择文件
- * @param {ClipboardEvent} e 粘贴事件
- * @param {import('vue').Ref} urlsRef 目标附件 URL 列表 ref（fbUploadedUrls / replyUploadedUrls）
+ * 处理从剪贴板粘贴的图片：自动上传并加入附件列表（用户直接 Ctrl+V 粘贴截图，无需选文件）
+ * @param urlsRef 目标附件 URL 列表 ref（fbUploadedUrls / replyUploadedUrls）
  */
 async function handlePasteImage(e, urlsRef) {
   if (!e.clipboardData) return;
@@ -3511,9 +3391,6 @@ function isImage(url) {
   return /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test((url || '').split('?')[0]);
 }
 
-/**
- * 提交新建反馈工单
- */
 async function submitFeedback() {
   const title = fbForm.value.title.trim();
   const content = fbForm.value.content.trim();
@@ -3530,7 +3407,6 @@ async function submitFeedback() {
       attachments: fbUploadedUrls.value,
     });
     showToast('反馈已提交，感谢你的反馈！', 'success');
-    // 重置表单并返回列表
     fbForm.value = { title: '', category: 'general', content: '' };
     fbUploadedUrls.value = [];
     feedbackView.value = 'list';
@@ -3543,10 +3419,7 @@ async function submitFeedback() {
   }
 }
 
-/**
- * 回复附件选择：调用上传接口得到可访问 URL 列表
- * @param {Event} e 文件输入 change 事件
- */
+/** 回复附件选择：调用上传接口得到可访问 URL 列表 */
 async function onReplyFilesChange(e) {
   const files = Array.from(e.target.files || []);
   e.target.value = '';
@@ -3560,9 +3433,7 @@ async function onReplyFilesChange(e) {
   }
 }
 
-/**
- * 在当前工单下追加回复
- */
+/** 在当前工单下追加回复 */
 async function replyFeedback() {
   if (!currentFeedback.value) return;
   const content = feedbackReply.value.trim();
@@ -3585,11 +3456,7 @@ async function replyFeedback() {
   }
 }
 
-/**
- * 解析消息中的附件字段（数据库中以 JSON 字符串存储）
- * @param {object} msg 反馈消息对象
- * @returns {string[]} 附件 URL 数组
- */
+/** 解析消息中的附件字段（数据库中以 JSON 字符串存储），返回附件 URL 数组 */
 function fmAttachments(msg) {
   if (!msg || !msg.attachments) return [];
   try {
@@ -3600,11 +3467,7 @@ function fmAttachments(msg) {
   }
 }
 
-/**
- * 取附件 URL 的文件名（供展示）
- * @param {string} url 附件 URL
- * @returns {string} 文件名
- */
+/** 取附件 URL 的文件名（供展示） */
 function fileName(url) {
   const name = String(url || '').split('/').pop() || url;
   try {
@@ -3718,11 +3581,9 @@ function scanHistoryAnnouncements(list) {
 
 // 公告图片放大预览：null = 未打开；{ src, alt } = 当前预览的图片
 const annImagePreview = ref(null);
-/** 打开公告配图放大预览 */
 function openAnnImagePreview(img) {
   annImagePreview.value = { src: img.src, alt: img.alt || '' };
 }
-/** 关闭公告配图放大预览 */
 function closeAnnImagePreview() {
   annImagePreview.value = null;
 }
@@ -3741,7 +3602,7 @@ onMounted(async () => {
   window.addEventListener('resize', onHeaderViewportResize);
 
   // 消息区容器高度变化（键盘弹出、头部收起、--vh 重算）时保持贴底：
-  // 用户没在手动翻历史（stickToBottom=false）才生效，避免与用户抢滚动条
+  // 仅在 stickToBottom 仍为真时补滚，用户已接管就绝不抢滚动条
   if (msgList.value && 'ResizeObserver' in window) {
     pinBottomResizeObs = new ResizeObserver(() => {
       if (stickToBottom && msgList.value) {
@@ -3816,25 +3677,19 @@ onMounted(async () => {
     messages.value = historyGame;
     // 扫描历史中的未读系统公告 → 弹窗补展示（离线期间错过的公告上线后仍会弹出）
     scanHistoryAnnouncements(historyGame);
-    // 加载指令列表（集中到 command store）
     await commandStore.loadCommands();
-    // 加载我的常用指令（置顶展示）
     await loadFavorites();
-    // 加载玩家信息和地图总览
     await Promise.allSettled([
       loadPlayerInfo(),
       loadMapOverview(),
       loadNearbyPlayers(),
-      // 加载可@的玩家列表（供聊天框 @ 下拉选择）
       loadMentionablePlayers(),
       // 反馈列表（含 unreadCount）确保头部红点正确显示
       loadFeedbackTickets(),
     ]);
-    // 加载服务器统计
     loadServerStats();
     // 查询开发登录开关：开启时非管理员账号也显示管理后台入口（仅开发环境生效）
     loadDevLoginStatus();
-    // 每 30 秒刷新一次服务器统计
     statsTimer = setInterval(loadServerStats, 30000);
     // 玩家/地图面板兜底轮询：socket 推送万一丢失（断线瞬间/服务重启）也能在 30 秒内自动校准
     panelTimer = setInterval(() => {
@@ -3843,9 +3698,8 @@ onMounted(async () => {
         loadMapOverview();
       }
     }, 30000);
-    // 每 30 秒刷新一次附近玩家（感知其他玩家进出当前区域/上下线）
+    // 附近玩家/可@列表定期刷新：感知其他玩家进出区域与上下线，@ 列表间隔由配置控制
     nearbyTimer = setInterval(loadNearbyPlayers, 30000);
-    // 定时刷新可@玩家列表（同步在线状态与新增账号），间隔由配置控制
     atPlayersTimer = setInterval(loadMentionablePlayers, MENTION_CONFIG.playersRefreshMs);
 
     // 部署更新检测：首次加载仅同步版本标签(不弹窗)；随后按配置间隔轮询检测新部署
@@ -3986,8 +3840,7 @@ onMounted(async () => {
       showToast(`反馈工单状态更新为「${statusLabel(status)}」`);
     });
 
-    // 进入页面/刷新后持续贴底：字体/图片/布局补偿等会让 scrollHeight 迟到，
-    // 单次 scrollToBottom 会停在"中间"，这里做短时间兜底重滚
+    // 首屏兜底重滚（scrollHeight 迟到增长的原因见 pinBottomOnLoad 定义处）
     pinBottomOnLoad();
   } catch (e) {
     console.error('加载失败', e);
@@ -4011,7 +3864,6 @@ onUnmounted(() => {
   if (updateTimer) clearInterval(updateTimer);
   if (updateCountdownTimer) clearInterval(updateCountdownTimer);
   if (annTimer) clearInterval(annTimer);
-  // 在线玩家悬浮面板的延迟关闭定时器
   if (onlinePanelCloseTimer) {
     clearTimeout(onlinePanelCloseTimer);
     onlinePanelCloseTimer = null;
@@ -4107,7 +3959,7 @@ onUnmounted(() => {
   transform: scale(0.95);
 }
 
-/* ===== 顶部操作坞（原右下角按钮组恢复到顶部居中） ===== */
+/* ===== 顶部操作坞 ===== */
 /* 单行横排；滚动/悬停时显示，几秒后淡出隐藏 */
 .action-dock {
   margin-left: auto;

@@ -65,7 +65,7 @@ function makeBaseService(): any {
   service.familiarSystemService = {
     checkAndUpdateGrowth: jest.fn(() => false),
   };
-  // P3-6a：movement/vehicle 域已迁出，跨簇调用经门面引用——桩自挂门面
+  // movement/vehicle 域在子服务上，跨簇调用经门面引用——桩自挂门面
   return service;
 }
 

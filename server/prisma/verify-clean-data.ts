@@ -1,5 +1,5 @@
 /**
- * 一次性验证脚本：数据文件干净化 + loadRaw 归一化后，关键静态数据路径输出正常。运行后删除。
+ * 一次性验证脚本：校验 loadRaw 归一化后关键静态数据字段的形状。运行后删除。
  */
 import { StaticDataService } from '../src/modules/game/static-data.service';
 import { asJsonValue } from '../src/common/utils/json-value.util';
@@ -29,7 +29,7 @@ const recipe = (svc as any).getAllCraftings().find((c: any) => Array.isArray(c.r
 check('制造配方 requirements 为数组', !!recipe, JSON.stringify(recipe?.requirements)?.slice(0, 80));
 check('asJsonValue 吃对象数组', JSON.stringify(asJsonValue(recipe?.requirements, [])) === JSON.stringify(recipe?.requirements));
 
-// 5. 地图 resources 为对象数组（用户痛点字段）
+// 5. 地图 resources 为对象数组
 const maps = (svc as any).getAllMaps();
 const mapWithRes = maps.find((m: any) => Array.isArray(m.resources) && m.resources.length);
 check('地图 resources 为对象数组', !!mapWithRes, mapWithRes ? `示例: ${mapWithRes.name} -> ${JSON.stringify(mapWithRes.resources[0]).slice(0, 80)}` : '');
@@ -49,7 +49,7 @@ const fam = (svc as any).getAllFamiliars()[0];
 check('使魔 affinityDesc 为数组', Array.isArray(fam?.affinityDesc));
 check('使魔 hairDrop 为数组', Array.isArray(fam?.hairDrop));
 
-// 8. 商店 + 行商（此前已验证，回归确认）
+// 8. 商店 + 行商
 const shop = svc.getShopConfig();
 check('兑换商店三栏', shop.activity.length === 8 && shop.diamond.length === 3 && shop.dataCore.length === 14, `活跃${shop.activity.length}/钻石${shop.diamond.length}/数据${shop.dataCore.length}`);
 const merchant = svc.getMerchantConfig();

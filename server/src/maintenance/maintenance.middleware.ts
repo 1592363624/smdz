@@ -153,13 +153,11 @@ export function maintenanceMiddleware(req: Request, res: Response, next: NextFun
     return;
   }
 
-  // API 请求：返回 503 机器可读维护响应
   if (path === '/api' || path.startsWith('/api/') || path.startsWith('/ws/')) {
     sendMaintenanceJson(res);
     return;
   }
 
-  // 页面/静态资源请求：返回维护页面
   res.status(200);
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.setHeader('Cache-Control', 'no-store');

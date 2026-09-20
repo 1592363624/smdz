@@ -1,8 +1,5 @@
 /**
- * 反馈系统控制器
- * 提供用户端（提交反馈/查看我的反馈/回复）REST 接口以及附件上传接口。
- * 所有接口均生成 OpenAPI 文档。
- *
+ * 反馈系统控制器：用户端提交/查看/回复工单的 REST 接口 + 附件上传。
  * 注意：固定路径（mine / upload）必须声明在参数路由(:id)之前，
  * 否则 /feedback/mine 会被当作 id="mine" 而误入 :id 路由。
  */
@@ -38,8 +35,7 @@ export class FeedbackController {
   constructor(private readonly feedbackService: FeedbackService) {}
 
   /**
-   * 附件上传接口（通用：反馈工单/回复消息均可复用）
-   * 通过 multipart/form-data 上传，字段名统一为 files，单次最多 maxAttachments 个文件。
+   * multipart/form-data 上传，字段名统一为 files，单次最多 maxAttachments 个文件；
    * 返回可访问的相对 URL 列表，前端拿到后再随工单/消息提交。
    */
   @Post('upload')
@@ -52,7 +48,6 @@ export class FeedbackController {
     FilesInterceptor('files', GlobalConfig.getInstance().maxAttachments, {
       storage: diskStorage({
         destination: (_req, _file, cb) => {
-          // 上传目录：{uploadDir}/feedback，不存在则创建
           const dir = join(process.cwd(), GlobalConfig.getInstance().uploadDir, 'feedback');
           if (!existsSync(dir)) {
             mkdirSync(dir, { recursive: true });
@@ -60,13 +55,12 @@ export class FeedbackController {
           cb(null, dir);
         },
         filename: (_req, file, cb) => {
-          // 文件名：时间戳 + 随机串 + 扩展名；无扩展名时按 MIME 兜底
           cb(null, buildUploadFilename(file.originalname, file.mimetype));
         },
       }),
       limits: {
-        fileSize: GlobalConfig.getInstance().uploadMaxSize, // 单个文件大小上限（可配置）
-        files: GlobalConfig.getInstance().maxAttachments, // 单次最多文件数（可配置）
+        fileSize: GlobalConfig.getInstance().uploadMaxSize,
+        files: GlobalConfig.getInstance().maxAttachments,
       },
     }),
   )
@@ -80,9 +74,6 @@ export class FeedbackController {
     return { success: true, data: urls };
   }
 
-  /**
-   * 用户提交一个新的反馈工单
-   */
   @Post()
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
@@ -92,9 +83,6 @@ export class FeedbackController {
     return { success: true, data };
   }
 
-  /**
-   * 用户获取我的反馈工单列表
-   */
   @Get('mine')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()

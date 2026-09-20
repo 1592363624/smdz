@@ -58,23 +58,16 @@ class SmdzBridgePlugin(Star):
     _WS_NAMESPACE = "/ws"
 
     def __init__(self, context: Context, config: AstrBotConfig):
-        """插件初始化：读取配置项，准备桥接所需参数。
-
-        Args:
-            context: AstrBot 插件上下文。
-            config: 插件配置对象（来自 _conf_schema.json）。
-        """
         super().__init__(context)
         self.config = config
 
-        # 读取配置：服务地址、访问令牌、超时、触发指令名、是否全量转发
         self.server_url = config.get("server_url", "http://localhost:3333").rstrip("/")
         self.bot_access_token = config.get("bot_access_token", "")
         self.timeout = config.get("timeout", 30)
         self.command_name = config.get("command_name", "smdz")
         self.forward_all = config.get("forward_all", False)
 
-        # 权限控制配置：总开关、是否允许私聊、允许的群ID、允许的用户QQ号
+        # 权限控制：总开关、是否允许私聊、允许的群ID、允许的用户QQ号
         self.enabled = config.get("enabled", True)
         self.enable_private = config.get("enable_private", False)
         # 统一转为字符串列表，便于与 event 返回的 ID 字符串比较
@@ -120,49 +113,55 @@ class SmdzBridgePlugin(Star):
     # ------------------------------------------------------------------
     # 私有工具方法
     # ------------------------------------------------------------------
-    async def _forward_to_game(self, qq_id: str, game_command: str) -> tuple[str, bool, str]:
-        """调用游戏后端统一接口执行指令，返回结果。
-
-        Args:
-            qq_id: 发送者 QQ 号（作为 botIdentity 传给后端，用于玩家绑定）。
-            game_command: 要执行的游戏指令文本。
+    async def _post_json(self, path: str, payload: dict, label: str) -> tuple[dict | None, str, str]:
+        """POST 后端 JSON 接口，统一处理 HTTP 与网络层错误（错误日志已在此打出）。
 
         Returns:
-            (结果文本, 是否私密消息, 私密占位文本) 三元组：
-            - 结果文本：游戏返回的可读文本；出错时为错误提示。
-            - 是否私密：后端 visibility='private' 时为 True（如探测雷达），
-              表示该结果只应对发起者可见。
-            - 私密占位文本：后端下发的、对其他玩家展示的替代文本（可能为空）。
+            (data, "", "") 请求成功；(None, 错误类型, HTTP 状态) 失败，
+            错误类型为 http / connect / timeout，面向玩家的文案由调用方决定。
         """
-        url = f"{self.server_url}/api/bot/command"
+        url = f"{self.server_url}{path}"
         headers = {
             "x-bot-token": self.bot_access_token,
             "Content-Type": "application/json",
         }
-        payload = {"botIdentity": qq_id, "message": game_command}
-
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.post(
                     url, json=payload, headers=headers, timeout=self.timeout
                 ) as resp:
-                    # 后端返回非 2xx（如 401 令牌错误、500 服务异常），说明请求失败
                     if resp.status < 200 or resp.status >= 300:
                         body = await resp.text()
-                        logger.error(
-                            f"[使魔大战3桥接] 游戏服务返回状态 {resp.status}: {body}"
-                        )
-                        return f"游戏服务异常（HTTP {resp.status}），请检查令牌或服务地址。", False, ""
-
-                    data = await resp.json()
+                        logger.error(f"[使魔大战3桥接] {label}返回状态 {resp.status}: {body}")
+                        return None, "http", str(resp.status)
+                    return await resp.json(), "", ""
         except aiohttp.ClientConnectorError as exc:
             logger.error(f"[使魔大战3桥接] 无法连接游戏服务: {exc}")
-            return "无法连接游戏服务，请确认后端已启动且服务地址配置正确。", False, ""
+            return None, "connect", ""
         except asyncio.TimeoutError:
             logger.error("[使魔大战3桥接] 请求游戏服务超时")
+            return None, "timeout", ""
+
+    async def _forward_to_game(self, qq_id: str, game_command: str) -> tuple[str, bool, str]:
+        """调用游戏后端统一接口执行指令。
+
+        Returns:
+            (结果文本, 是否私密, 私密占位文本)。是否私密为 True 时结果只应对发起者可见
+            （后端 visibility='private'，如探测雷达）；占位文本由后端下发，可能为空。
+        """
+        data, err, status = await self._post_json(
+            "/api/bot/command",
+            {"botIdentity": qq_id, "message": game_command},
+            "游戏服务",
+        )
+        if err == "http":
+            return f"游戏服务异常（HTTP {status}），请检查令牌或服务地址。", False, ""
+        if err == "connect":
+            return "无法连接游戏服务，请确认后端已启动且服务地址配置正确。", False, ""
+        if err == "timeout":
             return "游戏服务响应超时，请稍后再试。", False, ""
 
-        # 解析统一返回结构 { success, data: { content, broadcast, visibility, placeholder, ... } }
+        # 统一返回结构 { success, data: { content, broadcast, visibility, placeholder, ... } }
         if data.get("success"):
             result = data.get("data") or {}
             content = result.get("content")
@@ -187,11 +186,7 @@ class SmdzBridgePlugin(Star):
         - 群聊：真实内容私聊发送给发起者，群内只留占位提示，
           避免同群其他玩家白嫖他人的探测雷达等级结果。
 
-        Args:
-            event: 触发指令的消息事件。
-            content: 后端返回的真实结果文本。
-            is_private: 是否为私密结果。
-            placeholder: 后端下发的占位文本（可能为空，为空时用内置兜底）。
+        placeholder 为空时用 _PRIVATE_PLACEHOLDER_FALLBACK 兜底。
         """
         if not is_private:
             return content
@@ -207,33 +202,31 @@ class SmdzBridgePlugin(Star):
         # 私聊失败（未加好友/平台不支持主动私聊）：群内只给占位与引导，绝不外泄真实内容
         return f"{notice}\n（结果私聊发送失败，请先添加机器人为好友或私聊机器人后重试）"
 
-    async def _send_private(self, qq_id: str, content: str, event: AstrMessageEvent) -> bool:
-        """把内容私聊发送给指定 QQ，成功返回 True。
-
-        私聊 umo 格式为 `{platform_name}:FriendMessage:{qq_id}`：
-        platform_name 优先取事件平台名，取不到时从 unified_msg_origin 首段回退。
-
-        Args:
-            qq_id: 目标 QQ 号。
-            content: 要私聊发送的内容。
-            event: 当前消息事件（用于解析平台名）。
-        """
+    async def _send_text(self, umo: str, content: str) -> bool:
+        """向指定会话来源发送纯文本，失败返回 False（异常已记日志）。"""
         try:
-            platform = ""
-            with contextlib.suppress(Exception):
-                platform = event.get_platform_name() or ""
-            if not platform:
-                platform = (event.unified_msg_origin or "").split(":")[0]
-            if not platform or not qq_id:
-                return False
-            umo = f"{platform}:FriendMessage:{qq_id}"
             import astrbot.api.message_components as Comp
 
             await self.context.send_message(umo, MessageChain(chain=[Comp.Plain(content)]))
             return True
         except Exception as exc:
-            logger.warning(f"[使魔大战3桥接] 私密消息私聊发送失败(QQ={qq_id}): {exc}")
+            logger.warning(f"[使魔大战3桥接] 消息发送失败({umo}): {exc}")
             return False
+
+    async def _send_private(self, qq_id: str, content: str, event: AstrMessageEvent) -> bool:
+        """把内容私聊发送给指定 QQ，成功返回 True。
+
+        私聊 umo 格式为 `{platform_name}:FriendMessage:{qq_id}`：
+        platform_name 优先取事件平台名，取不到时从 unified_msg_origin 首段回退。
+        """
+        platform = ""
+        with contextlib.suppress(Exception):
+            platform = event.get_platform_name() or ""
+        if not platform:
+            platform = (event.unified_msg_origin or "").split(":")[0]
+        if not platform or not qq_id:
+            return False
+        return await self._send_text(f"{platform}:FriendMessage:{qq_id}", content)
 
     def _extract_bind_openid(self, text: str) -> str:
         """检测是否为 QQ 绑定指令，并提取 OpenID。
@@ -243,55 +236,29 @@ class SmdzBridgePlugin(Star):
         - smdz绑定QQ <openid>
         - 绑定QQ <openid>
 
-        Args:
-            text: 用户发送的原始消息。
-
-        Returns:
-            提取到的 openid；若不是绑定指令或格式错误则返回空字符串。
+        不是绑定指令或格式错误时返回空字符串。
         """
         text = text.strip()
         prefixes = ("使魔大战绑定QQ", "smdz绑定QQ", "绑定QQ")
         for prefix in prefixes:
-            # 支持有无空格分隔
+            # 口令与 openid 之间可有无空格
             if text.startswith(prefix):
                 rest = text[len(prefix):].strip()
                 return rest
         return ""
 
     async def _bind_qq(self, qq_id: str, openid: str) -> str:
-        """调用游戏后端绑定接口，将发送者 QQ 号与网页账号（openid）绑定。
-
-        Args:
-            qq_id: 消息来源 QQ 号（ AstrBot 从事件中自动获取）。
-            openid: 用户在网页端复制的 OpenID。
-
-        Returns:
-            绑定结果提示文本。
-        """
-        url = f"{self.server_url}/api/bot/bind-qq"
-        headers = {
-            "x-bot-token": self.bot_access_token,
-            "Content-Type": "application/json",
-        }
-        payload = {"externalId": openid, "qqNumber": qq_id}
-
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    url, json=payload, headers=headers, timeout=self.timeout
-                ) as resp:
-                    if resp.status < 200 or resp.status >= 300:
-                        body = await resp.text()
-                        logger.error(
-                            f"[使魔大战3桥接] 绑定QQ返回状态 {resp.status}: {body}"
-                        )
-                        return f"绑定失败（HTTP {resp.status}），请稍后再试。"
-                    data = await resp.json()
-        except aiohttp.ClientConnectorError as exc:
-            logger.error(f"[使魔大战3桥接] 无法连接游戏服务: {exc}")
+        """调用后端绑定接口，把消息来源 QQ 号与网页账号（openid）绑定，返回提示文本。"""
+        data, err, status = await self._post_json(
+            "/api/bot/bind-qq",
+            {"externalId": openid, "qqNumber": qq_id},
+            "绑定QQ",
+        )
+        if err == "http":
+            return f"绑定失败（HTTP {status}），请稍后再试。"
+        if err == "connect":
             return "无法连接游戏服务，请确认后端已启动且服务地址配置正确。"
-        except asyncio.TimeoutError:
-            logger.error("[使魔大战3桥接] 请求游戏服务超时")
+        if err == "timeout":
             return "游戏服务响应超时，请稍后再试。"
 
         if data.get("success"):
@@ -325,11 +292,7 @@ class SmdzBridgePlugin(Star):
         return text
 
     def _resolve_trigger(self, text: str, immersive: bool) -> tuple[str, str]:
-        """按触发配置判定消息的处理方式。
-
-        Args:
-            text: 用户发送的原始消息（已 strip，非空）。
-            immersive: 发送者在本会话是否处于沉浸模式（免前缀直接转发）。
+        """按触发配置判定消息怎么处理；immersive 为发送者在本会话是否处于沉浸模式（免前缀直转）。
 
         Returns:
             (动作, 游戏指令) 二元组：
@@ -362,9 +325,6 @@ class SmdzBridgePlugin(Star):
 
         口令设计为免前缀生效：去掉开头的常见指令符号后整句精确比较，
         聊天中包含口令字样的其它句子不会被误判为开关。
-
-        Args:
-            text: 用户发送的原始消息（已 strip，非空）。
 
         Returns:
             "on" / "off"；不是口令时返回空字符串。
@@ -418,15 +378,7 @@ class SmdzBridgePlugin(Star):
         return event.get_sender_id() in users.get(event.unified_msg_origin, ())
 
     async def _apply_immersive_toggle(self, event: AstrMessageEvent, toggle: str) -> str:
-        """处理沉浸模式开关口令：更新状态（含持久化）并返回提示文本。
-
-        Args:
-            event: 触发口令的消息事件。
-            toggle: "on" 或 "off"。
-
-        Returns:
-            回复给用户的提示文本。
-        """
+        """处理沉浸模式开关口令（toggle 为 "on"/"off"）：更新状态含持久化，返回提示文本。"""
         umo = event.unified_msg_origin
         qq_id = event.get_sender_id()
         users = await self._load_immersive_users()
@@ -535,13 +487,12 @@ class SmdzBridgePlugin(Star):
             if not umo:
                 # 该 QQ 从未在本机器人会话里发过指令：无回推目标，静默丢弃
                 return
-            import astrbot.api.message_components as Comp
-            await self.context.send_message(umo, MessageChain(chain=[Comp.Plain(content)]))
+            await self._send_text(umo, content)
         except Exception as exc:
             logger.error(f"[使魔大战3桥接] 延时完成推送回推 QQ 失败: {exc}")
 
     # ------------------------------------------------------------------
-    # 私有工具方法
+    # 发送者身份与权限校验
     # ------------------------------------------------------------------
     def _is_bot_self(self, event: AstrMessageEvent) -> bool:
         """判断消息是否由机器人自身发出，避免转发时造成死循环。"""
@@ -557,12 +508,6 @@ class SmdzBridgePlugin(Star):
         - 群消息：若配置了 allowed_groups，群ID必须在其中；
         - 私聊消息：必须开启 enable_private；
         - 用户：若配置了 allowed_users，发送者QQ号必须在其中。
-
-        Args:
-            event: AstrBot 消息事件。
-
-        Returns:
-            是否允许使用。
         """
         group_id = event.get_group_id()
         if group_id:
@@ -587,28 +532,17 @@ class SmdzBridgePlugin(Star):
     # 避免后续插件（签到、游戏引导等）对同一条游戏指令重复响应。
     @filter.event_message_type(filter.EventMessageType.ALL, priority=1)
     async def on_all_message(self, event: AstrMessageEvent):
-        """统一消息入口，按配置动态决定是否转发到游戏。
+        """统一消息入口：判定触发方式 → 转发后端 → 按可见性回复。
 
-        触发规则（按优先级）：
-        - 沉浸模式口令：消息精确为「使魔大战开/使魔大战关」时免前缀生效，
-          开启/关闭发送者在本会话的沉浸模式；
-        - 沉浸模式生效中：开启者本人发送的所有消息免前缀直接转发；
-        - forward_all 开启：收到的所有消息都尝试转发，不限制前缀；
-        - command_name 留空：同样转发所有消息（无前缀直接触发，等效 forward_all）；
-        - command_name 非空：仅当消息以该前缀（或内置别名 smdz/使魔/游戏）
-          开头时才转发，并剥离前缀后作为游戏指令；
-        - 机器人自身消息、未授权群/用户的消息一律跳过，避免死循环与越权。
-
-        只要本插件认领了某条消息（转发成功或给出用法提示），都会调用
-        event.stop_event() 阻断该消息继续广播，防止其它插件重复响应。
+        认领某条消息（转发成功或给出用法提示）后一律 stop_event() 阻断广播，
+        避免其它插件对同一条游戏指令重复响应。触发方式的完整规则见模块 docstring，
+        实际判定在 _resolve_trigger。
         """
-        # 总开关
         if not self.enabled:
             return
-        # 跳过机器人自身消息，避免转发造成死循环
         if self._is_bot_self(event):
             return
-        # 权限校验：未授权的群/用户静默跳过，不打扰
+        # 未授权的群/用户静默跳过，不打扰
         if not self._check_permission(event):
             return
 
@@ -683,14 +617,12 @@ class SmdzBridgePlugin(Star):
                 content, is_private, placeholder = await self._forward_to_game(qq_id, line)
                 reply = await self._build_result_reply(event, content, is_private, placeholder)
                 yield event.plain_result(reply)
-            # 阻断消息继续广播，防止其它插件对同一条指令再次响应
             event.stop_event()
             return
 
         content, is_private, placeholder = await self._forward_to_game(qq_id, game_command)
         reply = await self._build_result_reply(event, content, is_private, placeholder)
         yield event.plain_result(reply)
-        # 阻断消息继续广播，防止其它插件对同一条指令再次响应
         event.stop_event()
 
     async def terminate(self):

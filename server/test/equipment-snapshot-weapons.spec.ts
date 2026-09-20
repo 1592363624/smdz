@@ -1,8 +1,8 @@
 /**
- * 网页左栏装备栏快照结构门禁（2026-09-09 用户约定）
+ * 网页左栏装备栏快照结构门禁（用户约定）
  *
  * 约定：装备栏**固定 15 格**（12 部位 + 武器 + 植入 + 增幅），背上备用武器**不展开为独立格**
- * （初版曾把背上武器展开成 背上1..N 格把列表撑爆，用户明确要求回到 15 格）；
+ * （展开成 背上1..N 独立格会把列表撑爆）；
  * 全部武器详情挂在「武器」格 weapons 子字段，前端单击「武器」格才展开列表。
  * 每件武器带已装备序号 no（与「信息」文本面板/unequipItem 编号分支三处同源）。
  */
@@ -23,7 +23,7 @@ function makeService(player: any) {
     getAchievementProficiency: () => 0,
     setJudgment: () => {},
   };
-  // 逐件属性走「强化后」单一实现（2026-09-10）：本套用例只关心格子结构，属性文本置空桩
+  // 逐件属性走「强化后」单一实现：本套用例只关心格子结构，属性文本置空桩
   service.itemSystemService = { formatReinforcedEquipAttrs: () => ({ text: '', coefficient: 0 }) };
   const itemService = Object.create(ItemService.prototype) as any;
   itemService.logger = { warn: () => {}, log: () => {}, error: () => {} };
@@ -55,7 +55,7 @@ describe('buildEquipmentSnapshot 15 格约定 + 武器格 weapons 子字段', ()
     // 武器格 = 手持那把（第 2 把，data 'c'），带 weapons 子数组
     const weaponCell = snap.find((e) => e.slot === '武器')!;
     expect(weaponCell.name).toBe('纵横');
-    // 品质下发**品质码字母**（2026-09-10 口径统一，与背包显示名「纵横C」同源）：'c' → C
+    // 品质下发**品质码字母**（与背包显示名「纵横C」同源）：'c' → C
     expect(weaponCell.quality).toBe('C');
     expect(Array.isArray(weaponCell.weapons)).toBe(true);
 

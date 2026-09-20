@@ -1,8 +1,7 @@
 /**
- * 数据库种子脚本
- * 初始化默认频道、基础指令表、系统配置、默认管理员账号。
- * 固定游戏数据（地图/怪物/物品/装备/使魔/配方/任务等）已 JSON 化，
- * 由 seed-data.ts（动态数据）与 StaticDataService（固定配置）负责。
+ * 数据库种子脚本：初始化默认世界频道、基础指令表、系统配置初始项。
+ * 指令表以本文件为权威数据源；游戏数据不在此处：动态数据由 seed-data.ts 从
+ * prisma/data/*.json 导入，固定配置由 StaticDataService 直接读 JSON、不入库。
  * 运行：npm run prisma:seed
  */
 
@@ -77,9 +76,9 @@ async function main() {
     { name: '选择使魔', alias: 'select,familiar,更换使魔', description: '选择或更换使魔', handlerKey: 'game', minRole: 'USER', sortOrder: 40 },
     { name: '召唤使魔', alias: 'summon', description: '召唤使魔到当前地图', handlerKey: 'game', minRole: 'USER', sortOrder: 41 },
     { name: '命名使魔', alias: 'name-familiar', description: '为你的使魔命名', handlerKey: 'game', minRole: 'USER', sortOrder: 42 },
-    // NOTE: 「查看使魔」/「查看使魔详细」必须作为独立指令注册，不能作为「使魔数据」别名，
-    // 否则指令分发会把它们归一化为「使魔数据」，永远进不了 game-command.handler 的查看使魔分支
-    // （从而丢失「1、更多」子菜单）；「使魔更多」同理，是查看使魔→更多的专用令牌，避免与全局「更多」帮助冲突。
+    // NOTE: 「查看使魔」/「查看使魔详细」必须独立注册，不能作为「使魔数据」别名，
+    // 否则会被归一化成「使魔数据」、进不了 game-command.handler 的查看使魔分支（丢失「1、更多」子菜单）。
+    // 「使魔更多」同理：查看使魔→更多的专用令牌，避免与全局「更多」帮助冲突。
     { name: '使魔数据', alias: 'familiar-data', description: '查看使魔基础数据（更多子菜单第1项）', handlerKey: 'game', minRole: 'USER', sortOrder: 43 },
     { name: '查看使魔', alias: 'view-familiar', description: '查看使魔（含「更多」操作子菜单）', handlerKey: 'game', minRole: 'USER', sortOrder: 432 },
     { name: '查看使魔详细', alias: 'familiar-detail', description: '查看使魔详细属性', handlerKey: 'game', minRole: 'USER', sortOrder: 433 },
@@ -118,7 +117,7 @@ async function main() {
     { name: '救助', alias: 'rescue', description: '救助倒地使魔或维修载具', handlerKey: 'game', minRole: 'USER', sortOrder: 111 },
     { name: '赠予', alias: 'give,gift', description: '赠予物品给其他玩家', handlerKey: 'game', minRole: 'USER', sortOrder: 112 },
     { name: '设置跟随', alias: 'follow', description: '设置跟随目标', handlerKey: 'game', minRole: 'USER', sortOrder: 113 },
-    // 反馈（统一 game 处理器）：私聊功能已下线，原「私聊」指令随之下线
+    // 反馈（统一 game 处理器）
     { name: '反馈', alias: 'feedback', description: '提交游戏反馈建议，格式：反馈 内容', handlerKey: 'game', minRole: 'USER', sortOrder: 115 },
     // 状态系统（统一 game 处理器）
     { name: '躺下', alias: 'lie-down', description: '躺下休息', handlerKey: 'game', minRole: 'USER', sortOrder: 120 },
@@ -221,7 +220,7 @@ async function main() {
     { name: '对话咏星跟随', alias: 'dialogue-yongxing', description: '与咏星对话并使其跟随(需100好感)', handlerKey: 'game', minRole: 'USER', sortOrder: 240 },
     { name: '对话小恶魔跟随', alias: 'dialogue-little-demon', description: '与小恶魔对话并使其跟随', handlerKey: 'game', minRole: 'USER', sortOrder: 240 },
     { name: '设置肉食比例', alias: 'set-meat-ratio', description: '设置家园肉食植物享用生肉产出比例', handlerKey: 'game', minRole: 'USER', sortOrder: 240 },
-    // 原版无「召唤货舱」直发指令：货舱唯一入口是发射信号枪（召h货1藏为其 6 秒延时结算）。
+    // 原版无「召唤货舱」直发指令：货舱唯一入口是发射信号枪（6 秒延时结算）
     { name: '发射信号枪', alias: 'signal-gun', description: '发射信号枪召唤货舱', handlerKey: 'game', minRole: 'USER', sortOrder: 242 },
     { name: '副本清空', alias: 'clear-dungeon', description: '清空副本', handlerKey: 'game', minRole: 'USER', sortOrder: 243 },
     // 宠物系统扩展（统一 game 处理器）
@@ -329,7 +328,6 @@ async function main() {
     // 确认还原
     { name: '确认还原植入体等级', alias: 'confirm-reset-implant', description: '确认还原植入体等级', handlerKey: 'game', minRole: 'USER', sortOrder: 342 },
     { name: '确认还原增幅器等级', alias: 'confirm-reset-amplifier', description: '确认还原增幅器等级', handlerKey: 'game', minRole: 'USER', sortOrder: 343 },
-    // 被挤出排序的旧指令（从原 286-291 移至此处）
     { name: '求助', alias: 'help-me', description: '获取帮助', handlerKey: 'game', minRole: 'USER', sortOrder: 344 },
     { name: '配方', alias: 'recipe', description: '查看制造配方', handlerKey: 'game', minRole: 'USER', sortOrder: 345 },
     { name: '逆向', alias: 'reverse', description: '逆向操作', handlerKey: 'game', minRole: 'USER', sortOrder: 346 },
@@ -453,7 +451,7 @@ async function main() {
     { key: 'update.promptCooldown', value: '300', label: '重复提醒冷却(秒)', description: '玩家点击「稍后」后，多少秒内不再重复弹窗打扰', type: 'number', group: 'update' },
     { key: 'web.handbookTooltipDelayMs', value: '1000', label: '背包图鉴悬浮延迟(毫秒)', description: '网页背包格子悬浮多少毫秒后弹出图鉴弹层，0=立即弹出', type: 'number', group: 'web' },
     { key: 'chat.messageIntervalSec', value: '0.2', label: '用户消息发送间隔(秒)', description: '同一用户两条消息之间的最小间隔，防止刷屏；0=不限制', type: 'number', group: 'command' },
-    // ===== 签到奖励（默认规则 = 改造前硬编码逻辑，后台可直接改） =====
+    // ===== 签到奖励（后台可直接改） =====
     { key: CHECKIN_BASE_EXP_KEY, value: String(DEFAULT_CHECKIN_BASE_EXP), label: '签到基础经验', description: '每次签到固定获得的经验；连续加成另算（总经验 = 基础经验 + 连续天数加成）', type: 'number', group: 'game' },
     { key: CHECKIN_CONSECUTIVE_EXP_PER_DAY_KEY, value: String(DEFAULT_CHECKIN_CONSECUTIVE_EXP_PER_DAY), label: '签到每连续1天额外经验', description: '连续签到每多 1 天额外增加的经验；设为 0 则取消连续加成', type: 'number', group: 'game' },
     { key: CHECKIN_CONSECUTIVE_EXP_MAX_DAYS_KEY, value: String(DEFAULT_CHECKIN_CONSECUTIVE_EXP_MAX_DAYS), label: '签到连续加成封顶天数', description: '连续签到经验加成的天数上限（超过该天数不再累加）；0 = 不封顶', type: 'number', group: 'game' },
@@ -476,14 +474,9 @@ async function main() {
   }
   console.log(`✅ 系统配置: ${systemConfigs.length} 项`);
 
-  // 4-10. 固定游戏数据（地图/物品/装备/使魔/怪物/增益/配方）已迁移为 JSON 存储，
-  //       由 seed-data.ts + StaticDataService 处理，此处不再内联示例占位数据。
-  //       地图/载具动态数据由 seed-data.ts 从 prisma/data/*.json 导入。
-
-  // 11. 同步删除：以代码为准，删除 seed 中已不存在的记录(处理"删除/重命名"场景)
-  // 仅对 seed.ts 自身为权威数据源的表(指令/系统配置)做同步删除。
-  // 地图/载具等动态数据由 seed-data.ts 从 JSON 导入，不在本脚本做同步删除，
-  // 以免误删 JSON 已更新但 DB 尚未同步的记录。
+  // 4. 同步删除：以代码为准，删除 seed 中已不存在的记录(处理"删除/重命名"场景)。
+  //    只对指令表做（本文件是指令表的唯一真相源）；地图/载具等动态数据由
+  //    seed-data.ts 从 JSON 导入，不在此同步删除，以免误删 JSON 已更新但 DB 尚未同步的记录。
   const syncDeleted = async (label: string, seedNames: string[], findMany: any, deleteMany: any) => {
     const seedSet = new Set(seedNames);
     const existing = await findMany({ select: { name: true } });
@@ -495,16 +488,13 @@ async function main() {
       console.log(`🗑️ ${label}: 已删除 ${toDelete.length} 条(代码中已移除): ${toDelete.join(', ')}`);
     }
   };
-  // 仅同步 seed.ts 权威的指令表（指令表以本文件为唯一真相源，update+delete 均同步）
   await syncDeleted('指令', commands.map((c) => c.name), (q: any) => prisma.command.findMany(q), (q: any) => prisma.command.deleteMany(q));
 
-  // ⚠️ 系统配置**不做**同步删除（只 upsert 初始项）。
-  // 原因：SystemConfig 的权威来源是「SystemConfigService.DEFAULT_CONFIGS 默认项 + 管理员在线修改」，
-  // 而本文件的 systemConfigs 只是其中一小部分初始项；若按 seedKeys 反删，
-  // 会把启动期 ensureDefaultConfigs() 自动补入的配置项（chat.privateMessages、chat.redPacket、
-  // game.instanceNames / game.instanceNames2 / game.dungeonEntryLifetimeHours 等）
-  // 当成「代码中已移除」误删，连同管理员的自定义值一起丢失（2026-09-15 实际发生过）。
-  // 如需清理废弃配置项，请先把它从 DEFAULT_CONFIGS 移除，再在管理后台手动删除。
+  // ⚠️ 系统配置**不做**同步删除（只 upsert 初始项）：SystemConfig 的权威来源是
+  // 「SystemConfigService.DEFAULT_CONFIGS 默认项 + 管理员在线修改」，本文件的 systemConfigs
+  // 只是其中一小部分初始项；按 seed 名单反删会把启动期 ensureDefaultConfigs() 补入的项
+  // （chat.privateMessages、game.instanceNames 等）连同管理员自定义值一起误删。
+  // 如需清理废弃配置项：先从 DEFAULT_CONFIGS 移除，再在管理后台手动删除。
 
   console.log('🎉 种子数据写入完成');
 }

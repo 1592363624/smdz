@@ -1,13 +1,9 @@
 /**
- * 清理历史定时器BUG生成的"空壳无主载具"
- *
- * 背景：旧版 schedule.service.spawnRandomVehicle 用错误的默认名单
- * （流浪者/勘探者/游骑兵/探险家/开拓者）生成无主载具，且 parts 恒为空、
- * 血量固定 100 —— 不是 wrecks.json 里的真废弃载具，属于无效脏数据。
+ * 清理"空壳无主载具"（幂等：命中条目删除后重复执行无副作用）
  *
  * 清理判据（三条同时满足才删除，避免误伤玩家载具）：
  *   1. owner === '无主'（玩家自己的载具 owner 是 userId，不受影响）
- *   2. 名称属于旧版错误名单 FAKE_NAMES
+ *   2. 名称属于错误默认名单 FAKE_NAMES（非 wrecks.json 里的真废弃载具）
  *   3. parts 为空数组（真废弃载具带有完整零件清单）
  *
  * 用法：node scripts/cleanup-fake-wrecks.js
@@ -16,7 +12,7 @@ const { PrismaClient } = require('@prisma/client');
 
 const prisma = new PrismaClient();
 
-/** 旧版 schedule.service.ts DEFAULT_VEHICLES 错误名单 */
+/** 空壳无主载具的名字集合 */
 const FAKE_NAMES = ['流浪者', '勘探者', '游骑兵', '探险家', '开拓者'];
 
 async function main() {
@@ -45,7 +41,6 @@ async function main() {
     }
     if (!Array.isArray(vehicles)) continue;
 
-    // 只删"无主 + 错误名单名 + 零件为空"的空壳，真废弃载具与玩家载具一律保留
     const kept = vehicles.filter((v) => {
       const isFake =
         String(v?.owner ?? '') === '无主' &&

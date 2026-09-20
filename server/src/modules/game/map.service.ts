@@ -7,9 +7,9 @@
  * - 静态字段（name, description, connections, npcs, monsters, items, buildings, vehicles,
  *   requireMarkers, mapBuffs 等）从 StaticDataService 读取 maps.json，无需 seed。
  * - 动态字段（summons, resources, resources2, markers, markers2）仍在数据库 GameMap 表中，用于存储运行时状态。
- * - 怪物运行时实例已独立为 GameMonster 表（对应原版「玩家」结构体，1:1 对齐 @Struct.ecode L287-341），
- *   不再存于 GameMap.spawnMonsters/tempMonsters（已删除）。常驻怪物由 refreshMapMonsters
- *   按 maps.json 的 monsters 模板生成；临时怪物（嗅探/事件/召唤）由 addTempMonster 写入 isTemp=true。
+ * - 怪物运行时实例存独立表 GameMonster（对应原版「玩家」结构体，1:1 对齐 @Struct.ecode L287-341），
+ *   不在 GameMap 上。常驻怪物由 refreshMapMonsters 按 maps.json 的 monsters 模板生成；
+ *   临时怪物（嗅探/事件/召唤）由 addTempMonster 写入 isTemp=true。
  * - getMapById / getMapByName 会自动合并静态定义 + 动态状态后返回。
  */
 
@@ -43,12 +43,9 @@ const MONSTER_INSTANCE_CAP = 20;
 /** 家园删除/清退时的统一落点（不落到医疗室） */
 export const HOME_EVACUATION_MAP_NAME = '城镇广场';
 
-/**
- * 可前往地图的连接信息
- */
+/** 可前往地图的连接信息 */
 export interface MapConnection {
   mapId: number;
-  /** 地图名 */
   name: string;
   /** 距离（用于计算移动时间） */
   distance?: number;
@@ -88,7 +85,6 @@ export interface MapMonster {
   qq: string;
   /** 唯一标识字符串（兼容旧调用方按字符串比较 id，存为"monster_"+id） */
   uid?: string;
-  /** 特殊序号 specialSeq */
   specialSeq: number;
   /** 归属（宠物主人 QQ） */
   ownerQQ?: string;
@@ -164,9 +160,7 @@ export interface MapMonster {
   rewardClaimed?: boolean;
 }
 
-/**
- * 条件检查结果
- */
+/** 条件检查结果 */
 export interface TravelCheckResult {
   canTravel: boolean;
   reason?: string;
@@ -191,7 +185,7 @@ export interface TravelCheckOptions {
  *   npcs, buildings, vehicles, items, monsters, connections, resources, resources2
  *   运行时 NPC 增减、建筑建造/拆除、载具生成/移除、怪物模板变更、连接增删、资源采集次数等
  *   都会修改这些字段，因此 DB 中的值优先于 JSON 静态定义。
- * 注意：怪物运行时实例已迁移到 GameMonster 表，不再出现在 DYNAMIC_MAP_FIELDS。
+ * 注意：怪物运行时实例存 GameMonster 表，不属于这里的地图动态状态字段。
  */
 const DYNAMIC_MAP_FIELDS = [
   'summons',
@@ -247,9 +241,6 @@ export class MapService {
   /**
    * 对指定地图加锁执行一段异步操作，保证同一地图的状态变更串行化。
    * 锁内务必完成"读 → 改 → 写回"的完整闭环，避免并发覆盖。
-   * @param mapId 地图ID
-   * @param fn 需要在锁内执行的异步函数
-   * @returns fn 的返回值
    */
   async withMapLock<T>(mapId: number, fn: () => Promise<T>): Promise<T> {
     // 取当前队尾（上一个任务），没有则用已完成的 Promise
@@ -276,7 +267,6 @@ export class MapService {
    * 静态字段为基础，动态字段覆盖。
    */
   private mergeMap(staticMap: any, dbMap: any): any {
-    // 静态定义作为基础
     const merged = { ...staticMap };
 
     // DB 的 id 覆盖 JSON 的 mapIndex（运行时使用 DB 自增 id）
@@ -885,7 +875,7 @@ export class MapService {
    *
    * 原版数据里「血族城堡 / 战舰坟场 / 太空 / 暗影岛」的「可前往」只有「出口」
    * 这种空间乱流特殊入口，玩家无法用「前往」走到其它地图，只能走「出口」
-   * 或装备天蓝吊坠/跃迁载具离开——极易误以为游戏卡死（2026-09-12 反馈）。
+   * 或装备天蓝吊坠/跃迁载具离开——极易误以为游戏卡死。
    * 用于「观察附近」提示出口；原版无该提示，属本项目的体验补强。
    *
    * 兜底：连接列表为空（数据缺失或测试桩）按非孤岛处理，避免误提示。
@@ -920,8 +910,6 @@ export class MapService {
    *   驾驶载具看行走方式（2=飞行、3=跃迁）
    * - 标记要求：原版 _主程序 L6648-6660，玩家标记数值 <1 视为不满足，
    *   命中后返回「前往X的门似乎锁上了」+ 标记提示
-   * @param currentMap 当前所在地图
-   * @param targetMap 目标地图
    * @param player 玩家对象（含 markers/equipment 等数据）
    * @param opts mode=移动方式（默认 move）；vehicle=当前驾驶的载具（null=徒步）
    */
@@ -1016,14 +1004,12 @@ export class MapService {
 
   /**
    * 计算移动所需时间（秒）
-   * 根据距离和玩家速度计算
    * @param distance 距离（来自连接信息）
-   * @param playerSpeed 玩家速度
    */
   calcTravelTime(distance: number, playerSpeed: number, minSeconds = 1): number {
     // 原版 _主程序.ecode L6638-6644：b = 距离/速度（整数截断）；
     // b < 路径节点数 → b=路径节点数；b < 1 → b=1。
-    // 数据侧距离单位与原版一致（使魔大战.txt 可前往=走廊，30 等），×10 系数已复核移除。
+    // 数据侧距离单位与原版一致（使魔大战.txt 可前往=走廊，30 等），不乘任何换算系数。
     const safeSpeed = Math.max(1, Number(playerSpeed) || 1);
     const raw = distance > 0 ? Math.floor(Number(distance) / safeSpeed) : 0;
     return Math.max(1, raw, minSeconds);
@@ -1290,10 +1276,8 @@ export class MapService {
     }
     const count = Math.min(map.monsterCount || 3, MONSTER_INSTANCE_CAP);
 
-    // 预加载地图上所有怪物名对应的怪物定义（含三层池 护盾/装甲），来自静态配置 JSON
     const monsterDefs = this.loadMonsterDefsByName(monsterNames);
 
-    // 构建待插入的常驻怪物实例数据（每只都走 buildResidentMonsterRow 单一口径）
     const inserts: any[] = [];
     for (let i = 0; i < count; i++) {
       inserts.push(await this.buildResidentMonsterRow(mapId, monsterNames, monsterDefs, i));
@@ -1335,8 +1319,8 @@ export class MapService {
    *
    * ⚠️ 调用方必须保证 `monsterNames` 非空：原版在空模板时不会生成任何怪物
    * （刷新地图 L1014 / 补怪 L1632 均有 `取数组成员数(地图.怪物) > 0` 前置判断）。
-   * 早期实现里那条「空模板退化成野怪」的兜底分支因此恒不可达，已删除——
-   * 保留它会形成第二条生成口径（数值/等级成长容易漂移）。
+   * 本方法同样不为空模板做「退化成野怪」的兜底——那会形成第二条生成口径
+   * （数值/等级成长容易漂移）。
    *
    * @param seq 同批次内的序号，仅用于 qq 可读性（UUID 已保证唯一）
    */
@@ -1806,9 +1790,8 @@ export class MapService {
   }
 
   /**
-   * 移除地图上的怪物（死亡后）
-   * 从 GameMonster 表删除指定记录（兼容旧调用方的字符串/数字 id）。
-   * @param mapOrId 地图对象或ID（保留以兼容旧签名，实际按 monsterId 删除）
+   * 移除地图上的怪物（死亡后）：从 GameMonster 表删除指定记录。
+   * @param mapOrId 地图对象或ID（实际按 monsterId 删除，本参数未使用）
    * @param monsterId 怪物自增ID 或 qq 字符串
    */
   async removeMapMonster(mapOrId: any, monsterId: number | string): Promise<void> {
@@ -1816,7 +1799,7 @@ export class MapService {
       if (typeof monsterId === 'number') {
         await this.prisma.gameMonster.delete({ where: { id: monsterId } });
       } else {
-        // 旧调用方可能传 qq 字符串（如 "monster_xxx"）
+        // 按字符串传入时视为 qq（如 "monster_xxx"）
         await this.prisma.gameMonster.deleteMany({ where: { qq: String(monsterId) } });
       }
     } catch (e: any) {
@@ -1841,7 +1824,7 @@ export class MapService {
    */
   async updateMonsterFields(mapId: number, monsterId: number, data: {
     hp?: number; shield?: number; armor?: number;
-    // Json 列字段：现在直接传对象/数组，不再是 JSON 字符串
+    // Json 列字段：传对象/数组，传 JSON 字符串会双重编码
     buffs?: any; bonus?: any; markers?: any; markers2?: any;
   }): Promise<void> {
     await this.withMapLock(mapId, async () => {
@@ -2024,9 +2007,8 @@ export class MapService {
 
         // 采集链路（GameService.getGatherResources）在 resources 非空时只读 resources。
         // 恢复位置必须与之保持一致：resources 非空时一律写回 resources，否则会把资源
-        // 恢复到采集读不到的数组里，重新制造「观察附近看得到、点编号采不到」的僵尸资源
-        // （2026-09-06 货舱 / 能量元素事故）。resources 为空的地图（部分家园/开拓地）
-        // 才按标记落到 resources2。
+        // 恢复到采集读不到的数组里，重新制造「观察附近看得到、点编号采不到」的僵尸资源。
+        // resources 为空的地图（部分家园/开拓地）才按标记落到 resources2。
         const preferred = marker?.resourceField === 'resources2' ? 'resources2' : 'resources';
         const field = (preferred === 'resources2' && resources.length === 0)
           ? 'resources2'
@@ -2088,12 +2070,10 @@ export class MapService {
    *   不存在同名资源 → 追加**全局资源列表中的完整定义**（原版 资源列表1[1]=货舱、[2]=能量元素）；
    *   已存在         → 次数 += deltaTimes（累加的是「次数」，不是 amount）。
    *
-   * ⚠️ 必须写入 resources 字段：新版已把原版「资源 / 资源2」合并进 resources，
+   * ⚠️ 必须写入 resources 字段：原版「资源 / 资源2」在本项目已合并进 resources，
    * 而采集链路（GameService.getGatherResources）在 resources 非空时只读 resources。
-   * 往 resources2 里塞残缺字面量会造成「观察附近看得到、点编号采不到」的僵尸资源
-   * （2026-09-06 线上问题：森林出口 能量元素×9 / 货舱×10 编号点了无任何反应）。
+   * 往 resources2 里塞残缺字面量会造成「观察附近看得到、点编号采不到」的僵尸资源。
    *
-   * @param mapId        地图 ID
    * @param resourceName 资源名（必须能在全局 resources.json 中找到）
    * @param deltaTimes   追加的可采集次数（默认 1）
    * @returns 是否发生变更
@@ -2134,7 +2114,6 @@ export class MapService {
    * 更新地图动态字段（仅写 DB，不影响静态 JSON）
    */
   async updateDynamicFields(mapId: number, data: Record<string, any>): Promise<void> {
-    // 只允许更新动态字段
     const updateData: Record<string, any> = {};
     for (const field of DYNAMIC_MAP_FIELDS) {
       if (data[field] !== undefined) {
@@ -2156,8 +2135,8 @@ export class MapService {
    * 地图聚合串行化写入口（per-map Actor 邮箱的闭环命令）。
    *
    * 背景：GameMap 的 summons/vehicles 等 Json 列是「读出数组 → 内存改 → 整组写回」
-   * 的裸聚合，历史上多处调用点基于 getMapById 合并快照（陈旧）做读改写，
-   * 并发时互相覆盖（白被"地图写竞态"清除即此类事故）。
+   * 的裸聚合；若基于 getMapById 的合并快照（可能陈旧）做读改写，并发时后写者会
+   * 覆盖先写者（召唤物被"地图写竞态"清除即此类事故）。
    *
    * 本方法把一次变更收敛为「锁内闭环」：
    *   withMapLock(mapId) → 重读 DB 最新行 → 归一化指定字段 → mutator 改 →
@@ -2169,7 +2148,6 @@ export class MapService {
    * 同一地图调用 withMapLock / mutateSummons / mutateMapFields（嵌套会把内层排到
    * 外层之后，外层等内层完成 → 互相等待死锁）。mutator 内只做内存操作。
    *
-   * @param mapId   地图 ID
    * @param fields  要闭环的 Json 数组列白名单（如 ['summons'] / ['summons','vehicles']）
    * @param mutator 收到 { 字段名: 数组 }（真实引用，可原地 push/splice），返回值透传给调用方
    */

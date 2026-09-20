@@ -17,7 +17,6 @@ import { GlobalConfig } from './config/global.config';
 import { maintenanceMiddleware } from './maintenance/maintenance.middleware';
 
 async function bootstrap() {
-  // 读取启动配置（端口、CORS 白名单等），来自配置文件/环境变量
   const config = GlobalConfig.getInstance();
 
   // 确保附件上传目录存在（反馈/私聊的图片与文件）

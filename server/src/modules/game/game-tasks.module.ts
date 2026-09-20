@@ -1,8 +1,6 @@
 /**
- * 后台任务模块
- * 注册所有定时任务服务
- *
- * 注意：PlayerService 和 MapService 由全局 GameModule 提供，此处无需重复声明
+ * 后台任务模块：注册所有定时任务服务。
+ * 注意：PlayerService 和 MapService 由全局 GameModule 提供，故此处不导入 GameModule。
  */
 
 import { Module } from '@nestjs/common';

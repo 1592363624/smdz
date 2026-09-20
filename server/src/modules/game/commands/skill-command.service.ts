@@ -1,18 +1,12 @@
 /**
- * 技能/变身指令域服务（game 模块化重构 P2-7 抽出）
- *
- * 职责：技能导航、使魔技能/通用技能、称号（领取/装备）、形态切换、变身、
- * 纳米服、装甲合体、安琪天使系列（缓天使/福音/绝灭）、牵引光束、控制终端
- * （含白色羁绊终端）、技能查看、生产模式、增幅器说明。
- * 依赖方向：依赖 Player、FamiliarSystemService、FamiliarSkillsService、Prisma、
- * GlobalProficiency、StaticData、CombatState、Map 与支撑层（buildNumberedMenu、
- * hasEquippedSpecial、millisecondsToText、mutatePlayer 等）；跨域直接注入兄弟
- * 子服务 RescueWhite（ensurePlayerWhite），单向边无环。
- * 单一真相源：称号/技能等级口径走 skillLevelInfo；世界等级走 GlobalProficiencyService。
- * 对口原版：_主程序.ecode 技能/变身/称号分支。
+ * 技能/变身指令域：技能导航、使魔技能/通用技能、称号（领取/装备）、形态切换、变身、纳米服、
+ * 装甲合体、安琪天使系列（缓天使/福音/绝灭）、控制终端（含白色羁绊终端）、技能查看、
+ * 生产模式、增幅器说明。跨域直连 RescueWhite（ensurePlayerWhite），单向边无环。
+ * 单一真相源：称号/技能等级口径走 skillLevelInfo；世界等级走 GlobalProficiencyService；
+ * 白的羁绊技能表走 bond-skill.util。对口原版：_主程序.ecode 技能/变身/称号分支。
  */import { Injectable, Logger, Optional } from '@nestjs/common';
 import { asJsonValue } from '../../../common/utils/json-value.util';
-import { formatDisplayNumber, roundItemQuantity } from '../../../common/utils/game-text.util';
+import { CARD_DIVIDER, formatDisplayNumber, roundItemQuantity } from '../../../common/utils/game-text.util';
 import { round2 } from '.././player-pool.util';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { PlayerService } from '.././player.service';
@@ -40,18 +34,25 @@ export class SkillCommandService {
     private readonly familiarSkillsService: FamiliarSkillsService,
     private readonly staticData: StaticDataService,
     private readonly combatState: CombatStateService,
-    // 跨域兄弟直连（P4 清理：原过渡期经门面引用），单向边无环。
+    // 跨域兄弟直连，单向边无环
     private readonly rescue: RescueWhiteService,
     @Optional() private readonly globalProficiency?: GlobalProficiencyService,
   ) {}
 
   async handleSkill(userId: number): Promise<string> {
-    // 对齐原版：技能导航菜单（通用技能/使魔技能/查看成就/查看标记/查看标记2）。
-    // 原版并无独立的“技能”指令直接倾倒技能说明，统一先走导航，
-    // 再由「使魔技能」「通用技能」等具体指令展示内容，避免与它们重复。
+    return this.buildSkillNavigation(userId);
+  }
+
+  /**
+   * 技能导航菜单（通用技能/使魔技能/查看成就/查看标记/查看标记2）。
+   * 原版并无独立的“技能”指令直接倾倒技能说明，统一先走导航，
+   * 再由「使魔技能」「通用技能」等具体指令展示内容，避免与它们重复。
+   * 「技能」与「查看技能」两条指令共用本实现。
+   */
+  private async buildSkillNavigation(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
-    const lines: string[] = [`✨ ${player.name || '冒险者'} 技能导航:`, `━━━━━━━━━━━━━━━`];
+    const lines: string[] = [`✨ ${player.name || '冒险者'} 技能导航:`, CARD_DIVIDER];
     const options: { label: string; cmd: string }[] = [
       { label: '通用技能', cmd: '通用技能' },
       { label: '使魔技能', cmd: '使魔技能' },
@@ -65,10 +66,10 @@ export class SkillCommandService {
   }
 
   /**
-   * 处理救助命令
-   * 对应原版：救助 命令（救起倒地使魔，或维修使魔的载具）
+   * 使魔技能说明：好感度 + 技能等级(熟练度) + 特性/技能描述 + 好感解锁项 + 主动技能剩余冷却。
+   * 对应原版：_主程序.ecode L4086-L4106 + 数据显示.ecode L1770-L1846 显示使魔技能()。
+   * 输出组装口径见方法内「基础说明 + 特性 + 技能描述」注释。
    */
-
   async handleFamiliarSkills(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers, buffs, markers2 } = playerData;
@@ -82,7 +83,6 @@ export class SkillCommandService {
       return `未知的使魔类型: ${player.type}`;
     }
 
-    // 获取好感度
     const affinityKey = `${player.type}好感`;
     const affinity = this.playerService.getMarkerValue(markers, affinityKey);
 
@@ -109,12 +109,11 @@ export class SkillCommandService {
     lines.push(`${player.name}(好感${Math.round(affinity)})`);
     lines.push(`技能等级: ${skillLevelText}`);
 
-    // 特性（description字段通常包含特性）
+    // description 字段通常承载特性
     if (familiar.description) {
       lines.push(`${familiar.description.replace(/#换行/g, '\n')}`);
     }
 
-    // 基础技能描述（skillDesc）
     if (familiar.skillDesc) {
       let skillDesc = familiar.skillDesc;
 
@@ -191,7 +190,7 @@ export class SkillCommandService {
       }
     }
 
-    // 检查冷却状态（如果是主动技能，显示剩余冷却）
+    // 主动技能若仍在冷却，末尾附剩余秒数
     const skillName = familiar.uniqueSkill;
     if (skillName && Array.isArray(markers2)) {
       const cdList = markers2.filter((m: any) => m && m.name === skillName);
@@ -210,11 +209,9 @@ export class SkillCommandService {
   }
 
   /**
-   * 处理通用技能命令
-   * 显示所有技能熟练度等级和加成（世界等级、战斗等级、防御等级...）
+   * 通用技能：显示所有技能熟练度等级与加成（世界等级、战斗等级、防御等级…）
    * 对应原版：_主程序.ecode L4010-L4085
    */
-
   async handleCommonSkills(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
@@ -255,7 +252,7 @@ export class SkillCommandService {
 
     // ---- 各属性等级（原版 _主程序 L4024-L4085，标记名 = 名称+"熟练度"）----
     const scale = 1 + player.level / 100;
-    // 两位小数统一走 player-pool.util.round2（原局部副本已删除，2026-09-10 口径收敛）
+    // 两位小数统一走 player-pool.util.round2，勿在此另建取整实现
     const scaleLevel = (a: number) => round2(a * scale);
 
     // 通用技能配置：key=标记后缀，label=行首文本，attr=属性说明与取值函数
@@ -363,13 +360,10 @@ export class SkillCommandService {
   }
 
   /**
-   * 计算某熟练度标记对应的等级与显示文本
-   * 对齐原版 数据显示.ecode L1640-L1665 显示熟练度等级()：
+   * 某熟练度标记对应的等级与显示文本；对齐原版 数据显示.ecode L1640-L1665 显示熟练度等级()：
    * 等级 = 满足 熟练度 < 等级² 的最小整数；文本 = "等级(熟练度/等级²)"。
-   * @param markers 玩家标记
    * @param name 熟练度名称（读取 markers["名称+熟练度"]）
    */
-
   skillLevelInfo(
     markers: Record<string, any>,
     name: string,
@@ -381,68 +375,35 @@ export class SkillCommandService {
     return { level, text: `${level}(${rounded}/${level * level})` };
   }
 
-  /**
-   * 处理使魔称号命令
-   * 查看使魔称号列表
-   * 委托到 FamiliarSystemService.viewTitles 查看可获得的称号
-   */
-
+  /** 使魔称号列表 → FamiliarSystemService.viewTitles */
   async handleFamiliarTitles(userId: number): Promise<string> {
-    // 委托到熟悉系统服务查看称号列表
     return this.familiarSystemService.viewTitles(userId);
   }
 
-  /**
-   * 处理查看可领取称号命令
-   * 查看所有称号及领取状态
-   * 委托到 FamiliarSystemService.viewAvailableTitles
-   */
-
+  /** 所有称号及领取状态 → FamiliarSystemService.viewAvailableTitles */
   async handleAvailableTitles(userId: number): Promise<string> {
     return this.familiarSystemService.viewAvailableTitles(userId);
   }
 
-  /**
-   * 处理领取称号命令
-   * 领取指定的称号
-   * 委托到 FamiliarSystemService.claimTitle 领取称号
-   */
-
+  /** 领取指定称号 → FamiliarSystemService.claimTitle */
   async handleClaimTitle(userId: number, titleName: string): Promise<string> {
-    // 委托到熟悉系统服务领取指定称号
     return this.familiarSystemService.claimTitle(userId, titleName);
   }
 
-  /**
-   * 处理佩戴称号命令
-   * 佩戴指定的称号
-   * 委托到 FamiliarSystemService.equipTitle 佩戴称号
-   */
-
+  /** 佩戴指定称号 → FamiliarSystemService.equipTitle */
   async handleEquipTitle(userId: number, titleName: string): Promise<string> {
-    // 委托到熟悉系统服务佩戴指定称号
     return this.familiarSystemService.equipTitle(userId, titleName);
   }
 
-  /**
-   * 使魔排行（原版 _主程序.ecode L9562-9745 十子榜）
-   * 子榜：战斗力/等级/理论输出/最高伤害/击杀/在线时间/财富/宠物战斗力/宠物最高伤害/载具
-   * 无参时输出 10 项编号菜单并注册临时输入替换（原版 L9565 w3；红线：编号菜单必须注册）。
-   * 玩家类子榜过滤=老玩家(已选使魔)且等级>10（原版 L9571 等）；
-   * 统一 top30 输出「N、名称(数值)」，在线时间子榜用时间格式（原版 数字到时间）。
-   */
-
+   /**
+    * 切换模式技能（模式名称作为目标参数）→ FamiliarSkillsService.executeSkill
+    * 使魔排行（原版 _主程序.ecode L9562-9745 十子榜）
+    */
   async handleSwitchMode(userId: number, modeName: string): Promise<string> {
-    // 委托到使魔技能服务执行切换模式技能，传入模式名称作为目标参数
     return this.familiarSkillsService.executeSkill(userId, '切换模式', modeName);
   }
 
-  /**
-   * 处理纳米生化装命令
-   * 纳米生化装模式切换
-   * 委托到 FamiliarSkillsService.executeSkill 执行纳米生化装技能
-   */
-
+  /** 模式转换（阿尔缇娜专属技能）→ executeSkill('模式转换') */
   async handleModeChange(userId: number, modeName: string): Promise<string> {
     // 原版 _主程序.ecode L9810-9821：仅精确匹配「模式转换」的阿尔缇娜专属技能
     // （战术壳光剑 a模式 0/1），不计「使用技能」。带参数不进入该分支。
@@ -510,12 +471,6 @@ export class SkillCommandService {
   }
 
   /**
-   * 处理牵引光束命令
-   * 使用工业牵引光束拖拽目标
-   * 对应原版：牵引 命令
-   */
-
-    /**
    * 转换文本（原版 _主程序.ecode L9824-L9847）：
    * 「转换文本 QQ 编号」查看他人背包第 N 件的展示与数据串。
    */
@@ -557,73 +512,41 @@ export class SkillCommandService {
     ].filter(Boolean).join('\n');
   }
 
-  /**
-   * 保存图片（管理员/作者）（原版 _主程序.ecode L10666-10680）。
-   * 仅作者权限可用；Web 架构下图片由前端 URL 承载，“保存图片 <名称>”无独立行为。
-   */
-
+   /**
+    * 纳米生化装模式切换 → FamiliarSkillsService.executeSkill('纳米生化装', 动作)
+    * 保存图片（管理员/作者）（原版 _主程序.ecode L10666-10680）。
+    */
   async handleNanoSuit(userId: number, action: string): Promise<string> {
-    // 委托到使魔技能服务执行纳米生化装技能，传入动作参数
     return this.familiarSkillsService.executeSkill(userId, '纳米生化装', action);
   }
 
   /**
-   * 处理铠甲合体命令
-   * 使魔铠甲合体
-   * 对应原版：铠甲合体/炎龙/黑犀/飞影/地虎/雪獒 命令
-   * 委托到 FamiliarSkillsService.executeSkill 执行铠甲合体技能
+   * 铠甲合体（对应原版：铠甲合体/炎龙/黑犀/飞影/地虎/雪獒 命令）
    * @param armorName 铠甲名称（可选，如炎龙/黑犀/飞影/地虎/雪獒）
    */
-
   async handleArmorCombine(userId: number, armorName?: string): Promise<string> {
     if (armorName) {
       return `⚡ ${armorName}铠甲，合体！铠甲激活成功！`;
     }
-    // 委托到使魔技能服务执行铠甲合体技能
     return this.familiarSkillsService.executeSkill(userId, '铠甲合体');
   }
 
-  /**
-   * 处理使魔挑战命令
-   * 查看使魔挑战列表，进入挑战模式
-   * 委托到 FamiliarSkillsService.executeSkill 执行使魔挑战技能
-   */
-
+  /** 缓天使（安乐天使）：目标可为自己、当前地图召唤物或其他玩家（原版 _主程序.ecode L995-1041） */
   async handleEaseAngel(userId: number, targetName?: string): Promise<string> {
-    // 对应原版 _主程序.ecode L995-1041：目标可为自己、当前地图召唤物或其他玩家。
     return this.familiarSystemService.safetyAngel(userId, targetName?.trim() || undefined);
   }
 
-  /**
-   * 处理福音书命令
-   * 装备技能：增益效果
-   * 委托到 FamiliarSkillsService.executeSkill 执行福音书技能
-   */
-
+  /** 福音书：一天一次，目标解析与安乐天使相同（原版 _主程序.ecode L1044-1090） */
   async handleGospel(userId: number, targetName?: string): Promise<string> {
-    // 对应原版 _主程序.ecode L1044-1090：一天一次，目标解析与安乐天使相同。
     return this.familiarSystemService.gospelBook(userId, targetName?.trim() || undefined);
   }
 
-  /**
-   * 处理启示录命令
-   * 装备技能：攻击提升
-   * 委托到 FamiliarSkillsService.executeSkill 执行启示录技能
-   */
-
+  /** 启示录：装备技能，提升攻击力 → executeSkill('启示录') */
   async handleApocalypse(userId: number): Promise<string> {
-    // 委托到使魔技能服务执行启示录技能，提升攻击力
     return this.familiarSkillsService.executeSkill(userId, '启示录');
   }
 
-  /**
-   * 处理切换模式命令
-   * 使魔模式切换
-   * 委托到 FamiliarSkillsService.executeSkill 执行切换模式技能
-   */
-
-  // 牵引真实实现已迁至 MovementVehicleService.handleTractorBeam（原版 L7722-L7808）。
-  // game.service.handleTractorBeam 直连 movement，本文件不再维护副本。
+  // 牵引光束的实现见 MovementVehicleService.handleTractorBeam（原版 _主程序.ecode L7722-L7808）。
 
   /**
    * 处理控制终端命令（对齐原版 _主程序.ecode L10714-10871）：
@@ -662,7 +585,7 @@ export class SkillCommandService {
     const currentMode = markers['vehicle_mode'] || '战斗';
     const currentForm = markers['vehicle_form'] || '标准';
 
-    // 统计各类型部件数量
+    // 按部件类型计数，用于插槽展示
     const typeCounts: Record<number, number> = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0 };
     for (const part of parts) {
       typeCounts[part.partType] = (typeCounts[part.partType] || 0) + 1;
@@ -670,15 +593,15 @@ export class SkillCommandService {
 
     return [
       `🖥️ 载具控制终端`,
-      `━━━━━━━━━━━━━━━`,
+      CARD_DIVIDER,
       `🚗 ${vehicle.name}`,
       `❤️ 耐久: ${vehicle.currentHp}/${vehicle.maxHp}`,
-      `━━━━━━━━━━━━━━━`,
+      CARD_DIVIDER,
       `📊 当前状态:`,
       `  模式: ${currentMode}`,
       `  形态: ${currentForm}`,
       `  部件: ${parts.length}个安装`,
-      `━━━━━━━━━━━━━━━`,
+      CARD_DIVIDER,
       `📋 可用操作:`,
       `  驾驶 - 切换载具`,
       `  脱出 - 离开载具`,
@@ -690,7 +613,7 @@ export class SkillCommandService {
       `  转换 - 伊芙利特专属：斧形态/炮形态切换`,
       `  牵引货舱 / 牵引能量 - 用牵引光束远程拉取补给`,
       `  维修 - 修复耐久度`,
-      `━━━━━━━━━━━━━━━`,
+      CARD_DIVIDER,
       `插槽使用:`,
       `  核心: ${typeCounts[0] || 0}/1`,
       `  武器: ${typeCounts[3] || 0}/${vehicle.maxWeapon || 5}`,
@@ -713,7 +636,6 @@ export class SkillCommandService {
    * 白的羁绊终端（原版 _主程序.ecode L10714-10871）：
    * 总览展示技能1/技能2 当前设置；技能a/技能b 查看候选并设置，每天（有效期当天）只能改一次。
    */
-
   async handleWhiteBondTerminal(
     userId: number,
     player: any,
@@ -721,7 +643,7 @@ export class SkillCommandService {
     arg: string,
   ): Promise<string> {
     const sub = arg.replace(/\d+/g, '');
-    // ⚠️ 与原版偏差（已确认修复）：原版用 b==0 兼作「打开候选列表」，导致 0 号「未指定」是死选项
+    // ⚠️ 与原版偏差：原版用 b==0 兼作「打开候选列表」，导致 0 号「未指定」是死选项
     // （点了只会重刷列表，技能无法取消）。此处改为「无数字=打开候选列表；0=真正置为未指定」，
     // 并让 0 同样受每天一次的冷却约束（原版 0 不落库，故不受冷却限制）。
     const digits = arg.match(/\d+/);
@@ -748,8 +670,8 @@ export class SkillCommandService {
 
     if (!digits) {
       // 候选列表（原版 L10739-10762 / L10804-10807）：当前设置 + 0未指定 + 各技能说明。
-      // 编号（0=未指定、1..N=技能 id）由同一份 entries 驱动「渲染」与「临时输入注册」，
-      // 不再额外渲染一份只有名称的编号菜单（原先两半编号相差 1，照上半发号会失效）。
+      // 编号（0=未指定、1..N=技能 id）必须由同一份 entries 同时驱动「渲染」与「临时输入注册」，
+      // 两半各渲染一份会导致编号错位（相差 1），玩家照上半发号就失效。
       const lines = [`${player.name || '冒险者'}`, `当前:${skillLabel()}`];
       const menu = await this.support.buildDetailedNumberedMenu(
         userId,
@@ -793,72 +715,42 @@ export class SkillCommandService {
     markers[bondMarkerKey(slot)] = choice;
     player.markers = markers; // Json 列直接写对象
     player.markers2 = markers2; // Json 列直接写数组
-    // 指令路径在 PlayerMutateService 快照内，外层统一落库，无需裸 savePlayer。
+    // 指令路径运行在 PlayerMutateService 快照内，由外层统一落库，此处不裸 savePlayer。
     return `${player.name || '冒险者'}\n白的技能${slot === 'a' ? 1 : 2}被设置为${skillLabel()}`;
   }
 
-  /**
-   * 处理载具操作命令
-   * 查看载具操作指南
-   * 对应原版：载具操作 命令
-   */
-
+  /** 技能导航菜单：通用技能/使魔技能/查看成就/查看标记/查看标记2（编号直达） */
   async handleViewSkills(userId: number): Promise<string> {
-    const playerData = await this.playerService.getPlayerData(userId);
-    const { player } = playerData;
-    const lines: string[] = [`✨ ${player.name || '冒险者'} 技能导航:`, `━━━━━━━━━━━━━━━`];
-    const options: { label: string; cmd: string }[] = [
-      { label: '通用技能', cmd: '通用技能' },
-      { label: '使魔技能', cmd: '使魔技能' },
-      { label: '查看成就', cmd: '查看成就' },
-      { label: '查看标记', cmd: '查看标记' },
-      { label: '查看标记2', cmd: '查看标记2' },
-    ];
-    const menu = await this.support.buildNumberedMenu(userId, options, '💡 发送编号数字即可查看对应内容');
-    lines.push(...menu);
-    return lines.join('\n');
+    return this.buildSkillNavigation(userId);
   }
 
-  /**
-   * 处理查看标记命令（对应原版 _主程序.ecode L5561）
-   * 列出玩家持久化标记（markers 键值对）。
-   */
-
+   /**
+    * 生产模式切换回执：0=正常生产，非0=超载生产
+    * 处理查看标记命令（对应原版 _主程序.ecode L5561）
+    */
   async handleProductionMode(userId: number, mode: number): Promise<string> {
     return mode === 0 ? '🏭 已切换为正常生产模式。' : '🏭 已切换为超载生产模式。';
   }
 
-  /**
-   * 转换文本
-   * 对应原版：转换文本 命令
-   */
-
+  /** 增幅器系统说明（类型与用法文案，纯展示） */
   async handleAmplifierHelp(userId: number): Promise<string> {
     return [
       `📈 增幅器系统说明`,
-      `━━━━━━━━━━━━━━━`,
+      CARD_DIVIDER,
       `增幅器是一种可以提升玩家属性的特殊装备，佩戴在增幅器插槽中。`,
-      `━━━━━━━━━━━━━━━`,
+      CARD_DIVIDER,
       `【增幅器类型】`,
       `  1. 攻击增幅器 - 提升攻击力`,
       `  2. 防御增幅器 - 提升防御力`,
       `  3. 生命增幅器 - 提升最大生命值`,
       `  4. 速度增幅器 - 提升移动速度`,
       `  5. 暴击增幅器 - 提升暴击率和暴击伤害`,
-      `━━━━━━━━━━━━━━━`,
+      CARD_DIVIDER,
       `【使用方法】`,
       `  装备增幅器：装备 增幅器名`,
       `  查看已装备：信息`,
-      `━━━━━━━━━━━━━━━`,
+      CARD_DIVIDER,
       `增幅器可以通过战斗掉落、商店购买或合成获得。`,
     ].join('\n');
   }
-
-  // ========== 宠物/社交命令 ==========
-
-  /**
-   * 处理开始捕捉命令
-   * 开始捕捉宠物/使魔，委托到 FamiliarSystemService 的捕捉系统
-   * 对应原版：开始捕捉 命令
-   */
 }

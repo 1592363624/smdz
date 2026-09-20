@@ -41,7 +41,7 @@ const HOME_MARKER_KEYS = [
   '凭证',
 ];
 
-/** 玩家当前所在图若是待删家园图，先挪回「城镇广场」（与服务端 removeHouseData 一致，不丢医疗室） */
+/** 取起始图（优先「城镇广场」）：站在待删家园图上的玩家要挪到这里（与服务端 removeHouseData 一致，不丢医疗室） */
 async function resolveStartMapId() {
   const startMap =
     (await prisma.gameMap.findUnique({ where: { name: '城镇广场' } })) ||

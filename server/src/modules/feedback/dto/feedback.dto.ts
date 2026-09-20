@@ -1,8 +1,4 @@
-/**
- * 反馈系统 DTO
- * 定义创建反馈、回复消息、更新状态等接口的请求/响应数据结构。
- * 配合全局 ValidationPipe(class-validator) 做参数校验。
- */
+/** 反馈系统 DTO：创建工单 / 追加消息 / 更新状态的请求结构（class-validator 校验）。 */
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsArray, IsIn, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
 
@@ -12,10 +8,7 @@ export const FEEDBACK_CATEGORIES = ['general', 'bug', 'suggestion', 'other'] as 
 /** 反馈状态可选值 */
 export const FEEDBACK_STATUSES = ['OPEN', 'PROCESSING', 'CLOSED'] as const;
 
-/**
- * 创建反馈请求体
- * 用户提交一个新的反馈工单（含标题、分类、首条描述与可选附件）。
- */
+/** 创建反馈请求体：标题、分类、首条描述与可选附件。 */
 export class CreateFeedbackDto {
   @ApiProperty({ description: '反馈标题', example: '游戏地图卡顿' })
   @IsString()
@@ -45,10 +38,7 @@ export class CreateFeedbackDto {
   attachments: string[] = [];
 }
 
-/**
- * 回复反馈消息请求体
- * 用户或管理员在既有工单下追加一条消息，可携带附件。
- */
+/** 回复反馈消息请求体：在既有工单下追加一条消息，可携带附件。 */
 export class CreateFeedbackMessageDto {
   @ApiProperty({ description: '消息内容', example: '已补充截图，请查看' })
   @IsString()
@@ -63,9 +53,7 @@ export class CreateFeedbackMessageDto {
   attachments: string[] = [];
 }
 
-/**
- * 更新反馈状态请求体（仅管理员）
- */
+/** 更新反馈状态请求体（仅管理员） */
 export class UpdateFeedbackStatusDto {
   @ApiProperty({ description: '目标状态', enum: FEEDBACK_STATUSES, example: 'PROCESSING' })
   @IsIn(FEEDBACK_STATUSES as unknown as string[], { message: '无效的状态' })

@@ -1,19 +1,15 @@
 /**
  * 一次性迁移：把存量数据里的「历史别名字段」收敛为英文规范键（字段口径统一）。
+ * 全部 JSON 列只改字段名、不改任何数值与内容；收敛规则与运行时归一化器同源
+ * （见 src/modules/game/field-contract.util.ts），避免两套口径。
  *
- * 背景：项目为兼容老存档，同一语义在历史演进中出现过多套字段名（英文/中文/拼音），
- * 且不少写入点只改其中一个，导致同一实体的同义字段互相打架（典型：背包条目
- * 显示 385 却按 count=5 判定建造数量）。运行时已在读档/落库边界统一收敛
- * （见 src/modules/game/field-contract.util.ts），本脚本负责把**库里已有的**
- * 存量数据一次性改写成规范键，使 DB 里同义字段只剩一份。
- *
- * 处理范围（全部 JSON 列，只改字段名、不改任何数值与内容）：
+ * 处理范围：
  *   - Player:      backpack / safeBox / equipment / weapons / equipmentPresets / markers2 / buffs
  *   - GameMap:     items / resources / resources2 / buildings / markers2 / vehicles / summons
  *   - GameMonster: backpack / equipments / weapons / equipmentPresets / markers2 / buffs
  *   - GameVehicle: parts / builtinParts / markers2
  *
- * 收敛规则（与运行时归一化器完全同源，避免两套口径）：
+ * 收敛规则：
  *   - 规范键已存在 → 以规范键为准，删除同义旧键；
  *   - 规范键缺失   → 把旧键的值迁到规范键，再删除旧键；
  *   - count → quantity（物品域）、value → strength（增益域）为同义英文键合并。
@@ -61,10 +57,8 @@ const prisma = new PrismaClient({ datasources: { db: { url: DB_URLS[DB_KEY] } } 
 const stats = new Map<string, { rows: number; keys: Map<string, number> }>();
 
 /**
- * 记录一次列级改动，并统计本次实际被删除的旧键名（用于向操作者证明改了什么）。
+ * 记录一次列级改动，并统计本次实际被删除的旧键名。
  * @param scope 形如 "Player.backpack"
- * @param before 归一化前的快照
- * @param after 归一化后的快照
  */
 function recordChange(scope: string, before: any, after: any): void {
   const rec = stats.get(scope) ?? { rows: 0, keys: new Map<string, number>() };
@@ -122,8 +116,8 @@ function normalizeRow(row: any, columns: string[], normalize: (r: any) => boolea
  * 玩家任务进度（Player.tasks）条目字段收敛：需求/奖励条目的 count → quantity。
  *
  * 为什么必须迁移：task.service 的 parseRequirements / parseRewards 只读规范键
- * quantity（业务代码已不再兜底 count），存量 count 会被解析成数量 0——需求被当作
- * 「无条件」直接判定通过、奖励按 0 发放（静默的奖励丢失）。
+ * quantity（不兜底 count），count 写法会被解析成数量 0——需求被当作「无条件」
+ * 直接判定通过、奖励按 0 发放（静默的奖励丢失）。
  *
  * 支持两种形态：规范数组；历史字符串（原版反引号分隔/Old JSON），解析成数组后写回。
  * @param tasks 该列的当前值（数组 / 字符串 / 其它）

@@ -268,7 +268,7 @@ describe('载具驾驶/脱出复刻', () => {
     expect(player.vehicle).toBe('new-vehicle');
     expect(parseValue<any>(player.sets, {})).toEqual({ takeVehicle: '', 接管载具: '' });
     expect(vehicles[0].driver).toBe('');
-    // 口径统一后地图载具只落英文规范键，不再写中文镜像（双存储已合并为单一存储）
+    // 口径统一后地图载具只落英文规范键，不写中文镜像（单一存储）
     expect(vehicles[0].驾驶员).toBeUndefined();
     expect(vehicles[1].owner).toBe('qq10');
     expect(vehicles[1].归属).toBeUndefined();
@@ -397,7 +397,7 @@ describe('载具状态/命名/架炮（地图 JSON 双存储统一）', () => {
     const result = await service.handleNameVehicle(10, '骑士 坦克');
     expect(result).toBe('甲,骑士名称修改为坦克');
     const vehicles = parseValue<any[]>(map.vehicles, []);
-    // 写回地图的载具只有规范键 name（中文镜像 名称 已随口径统一删除）
+    // 写回地图的载具只有规范键 name（不写中文镜像 名称）
     expect(vehicles[0].名称).toBeUndefined();
     expect(vehicles[0].name).toBe('坦克');
     expect(updateCalls).toHaveLength(1);

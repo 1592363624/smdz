@@ -1,9 +1,6 @@
 /**
- * 应用根模块
- * 负责汇总所有业务模块，NestJS 通过这里组织整个应用的依赖注入与路由。
- * - 生产模式下，通过 ServeStaticModule 托管前端静态文件（web/dist/）
- * - API 路由统一使用 /api 前缀
- * - 非 /api 和 /ws 的请求回退到 index.html（SPA 路由支持）
+ * 应用根模块：汇总所有业务模块，NestJS 由此组织整个应用的依赖注入与路由。
+ * API 统一 /api 前缀；非 /api 与 /ws 请求回退 index.html（SPA 路由支持）。
  */
 
 import { Module } from '@nestjs/common';
@@ -29,28 +26,22 @@ import { GlobalConfig } from './config/global.config';
   imports: [
     // 全局配置模块（读取 .env）
     ConfigModule.forRoot({ isGlobal: true }),
-    // 数据访问层
     PrismaModule,
     // Actor 运行时（全局单例）：玩家域写入口的单写者内核。
     // 必须导入——PlayerService.enqueueUserWrite/getPlayerData/savePlayer 注入
     // ActorRuntime 后切换到「内存活态 + 串行邮箱 + writeThrough 落库」路径；
-    // 不导入则这些 @Optional 依赖恒为 undefined，markPlayerDirty 两路失效
-    // （历史事故：教程领取在管道外裸调，领取结果静默丢失、每条指令重复输出）。
+    // 不导入则这些 @Optional 依赖恒为 undefined，markPlayerDirty 两路失效。
     ActorModule,
-    // 系统配置中心（全局提供）
     SystemConfigModule,
     /**
-     * 托管前端静态文件（web/dist/）
-     * serveStatic 中间件在 Express 中的优先级低于路由，因此 /api/* 和 /ws/* 的请求会优先由 NestJS 路由处理
-     * 非 API 的请求（如 /, /chat, /login 等）会查找 web/dist/ 下对应的静态文件
-     * 若找不到文件（SPA 前端路由），serveStatic 会回退到 index.html
+     * 托管前端静态文件（web/dist/）：serveStatic 中间件优先级低于 NestJS 路由，
+     * 因此 /api/* 与 /ws/* 仍由路由处理，其余请求查 web/dist/ 下对应静态文件。
      */
     ServeStaticModule.forRoot({
       rootPath: join(__dirname, '..', '..', 'web', 'dist'),
       exclude: ['/api/(.*)', '/ws/(.*)', '/uploads/(.*)'],
       serveStaticOptions: {
-        // SPA 回退：所有未匹配到静态文件的请求都返回 index.html
-        // 由前端 Vue Router 接管路由
+        // SPA 回退：所有未匹配到静态文件的请求都返回 index.html，由前端 Vue Router 接管
         fallthrough: true,
       },
     }),

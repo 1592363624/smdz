@@ -46,8 +46,7 @@
 
 <script setup>
 /**
- * 登录页面（纯 QQ 互联登录）
- * 游戏仅支持通过 QQ 互联登录，不再提供用户名+密码的自注册/自登录。
+ * 登录页面：仅 QQ 互联登录（没有用户名+密码的自注册/自登录通道）。
  * 组件挂载时检查 QQ 登录是否已配置，并处理 QQ 授权回调参数完成登录。
  */
 import { ref, onMounted } from 'vue';
@@ -63,9 +62,7 @@ const devEnabled = ref(false);
 const devUsername = ref('');
 const devLoading = ref(false);
 
-// 组件挂载时：检查 QQ 登录是否已配置，并处理 QQ 回调参数
 onMounted(async () => {
-  // 检查 QQ 登录是否已配置
   try {
     const res = await fetch(`${API_BASE}/auth/qq/status`);
     const data = await res.json();
@@ -88,7 +85,6 @@ onMounted(async () => {
   const qqUserStr = route.query.qq_user;
   if (qqToken && qqUserStr) {
     try {
-      // 保存 token 和用户信息
       localStorage.setItem('token', qqToken);
       const qqUser = JSON.parse(decodeURIComponent(qqUserStr));
       localStorage.setItem('user', JSON.stringify(qqUser));
@@ -99,22 +95,18 @@ onMounted(async () => {
     }
   }
 
-  // 处理 QQ 登录错误
   if (route.query.error === 'qq_auth_failed') {
     error.value = 'QQ 登录失败，请重试';
   }
 });
 
-/**
- * QQ 登录：跳转到 QQ 授权页面
- */
+/** QQ 登录：跳转后端 QQ 授权入口 */
 function qqLogin() {
   if (!qqConfigured.value) {
     error.value = 'QQ 登录尚未配置，请联系管理员设置 QQ_APP_ID 和 QQ_APP_KEY';
     return;
   }
   qqLoading.value = true;
-  // 跳转到后端 QQ 授权入口
   window.location.href = `${API_BASE}/auth/qq/login`;
 }
 

@@ -1,26 +1,12 @@
 /**
- * 场景资源/面板指令域服务（game 模块化重构 P3-6b 内核聚类 B，策略 B）
- *
- * 职责：玩家/地图面板渲染与推送（pushPlayerUpdate/pushMapUpdate 及 300ms 防抖、
- * rev 单调计数——推送子系统整簇随本服务迁移，C7）、信息/状态/环视/查看玩家、
- * 采集/开采/探测/拾取/自动开采全链路、资源解析与展示、背包/仓库/物品使用/
- * 标记查看。panel↔gather↔inventory 双向边最强，合并后依赖图无环。
- * 依赖方向：依赖 Player、Map、Prisma、CombatState、CombatSystem、StaticData、
- * Bonus、Item、ItemSystem、Vitality、Stats、Task、Shortcut、Achievement、Chat、
- * FamiliarService、FamiliarSystemService、AutoMineService、DelayedTaskService
- * 与支撑层；跨簇调用（movement-vehicle 域 findTravelVehicle、rescue 域
- * materializeWhiteSummon）直接注入兄弟子服务——movement↔panel 为真实互调，
- * forwardRef 断 DI 环（§4 原则 4）。
- * 单一真相源：推送版本统一 nextRev 单调计数；增益标记统一 normalizeMarkers2；
- * 采集指令解析统一 resolveGatherCmd（支撑层）。
+ * 场景资源/面板指令域服务：面板渲染与推送（300ms 防抖 + nextRev 单调计数）、信息/状态/环视/查看玩家、
+ * 采集/开采/探测/拾取/自动开采全链路、资源解析与展示、背包/仓库/物品使用/标记查看。
+ * 采集指令解析统一走支撑层 resolveGatherCmd，增益标记统一 normalizeMarkers2。
  * 对口原版：_主程序.ecode 面板/采集/背包分支。
- *
- * 状态字段（§4.1 归属表，随本批迁出，G8 白名单自此清空）：
- * gatherStartInflight（采集并发去重）、playerUpdateTimers/mapUpdateTimers（推送防抖）、
- * revCounters（推送版本单调计数）。
  */import { forwardRef, Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { asJsonValue } from '../../../common/utils/json-value.util';
-import { formatDisplayNumber, normalizeGameText, roundItemQuantity } from '../../../common/utils/game-text.util';
+import { collectVehiclePartNames as collectVehiclePartNamesFromUtil } from '../../../common/utils/vehicle-part.util';
+import { CARD_DIVIDER, formatDisplayNumber, normalizeGameText, roundItemQuantity } from '../../../common/utils/game-text.util';
 import { lookupFromStaticData, mergeBackpackItem } from '.././item-normalize.util';
 import { homeBuiltGateText } from '.././home-gate.util';
 import { equipmentQualityLabel } from '.././equipment-ref.util';
@@ -50,12 +36,9 @@ import { MovementVehicleService } from './movement-vehicle.service';
 import { RescueWhiteService } from './rescue-white.service';
 
 /**
- * 冷却标记类型 → 展示文案/图标映射（方案B：类型随数据走）。
- *
- * 数据层：markers2 冷却条目通过 `kind` 声明自己的类型（技能 CD 由
- * familiar-skills.setCooldown 写 'skill-cd'；召唤/捕捉/购买/闪避/特效等由
- * 各自写入方写对应值）。面板只做映射，不再靠名字后缀猜测类型；
- * 未声明 kind 的条目（含历史存量数据）按原版「武器名+冷却」约定兜底为武器冷却。
+ * 冷却标记类型 → 展示文案/图标映射：markers2 冷却条目用 `kind` 声明自己的类型（技能 CD 由
+ * familiar-skills.setCooldown 写 'skill-cd'，召唤/捕捉/购买/闪避/特效等由各自写入方写对应值），
+ * 面板只做映射；未声明 kind 的条目按原版「武器名+冷却」约定兜底为武器冷却。
  */
 const COOLDOWN_KIND_META: Record<string, { detail: string; icon: string }> = {
   'skill-cd': { detail: '技能冷却中', icon: '✨' },
@@ -91,7 +74,7 @@ export class GatherPanelService {
     private readonly shortcutService: ShortcutService,
     private readonly statsService: StatsService,
     private readonly combatState: CombatStateService,
-    // 跨域兄弟直连（P4 清理：原过渡期经门面引用）。movement↔panel 互调边用 forwardRef 断环；
+    // movement↔panel 互调边用 forwardRef 断环；
     // rescue 处于模块循环导入 SCC（gather↔movement↔home↔rescue）内，同样必须 forwardRef。
     @Inject(forwardRef(() => MovementVehicleService))
     private readonly movement: MovementVehicleService,
@@ -161,7 +144,7 @@ export class GatherPanelService {
    * 任务行时，记录一条节流告警，为"任务已完成但读条不消失"的现场留证据。
    *
    * 正常采集时标记与任务行同时存在；"有标记无任务行"只可能出现在"结算已认领
-   * 任务行、但标记删除被覆盖/未生效"的异常形态（2026-09-12 玩家 2660 实测现场）。
+   * 任务行、但标记删除被覆盖/未生效"的异常形态。
    * 清理动作由「⚡完成」的复核（AdminCommandService.reconcileStaleGatherMarker）承担。
    */
   private async detectStaleGatherMarker(userId: number, markers: Record<string, any>): Promise<void> {
@@ -187,11 +170,8 @@ export class GatherPanelService {
   }
 
   /**
-   * 进行中的延时操作快照（网页「进行中操作」倒计时条用）。
-   *
-   * 原版里大量指令是"发指令 → 等 N 秒 → 延时结算"，期间玩家会被行动限制锁住，
-   * 但界面上只有聊天区一行文字提示，玩家常常误以为指令没生效而重复发送。
-   * 这里把玩家身上所有"还需要 N 秒"的状态汇总成统一结构，前端一次性渲染：
+   * 进行中的延时操作快照（网页「进行中操作」倒计时条用），把玩家身上所有"还需要 N 秒"的
+   * 状态汇总成统一结构供前端一次性渲染：
    *   - 采集：markers['采集中']（打开箱子 / 打开休眠仓 / 收集木头 / 捡垃圾 等地图资源指令）
    *   - 移动：markers['移动中']（前往其它地图的路途耗时）
    *   - 抢救：markers2 中 name=复活（抢救使魔 / 维修载具 / 自救）
@@ -200,16 +180,9 @@ export class GatherPanelService {
    *   - 卷土重来：buffs 中 name=卷土重来（倒地免死保护，到期即真死）
    * 只输出仍未到期的条目；已到期的由各自的延时结算/兜底任务清除，前端也会本地剔除。
    *
-   * 关于进度百分比：只有 `endAt` 是必需字段。前端以「首次渲染时的剩余时间」作为分母自行起算
-   * 进度条，因此这里不必强求每条都带 startedAt；`totalMs` 为 0 即表示"总时长未知"。
-   * startedAt/totalMs 仅在写入侧顺手落盘时透出（采集、移动、抢救、麻痹），
-   * 作用是刷新页面/重连后进度条仍落在真实位置，缺失不影响进度条正常推进。
-   *
-   * @param player 玩家行（用于兜底取 markers2 原始串）
-   * @param markers 已解析的对象标记
-   * @param markers2 已解析的时效标记数组
-   * @param buffs 已解析的增益数组（卷土重来免死保护倒计时）
-   * @returns 进行中操作列表（按结束时间升序，通常只有 1 条）
+   * 进度契约：只有 `endAt` 是必需字段，前端以「首次渲染时的剩余时间」作为分母自行起算，
+   * `totalMs` 为 0 即表示"总时长未知"；startedAt/totalMs 仅在写入侧顺手落盘时透出
+   * （采集、移动、抢救、麻痹），用于刷新页面/重连后进度条仍落在真实位置。
    */
 
   buildPendingActions(
@@ -311,8 +284,7 @@ export class GatherPanelService {
       // 带 rescueType 的「复活/工作」= 救助链路（抢救使魔/维修载具/自救/救助玩家）
       const rescueType = String(entry?.rescueType ?? '');
       if (rescueType) {
-        // startedAt/totalMs 由 createRescueMarker 落盘，只用于刷新页面后进度条仍显示真实位置；
-        // 老标记没有这两个字段时 totalMs 为 0，前端会以首次观测到的剩余时间自行起算。
+        // startedAt/totalMs 由 createRescueMarker 落盘；缺失时 totalMs 为 0，前端以首次观测到的剩余时间起算。
         push({
           key: `rescue:${rescueType}`,
           kind: 'rescue',
@@ -345,8 +317,8 @@ export class GatherPanelService {
         // 公共攻击冷却（原版 战斗相关.ecode L93-107 / L4601-4605 检查）：期间所有武器都无法出手
         push({ key: 'attack-cd', kind: 'cooldown', label: '攻击冷却', detail: '无法攻击', icon: '⚔️', endAt: endMs, startedAt: markStart, totalMs: markTotal });
       } else if (name.endsWith('冷却')) {
-        // 冷却类标记：按条目自身的 kind 声明渲染专属文案（方案B），未声明 kind 的
-        // （含历史存量数据）兜底为武器冷却（原版 _主程序.ecode L904 `${武器名}冷却`）。
+        // 冷却类标记：按条目自身的 kind 声明渲染专属文案，未声明 kind 的兜底为武器冷却
+        // （原版 _主程序.ecode L904 `${武器名}冷却`）。
         // 这些标记只挂在攻击者自己的 markers2 上（被击方的「被寒风冷却」等在对方身上），天然不会串人。
         const kindMeta = COOLDOWN_KIND_META[String(entry?.kind ?? '')];
         push({ key: `cd:${name}`, kind: 'cooldown', label: name.replace(/冷却$/, ''), detail: kindMeta?.detail ?? '武器冷却中', icon: kindMeta?.icon ?? '⚔️', endAt: endMs, startedAt: markStart, totalMs: markTotal });
@@ -401,7 +373,7 @@ export class GatherPanelService {
       if (!name) continue;
       // 已完成标记的不再展示（任务完成结算后会从列表移除，此处兜底）
       if (t.completed === true || t.status === '已完成' || t.status === '已提交') continue;
-      // 数量只读规范键 quantity（同义旧键 count 已废弃，见 field-contract.util）
+      // 数量只读规范键 quantity（不读同义旧键 count），见 field-contract.util
       const quantity = Number(t.quantity ?? 0);
       result.push(quantity > 0 ? { name, quantity } : { name });
     }
@@ -418,9 +390,8 @@ export class GatherPanelService {
     slot: string; name: string | null; quality: string; effect: number; enhance: number; enhanceRate: number; attrs: string; no: number | null;
     weapons?: Array<{ slot: string; name: string; quality: string; effect: number; enhance: number; enhanceRate: number; attrs: string; no: number | null }>;
   }> {
-    // 品质展示标签：大写品质码（S/A/B…），与背包显示名同口径，单一实现见 equipment-ref.util。
-    // 2026-09-10 用户约定：装备栏评级不再显示中文品质名（传说/史诗…），
-    // 玩家可直接和背包里的「冰雹S」对照，不必再脑内换算 S 是不是传说。
+    // 品质展示标签：大写品质码（S/A/B…），与背包显示名同口径（单一实现见 equipment-ref.util）；
+    // 装备栏评级不显示中文品质名（传说/史诗…），玩家可直接和背包里的「冰雹S」对照。
     const equipmentList = asJsonValue<any[]>(player.equipment, []);
     const weaponList = asJsonValue<any[]>(player.weapons, []);
     const currentWeaponIdx = Number(player.currentWeapon ?? 0);
@@ -440,9 +411,8 @@ export class GatherPanelService {
         if (bxMatch) effectNum = parseInt(bxMatch[1], 10) || 0;
       }
       // 逐件属性（**强化后**口径 + 行尾 `(+x.xx)` 增量标注）：单一实现
-      // itemSystemService.formatReinforcedEquipAttrs（与战斗链 calcEquipReinforce 同源）。
-      // 2026-09-10 修复：此前只读 parseEquipment 原始值，从不强化 → 玩家「强化武器」后
-      // 武器详情属性行完全不变，误判强化未生效（实测 +0 / +2 两组属性一模一样）。
+      // itemSystemService.formatReinforcedEquipAttrs（与战斗链 calcEquipReinforce 同源），
+      // 读 parseEquipment 原始值会让「强化武器」后面板属性不变。
       let attrs = '';
       let enhanceRate = 0;
       if (rawData) {
@@ -484,7 +454,7 @@ export class GatherPanelService {
       heldIdx >= 0 && weaponList[heldIdx] ? noOf('weapon', '武器', heldIdx) : null);
     result.push(weaponCell);
     // 植入体 / 增幅器
-    // 强化等级存放于 markers['植入体等级'] / markers['增幅器等级']（写入侧：item-system.service.ts upgradeImplant/upgradeAmplifier）
+    // 强化等级存放于 markers['植入体等级'] / markers['增幅器等级']（写入侧 item-system.service 的 upgradeImplant/upgradeAmplifier）
     const implantIdx = equipmentList.findIndex((e: any) => {
       const def = this.staticData.getEquipmentByName(e.name);
       return def?.equipType === '植入体' || def?.type === '植入体';
@@ -498,9 +468,9 @@ export class GatherPanelService {
     result.push(entryOf('增幅', ampIdx >= 0 ? equipmentList[ampIdx] : null, '增幅器等级',
       ampIdx >= 0 ? noOf('equip', '增幅', ampIdx) : null));
     // 全部武器详情（手持 + 背上备用），挂「武器」格 weapons 子字段：
-    // 2026-09-09 用户约定：左栏装备栏**固定 15 格不变**（背上武器不展开为独立格），
-    // 前端单击「武器」格时展开该列表逐件展示详情 + 卸下按钮（按序号发「卸下 no」，
-    // no 与「信息」文本面板 / unequipItem 编号分支三处同源）。列表顺序：手持在前，其余按 weapons[] 序。
+    // 左栏装备栏固定 15 格不变（背上武器不展开为独立格），前端单击「武器」格时展开该列表逐件展示详情
+    // + 卸下按钮（按序号发「卸下 no」，no 与「信息」文本面板 / unequipItem 编号分支三处同源）。
+    // 列表顺序：手持在前，其余按 weapons[] 序。
     const weaponDetails: Array<{ slot: string; name: string; quality: string; effect: number; enhance: number; enhanceRate: number; attrs: string; no: number | null }> = [];
     const weaponDetailOf = (slot: string, item: any, no: number | null) => {
       const cell = entryOf(slot, item, '武器强化', no);
@@ -522,10 +492,8 @@ export class GatherPanelService {
 
   /**
    * 文本面板增益行：把增益数组格式化为「名称(剩余m:ss)」列表。
-   *
-   * 统一走过期时间归一化（秒/毫秒两种历史口径都识别），并**剔除已过期条目**：
-   * 原逻辑只把剩余秒数钳到 0，导致过期的增益一直以「(0:00)」常驻在「信息」
-   * 面板里不会消失。
+   * 统一走过期时间归一化（秒/毫秒两种口径都识别）并**剔除已过期条目**，
+   * 否则过期增益会以「(0:00)」常驻在「信息」面板里不会消失。
    * @param rawBuffs 增益数组或 JSON 字符串
    * @returns 展示文本数组（无有效增益时为空数组，调用方据此省略整行）
    */
@@ -562,7 +530,6 @@ export class GatherPanelService {
    * 使打怪掉血、加经验、升级等变化实时体现在界面上，无需手动 F5。
    * 带 300ms 尾沿防抖：自动战斗(每5秒)/连击/延时攻击等高频结算场景下
    * 同一玩家的多次变化合并为一次推送，避免 socket 风暴拖垮前后端。
-   * @param userId 用户ID
    */
 
   async pushPlayerUpdate(userId: number): Promise<void> {
@@ -594,7 +561,6 @@ export class GatherPanelService {
    * 在指令执行（攻击/采集/移动等，会让怪物HP、资源数量、所在地图/附近玩家变化）后调用。
    * 前端收到 map:update 后会自动重载附近玩家列表，因此一并覆盖"附近玩家"。
    * 与 pushPlayerUpdate 相同的 300ms 防抖策略。
-   * @param userId 用户ID
    */
 
   async pushMapUpdate(userId: number): Promise<void> {
@@ -644,7 +610,6 @@ export class GatherPanelService {
   /**
    * 获取地图总览数据（供网页左上角地图面板使用）
    * 包含：当前所在地图详情（怪物/资源/NPC等子区域信息）、可前往子区域、以及全部地图列表
-   * @param userId 用户ID
    */
 
   async getMapOverview(userId: number) {
@@ -707,18 +672,17 @@ export class GatherPanelService {
       name: r.name,
       type: r.type || '',
       // 剩余可采集次数（原版 times/次数，-1 表示无限），前端据此显示 ×N。
-      // 次数域的规范键是 times（见 field-contract.util 的 次数→times），
-      // 此前与 times 重复输出的旧键 count 已删除。
+      // 次数域的规范键是 times（见 field-contract.util 的 次数→times），不要再输出别名 count。
       times: this.getResourceTimes(r),
       gatherCmd: r.gatherCmd || '采集',
       // 取首个产出物的名称作为可见掉落，便于玩家判断价值
       firstDrop: Array.isArray(r.outputs) && r.outputs.length ? r.outputs[0]?.name : '',
     }));
 
-    // NPC 列表：静态 NPC + 地图召唤物（对齐指令「观察附近」的 宠物/NPC 口径，
-    // game.service L8176-8248：白仅主人可见；神之工匠/小雫/露娜/行商/小白狐/花园宝宝
-    // 等特殊 NPC 同名去重标[!]；幼崽/倒地召唤物带后缀标注）。网页面板与指令侧
-    // 显示口径保持一致，避免"观察附近有小白狐、面板 NPC(0)"的不一致观感。
+    // NPC 列表：静态 NPC + 地图召唤物（对齐指令「观察附近」handleLookAround 的 宠物/NPC 口径：
+    // 白仅主人可见；神之工匠/小雫/露娜/行商/小白狐/花园宝宝等特殊 NPC 同名去重标[!]；
+    // 幼崽/倒地召唤物带后缀标注）。网页面板与指令侧显示口径保持一致，
+    // 避免"观察附近有小白狐、面板 NPC(0)"的不一致观感。
     const summonEntries: Array<{ name: string; title: string; type: string }> = [];
     if (summons.length > 0) {
       const ownerRow = await this.prisma.player
@@ -812,12 +776,10 @@ export class GatherPanelService {
    * 获取当前玩家所在区域（同一地图）的附近玩家列表
    * 用于网页右侧面板展示"附近玩家"，支持与其他玩家交互（私聊/@提及等）
    * 规则：同一地图内的玩家视为"附近"，标记在线状态，自己除外；在线优先、按等级降序排列
-   * @param userId 当前玩家用户ID
    * @returns 附近玩家列表 [{ userId, username, nickname, avatar, level, name, hp, maxHp, online }]
    */
 
   async getNearbyPlayers(userId: number): Promise<any[]> {
-    // 当前玩家所在地图
     const { mapId } = await this.playerService.getPlayerLocation(userId);
     // 同一地图内的所有玩家档案（关联用户信息用于展示昵称/头像）
     const players = await this.prisma.player.findMany({
@@ -853,7 +815,7 @@ export class GatherPanelService {
   }
 
   /**
-   * 获取两个地图之间的距离
+   * 「信息」文本面板：玩家属性/任务/装备栏/增益一览（口径与 buildPlayerInfo 快照一致）
    */
   async handleInfo(userId: number): Promise<string> {
     await this.taskService.ensureTutorialTasks(userId);
@@ -881,7 +843,7 @@ export class GatherPanelService {
     if (isNewPlayer) {
       // 新玩家欢迎信息 - 清晰的起步引导 + 编号快捷菜单
       lines.push('🎉 欢迎来到使魔大战！');
-      lines.push('━━━━━━━━━━━━━━━');
+      lines.push(CARD_DIVIDER);
       lines.push('📖 你从医疗室醒来，这里有一些基础物资。');
       lines.push('下面带你了解这个世界：');
       lines.push('');
@@ -897,7 +859,7 @@ export class GatherPanelService {
       lines.push('  3. 攻击        4. 打开主菜单');
       lines.push('  5. 查看帮助');
       lines.push('');
-      lines.push('━━━━━━━━━━━━━━━');
+      lines.push(CARD_DIVIDER);
       // 为新玩家生成编号快捷操作（临时输入替换，发数字即可触发）
       await this.shortcutService.setTempInput(userId, '1@观察附近#2@背包#3@攻击#4@使魔大战#5@帮助');
     }
@@ -911,7 +873,7 @@ export class GatherPanelService {
     const showSpeed = Math.round(calcBonus.速度 || player.speed || 0);
 
     lines.push(`【${player.name || '冒险者'}】Lv.${player.level}`);
-    lines.push(`━━━━━━━━━━━━━━━`);
+    lines.push(CARD_DIVIDER);
     lines.push(`❤️ HP: ${Math.round(player.hp || 0)}/${showMaxHp}`);
     lines.push(`🛡️ 护盾: ${Math.round(player.shield || 0)}/${showMaxShield}`);
     lines.push(`⛓️ 装甲: ${Math.round(player.armor || 0)}/${showMaxArmor}`);
@@ -923,23 +885,23 @@ export class GatherPanelService {
 
     // 显示当前任务（如果有）
     if (tasks && tasks.length > 0) {
-      lines.push(`━━━━━━━━━━━━━━━`);
+      lines.push(CARD_DIVIDER);
       lines.push(`📋 当前任务:`);
       for (const task of tasks) {
         const taskName = typeof task === 'string' ? task : task.name || task.title || '未知任务';
-        // 数量只读规范键 quantity（同义旧键 count 已废弃）
+        // 数量只读规范键 quantity（不读同义旧键 count）
         const taskProgress = task.quantity ? ` (${task.quantity})` : '';
         lines.push(`  ${taskName}${taskProgress}`);
       }
     }
 
-    // ========== 装备栏面板（对齐原版 数据显示.ecode 使魔数据 L2032-2210） ==========
+    // ===== 装备栏面板（对齐原版 数据显示.ecode 使魔数据 L2032-2210） =====
     // 原版按部位遍历：头部/饰品/肩膀/上身/背部/手臂/手掌/腰部/下身/腿环/腿部/脚部/武器/植入体/增幅器/背上备用武器
     const equipmentList = asJsonValue<any[]>(player.equipment, []);
     const weaponList = asJsonValue<any[]>(player.weapons, []);
     const currentWeaponIdx = Number(player.currentWeapon ?? 0);
     const slotNames = ['头部', '饰品', '肩膀', '上身', '背部', '手臂', '手掌', '腰部', '下身', '腿环', '腿部', '脚部'];
-    lines.push(`━━━━━━━━━━━━━━━`);
+    lines.push(CARD_DIVIDER);
     lines.push(`📋 装备:`);
 
     // 已装备列表（卸下编号口径单一实现 itemService.buildEquippedList）：已装备行渲染「N.」前缀，
@@ -949,9 +911,8 @@ export class GatherPanelService {
     const noOf = (kind: 'equip' | 'weapon', slot: string, arrIndex: number): number =>
       equipped.find((e) => e.kind === kind && e.slot === slot && (kind === 'weapon' ? e.weaponIndex === arrIndex : e.equipIndex === arrIndex))?.no ?? 0;
 
-    // 品质标签 = 大写品质码（S/A/B…，equipment-ref.util 单一实现），与网页快照同口径。
-    // 2026-09-10 用户约定：装备栏评级显示品质码字母，直接对应背包显示名「冰雹S」。
-    // 此处曾内联一份中文品质 map（与 buildEquipmentSnapshot 各抄一份 = 双重表示），已收敛。
+    // 品质标签 = 大写品质码（S/A/B…，equipment-ref.util 单一实现），与网页快照同口径，
+    // 直接对应背包显示名「冰雹S」。
     // 有码才加「S 」前缀；裸条目装备（无 data）不加前缀，避免拼出「  防弹头盔」双空格。
     const withQuality = (label: string, name: string): string => (label ? `${label} ${name}` : name);
 
@@ -995,7 +956,7 @@ export class GatherPanelService {
     }
 
     // 植入体（L2170-2179）
-    // 强化等级：markers['植入体等级']（写入侧 item-system.service.ts upgradeImplant）。
+    // 强化等级：markers['植入体等级']（写入侧 item-system.service 的 upgradeImplant）。
     // 原版此处不显示等级，为与网页左面板 buildEquipmentSnapshot 同口径，统一补上 (+N)。
     const implantIdx = equipmentList.findIndex((e: any) => getEquipType(e) === '植入体');
     const implantLv = this.combatState.getAchievementProficiency(markers, '植入体等级');
@@ -1009,7 +970,7 @@ export class GatherPanelService {
     }
 
     // 增幅器（L2180-2189）
-    // 强化等级：markers['增幅器等级']（写入侧 item-system.service.ts upgradeAmplifier），同上统一口径。
+    // 强化等级：markers['增幅器等级']（写入侧 item-system.service 的 upgradeAmplifier），同上统一口径。
     const ampIdx = equipmentList.findIndex((e: any) => getEquipType(e) === '增幅器');
     const ampLv = this.combatState.getAchievementProficiency(markers, '增幅器等级');
     if (ampIdx >= 0) {
@@ -1048,7 +1009,7 @@ export class GatherPanelService {
     // 当前增益效果（对齐原版 显示使魔数据 L956-963）
     const buffStrs = this.formatBuffList(playerData.buffs ?? player.buffs);
     if (buffStrs.length > 0) {
-      lines.push(`━━━━━━━━━━━━━━━`);
+      lines.push(CARD_DIVIDER);
       lines.push(`✨ 增益: ${buffStrs.join('、')}`);
     }
 
@@ -1056,9 +1017,7 @@ export class GatherPanelService {
   }
 
   /**
-   * 「背包」列表展示顺序（用户约定 2026-09-09）：资源/材料/消耗品在前、装备在后，
-   * 组内保持背包原始顺序（稳定分区）。数字类指令（装备 N / 背包 N）的编号必须
-   * 与本列表序号同源——单一实现，禁止散弹复制。
+   * 「状态」文本面板：计算后属性 + 三池/四系攻击/抗性等逐项罗列（对应原版 显示使魔数据 详细=真 分支）。
    */
 
   async handleStatus(userId: number): Promise<string> {
@@ -1076,7 +1035,7 @@ export class GatherPanelService {
 
     const lines: string[] = [];
     lines.push(`【${player.name || '冒险者'}】详细属性`);
-    lines.push('━━━━━━━━━━━━━━━');
+    lines.push(CARD_DIVIDER);
     // 基础信息（L768-779）
     lines.push(`等级: ${player.level}`);
     const expStr = `经验: ${num(player.exp)}/${num(this.playerService.calcUpgradeExp(player.level))}`;
@@ -1087,7 +1046,7 @@ export class GatherPanelService {
     if (awakenVal > 0) {
       lines.push(`击杀: ${killVal} (觉醒可获得击杀属性加成)`);
     }
-    lines.push('━━━━━━━━━━━━━━━');
+    lines.push(CARD_DIVIDER);
     // 三池（L780-786）
     if (num(b.护盾) !== 0) lines.push(`护盾: ${num(player.shield)}/${num(b.护盾)}`);
     if (num(b.装甲) !== 0) lines.push(`装甲: ${num(player.armor)}/${num(b.装甲)}`);
@@ -1110,8 +1069,8 @@ export class GatherPanelService {
     const combatPower = this.bonusService.calcCombatPower(b);
     const challengeLevel = this.combatState.getAchievementProficiency(markers, '挑战等级');
     lines.push(`战力: ${combatPower}  挑战: ${challengeLevel}`);
-    lines.push('━━━━━━━━━━━━━━━');
-    // ========== 详细属性段（L808-976，对应原版 详细=真 分支） ==========
+    lines.push(CARD_DIVIDER);
+    // ===== 详细属性段（L808-976，对应原版 详细=真 分支） =====
     // 护盾抗性（L809-813）
     if (num(b.护盾伤害上限) !== 0) lines.push(`◆护盾单次最多减少${fmt(b.护盾伤害上限)}%`);
     lines.push(`◆护盾物/火/冰/电抗:`);
@@ -1263,12 +1222,8 @@ export class GatherPanelService {
   }
 
   /**
-   * 处理使用物品命令
-   */
-
-  /**
    * 副本入口的剩余时间后缀（如 "(剩3小时25分)"）。
-   * 无 expireAt 的历史存量入口返回空串（原版入口随重启消失，无倒计时概念）。
+   * 无 expireAt 的存量入口返回空串（原版入口随重启消失，无倒计时概念）。
    */
   private dungeonEntrySuffix(connection: any): string {
     const remaining = formatDungeonEntryRemaining(Number(connection?.expireAt || 0));
@@ -1276,15 +1231,12 @@ export class GatherPanelService {
   }
 
   async handleLookAround(userId: number): Promise<string> {
-    // 获取玩家数据
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
 
-    // 获取当前地图
     const map = await this.mapService.getMapById(player.mapId);
     if (!map) return '你不在任何地图上！';
 
-    // 解析地图各字段
     const monsters = await this.mapService.getMapMonsters(map);
     // 资源展示与采集门禁保持一致：过滤已采完(times=0)与当前玩家已领取过(marker)的资源，
     // 避免"观察附近列表里有、实际打不开"的观感（原版医疗箱/休眠仓为每人一次的常驻资源）。
@@ -1297,7 +1249,7 @@ export class GatherPanelService {
     // （"b、名称" 逐项叠加 + w2 输入替换），可前往/资源/拾取/NPC 不再单独分段重复展示，
     // 编号列表即显示本体；仅编号列表覆盖不了的信息（怪物 HP 详情）保留为附加信息块。
     const quickOptions: { label: string; cmd: string }[] = [];
-    const SEP = `━━━━━━━━━━━━━━━`;
+    const SEP = CARD_DIVIDER;
 
     const lines: string[] = [
       `👀 【${map.name}】附近情况`,
@@ -1317,7 +1269,7 @@ export class GatherPanelService {
     // 可前往（原版 L656-684）：非开拓地全列；开拓地不逐条展开，只折叠为「家园(N个)」
     const connections = this.mapService.getConnections(map) || [];
     // 孤岛地图（血族城堡/战舰坟场/太空/暗影岛：可前往里只有「出口」这种空间乱流入口）
-    // 没有任何通往真实地图的道路，玩家极易误以为移动系统坏了（2026-09-12 反馈）——
+    // 没有任何通往真实地图的道路，玩家极易误以为移动系统坏了——
     // 此处显式提示出口为唯一出路并把出口置顶（原版无此提示，属体验补强）。
     const hasExit = connections.some((c: any) => String(c?.name || '').trim() === '出口');
     let isolated = false;
@@ -1394,7 +1346,7 @@ export class GatherPanelService {
     // 教程文案（使魔大战.txt L3975）即要求玩家观察附近来发现院子里的杂草和土堆。
     const gatherPool = this.getGatherResources(map);
     // getGatherResources 在 map.resources 为空时回退到 resources2——此时采集可见集与
-    // groundResources 同源，同源去重会把院子土堆/杂草全部误删（2026-09-09 巅峰阁事故）。
+    // groundResources 同源，同源去重会把院子土堆/杂草全部误删。
     // 去重仅在 resources 非空（采集可见集与 resources2 异源）时生效。
     const hasStaticResources = asJsonValue<any[]>(map.resources, []).length > 0;
     const groundResources = asJsonValue<any[]>(map.resources2, [])
@@ -1403,7 +1355,7 @@ export class GatherPanelService {
         && this.isGatherResourceAvailable(r, playerMarkers))
       // 采集链路（getGatherResources）在 resources 非空时只读 resources。
       // resources2 中与采集可见集同名的条目不再重复编号，避免出现
-      //「列表里有、点下去采不到」的僵尸条目（2026-09-06 货舱/能量元素事故）。
+      //「列表里有、点下去采不到」的僵尸条目（如货舱、能量元素）。
       .filter((r: any) => !hasStaticResources || !gatherPool.some((g: any) =>
         String(g?.name ?? '').trim() === String(r?.name ?? '').trim()));
     for (const r of groundResources) {
@@ -1565,7 +1517,7 @@ export class GatherPanelService {
         for (const r of autoTargets) {
           for (const out of asJsonValue<any[]>(r?.outputs, [])) {
             const outName = String(out?.name ?? '');
-            // 数量只读规范键 quantity（count 为历史遗留同义键，静态数据已统一为 quantity）
+            // 数量只读规范键 quantity（不读同义旧键 count）
             const qty = Number(out?.quantity ?? 0);
             const chance = Number(out?.chance ?? 100);
             if (!outName || !(qty > 0)) continue;
@@ -1643,8 +1595,8 @@ export class GatherPanelService {
   }
 
   /**
+   * 「查看玩家 QQ号/名称」：按 QQ 号或名称查档，输出等级/位置/背包/装备/称号摘要。
    * 处理查看宠物命令（对应原版 _主程序.ecode L5442）
-   * 列出当前地图的召唤物/宠物/NPC，并按编号生成"查看<名称>"快捷，玩家发编号查看详情。
    */
 
   async handleViewPlayer(userId: number, targetName: string): Promise<string> {
@@ -1696,27 +1648,23 @@ export class GatherPanelService {
 
     return [
       `👤 玩家信息 - ${targetPlayer.name || '未知'}`,
-      `━━━━━━━━━━━━━━━`,
+      CARD_DIVIDER,
       `等级: ${targetPlayer.level || 1}`,
       `位置: ${mapName}`,
       `生命: ${targetPlayer.hp || 0}/${targetPlayer.maxHp || 100}`,
       `攻击: ${targetPlayer.attack || 0}`,
-      `━━━━━━━━━━━━━━━`,
+      CARD_DIVIDER,
       `背包物品: ${backpackCount} 种`,
       `装备数量: ${equipmentCount} 件`,
       `称号: ${titleText}`,
-      `━━━━━━━━━━━━━━━`,
+      CARD_DIVIDER,
       `(使用「信息」查看自己的完整信息)`,
     ].join('\n');
   }
 
-  // ========== GM 管理员命令 ==========
+  // ===== 地图/距离辅助 =====
 
-  /**
-   * 超管特权「立即完成」共享实现：QQ 指令与 Web REST 静默端点（读条按钮）双入口，
-   * 单一实现（统一调用约定）。结构化返回，调用方自行决定呈现——
-   * QQ 取 message 作文本回包，Web 按 ok/message 弹 Toast。
-   */
+  /** 两个地图之间的旅行距离：有直连取连接的 distance，否则按默认 50。 */
 
   getDistance(map1: any, map2: any): number {
     const connections1 = this.mapService.getConnections(map1);
@@ -1724,7 +1672,7 @@ export class GatherPanelService {
     return conn ? (conn.distance || 50) : 50;
   }
 
-  /** 计算原版“移动”成就使用的最短路径节点数（含起点和终点）。 */
+  /** 「地图」命令：当前地图描述 + 载具/怪物清单 + 可前往列表（开拓地折叠为「家园(N个)」）。 */
 
   async handleMap(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -1773,13 +1721,13 @@ export class GatherPanelService {
     const lines = [
       `🗺️ 【${currentMap.name}】`,
       currentMap.description ? `📖 ${currentMap.description}` : '',
-      `━━━━━━━━━━━━━━━`,
+      CARD_DIVIDER,
       ...vehicleLines,
       `怪物数量: ${monsters.length}`,
       monsters.length > 0
         ? `怪物: ${monsters.map((m: any) => m.name || '未知').join(', ')}`
         : '',
-      `━━━━━━━━━━━━━━━`,
+      CARD_DIVIDER,
       `可前往:`,
       ...connections.map((c: any) => `  → ${c.name}${this.dungeonEntrySuffix(c)} (距离: ${c.distance})`),
       ...(frontierCount > 0 ? [`  → 家园(${frontierCount}个)（发送「查看家园」浏览）`] : []),
@@ -1789,12 +1737,9 @@ export class GatherPanelService {
   }
 
   /**
-   * 处理查看状态命令（详细属性）
-   */
-  /**
-   * 处理详细属性面板命令
-   * 对应原版 数据显示.ecode 显示使魔数据(L723-995)：详细模式(参数详细=真)
-   * 显示计算后的完整属性面板，含四系抗性、穿透、回复、增益等
+   * 躺下（原版 _主程序.ecode L7086-7096）：需床 + 行动无限制（理由6=自动开采豁免），
+   * 写 sets.sleepover（有洛为负数）与「躺下」标记，回复躺下起床显示(1)
+   * （每秒经验/经验加成/陪睡加成/最终每秒获得，原版 数据显示.ecode L288-325）。
    */
 
   async handleLieDown(userId: number): Promise<string> {
@@ -1881,14 +1826,8 @@ export class GatherPanelService {
   }
 
   /**
-   * 玩家设置
-   * 查看/修改个人设置，设置存储在 markers 中
-   * 对应原版：_主程序.ecode 中「设置」指令
-   *
-   * 改造：
-   * - 移除随机数、背景音乐、自动购物（已脱离用户可设置范围）
-   * - 使用活力、自动采集改为管理员全局设置，用户侧只读展示
-   * - 新手指引永远开启（用户侧不允许关闭）
+   * 「开采」命令：无参=载具开采（mineByVehicle，60 秒延时结算）；
+   * 带资源名=资源点采集兼容分支（mineResourcePoint）。
    */
 
   async handleMine(userId: number, resourceName?: string): Promise<string> {
@@ -2006,11 +1945,9 @@ export class GatherPanelService {
     // 检查是否死亡
       { const __dt = await this.playerService.deathGateText(player); if (__dt) return __dt; }
 
-    // 获取当前地图
     const map = await this.mapService.getMapById(player.mapId);
     if (!map) return '你不在任何地图上！';
 
-    // 解析可采集资源
     const resources2 = asJsonValue<any[]>(map.resources2, []);
     const availableResources = resources2.filter((r: any) => Number(r.amount ?? r.quantity ?? 0) > 0);
 
@@ -2018,7 +1955,6 @@ export class GatherPanelService {
       return '当前地图没有可开采的资源';
     }
 
-    // 如果没有指定资源，显示可开采列表
     if (!resourceName) {
       const lines = [`⛏️ 【${map.name}】可开采资源:`];
       for (const r of availableResources) {
@@ -2029,7 +1965,6 @@ export class GatherPanelService {
       return lines.join('\n');
     }
 
-    // 查找指定资源
     const targetResource = availableResources.find(
       (r: any) => r.name === resourceName,
     );
@@ -2051,7 +1986,6 @@ export class GatherPanelService {
       }
     }
 
-    // 采集产出
     const resourceDisplayName = targetResource.name ?? resourceName;
     const amount = Number(targetResource.amount ?? targetResource.quantity ?? 0);
     if (!Number.isFinite(amount) || amount <= 0) {
@@ -2072,7 +2006,7 @@ export class GatherPanelService {
       expireTime: now + respawnTime,
     };
 
-    // 更新 markers2（移除旧冷却条目，添加新条目）
+    // 冷却条目按 key 唯一：先移除旧条目再添加新条目
     const updatedMarkers2 = markers2.filter((m: any) =>
       (m?.key ?? m?.name) !== cooldownKey,
     );
@@ -2093,7 +2027,6 @@ export class GatherPanelService {
       return `这里没有${resourceDisplayName}可以开采`;
     }
 
-    // 更新玩家 markers2
     player.markers2 = updatedMarkers2; // Json 列直接写数组
     await this.playerService.savePlayer(player);
 
@@ -2200,7 +2133,7 @@ export class GatherPanelService {
         if (times !== -1 && times > 0) emptied.push(resource.name);
       }
 
-      // 背包写回（数值过 roundItemQuantity 三道闸）；awarded 现只含资源，装备已在生成时入包
+      // 背包写回（数值过 roundItemQuantity）；awarded 只含资源，装备已在生成时入包
       for (const [itemName, amount] of awarded) {
         this.support.addItemToCollection(backpack, { name: itemName, type: '资源', quantity: amount });
       }
@@ -2250,7 +2183,6 @@ export class GatherPanelService {
       player.markers = markers; // Json 列直接写对象
       await this.playerService.savePlayer(player);
 
-      // 结算文本（原版 L7535-7542/L7595-7599）
       // 结算文本（原版 L7535-7542/L7595-7599）；装备按 件 计入（与手动采集块一致）
       const gainedText = [
         ...[...awarded.entries()].map(([name, amount]) => `${name}×${formatDisplayNumber(amount)}`),
@@ -2282,32 +2214,10 @@ export class GatherPanelService {
     }
   }
 
-  /** 载具部件名收集（含内置零件递归；与 AutoMineService.getVehiclePartNames 同口径）。 */
-  /** 跨子服务 API（§10.2）：MovementVehicle 经 DI 直连调用。 */
+  /** 载具部件名收集（含内置零件递归）：唯一实现见 common/utils/vehicle-part.util。 */
 
   collectVehiclePartNames(vehicle: any): string[] {
-    const names: string[] = [];
-    const visit = (part: any): void => {
-      if (!part) return;
-      const name = String(part?.name ?? '').trim();
-      if (name) names.push(name);
-      // 嵌套零件（parts 内层元素）只按物品域归一化，内层 builtinParts 的行业别名保持原样
-      for (const inner of (Array.isArray(part?.builtinParts ?? part?.内置零件 ?? part?.builtin ?? part?.内置)
-        ? (part.builtinParts ?? part?.内置零件 ?? part?.builtin ?? part?.内置)
-        : asJsonValue<any[]>(part?.builtinParts ?? part?.内置零件 ?? part?.builtin ?? part?.内置, []))) {
-        visit(inner);
-      }
-    };
-    const parts = Array.isArray(vehicle?.parts)
-      ? vehicle.parts
-      : asJsonValue<any[]>(vehicle?.parts, []);
-    for (const part of parts) visit(part);
-    for (const part of (Array.isArray(vehicle?.builtinParts)
-      ? vehicle.builtinParts
-      : asJsonValue<any[]>(vehicle?.builtinParts, []))) {
-      visit(part);
-    }
-    return names;
+    return collectVehiclePartNamesFromUtil(vehicle);
   }
 
   /**
@@ -2315,7 +2225,6 @@ export class GatherPanelService {
    * 归属=玩家（ownerQQ/userId 任意键命中）、requireFollow=true 时还要求「跟随」熟练度<1；
    * countLimit 为显示数量上限（原版第2参）。返回名单文本与数量。
    */
-  /** 跨子服务 API（§10.2）：MovementVehicle/DelayedSettle 经 DI 直连调用。 */
 
   async summonFollowDisplay(
     map: any,
@@ -2350,7 +2259,7 @@ export class GatherPanelService {
     return { names, count: names.length, indexes };
   }
 
-  /** 原版 取随机数(最小,最大)（含两端）。 */
+  /** 当前地图是否存在该采集指令的可采资源（times≠0 且未被本玩家领取）。 */
 
   async hasGatherCmd(userId: number, cmdName: string): Promise<boolean> {
     if (!cmdName) return false;
@@ -2410,7 +2319,6 @@ export class GatherPanelService {
    * 回复“{采集文本},大概需要N秒”。
    * 延时到点后由 settleGatherResource（阶段2）真正结算产出。
    *
-   * @param userId 玩家ID
    * @param cmdName 采集指令名（如 打开箱子/打开休眠仓/收集物品/捡垃圾，可带数字后缀表示次数）
    * @returns 开始文本；未命中任何资源时返回空字符串
    */
@@ -2437,7 +2345,6 @@ export class GatherPanelService {
     const map = await this.mapService.getMapById(player.mapId);
     if (!map) return '';
 
-    // 解析地图固定资源列表
     const resources = this.getGatherResources(map);
     const parsedCommand = this.parseGatherCommand(cmdName);
     const gatherName = parsedCommand.name;
@@ -2475,7 +2382,7 @@ export class GatherPanelService {
 
     // ===== 原版 _主程序.ecode L11383-11399 计算采集耗时 =====
     // 家园院子里输入"指令N"一次执行 N 次（额外次数），其他地图忽略数字。
-    // 超管特权扩展（2026-09-10）：ADMIN/SUPER_ADMIN 在任何地图批量后缀同样生效；
+    // 超管特权：ADMIN/SUPER_ADMIN 在任何地图批量后缀同样生效；
     // 耗时与产出线性同比放大（矿炮 30 秒封顶只封时长不封次数）。
     // 原版公式：a1 = 取随机数(3000×倍率, 6000×倍率) × d / 1000（毫秒→秒）
     const isOwnYard = player.houseName === map.name;
@@ -2589,7 +2496,7 @@ export class GatherPanelService {
     //   注入 version+1，而内存快照版本没同步，链尾的整包保存必然 P2025 失败，
     //   整次结算半途而废；
     // - 定点写也不会使其它旧快照失效，持有旧 markers 的并发写者仍能通过自己
-    //   的 CAS 把「采集中」原样写回复活（2026-08-26 线上重复结算事故根因）。
+    //   的 CAS 把「采集中」原样写回复活 → 重复结算。
     // 整包 CAS 认领成功即推进版本并同步内存快照，链尾保存顺理成章；失败
     // （P2025 并发冲突）说明另一入口已在结算，本调用立即放弃并还原内存快照，
     // 标记仍留库中由下一轮兜底重试，不会丢结算。
@@ -2700,7 +2607,7 @@ export class GatherPanelService {
         if (itemType === '装备') {
           const quality = parsed.quality || '';
           const equipment = await this.itemSystemService.generateRewardEquipment(parsed.name, quality);
-          // 数量只写规范键 quantity（count 镜像由持久化边界收敛删除）
+          // 数量只写规范键 quantity（不写 count 镜像）
           this.addBackpackItem(backpack, { ...equipment, type: '装备', quantity: 1 });
           awardedEquipment.set(parsed.name, (awardedEquipment.get(parsed.name) || 0) + 1);
         } else {
@@ -3184,8 +3091,7 @@ export class GatherPanelService {
     }
   }
 
-  /** 兼容新格式与早期错误导出的 resources JSON。 */
-  /** 跨子服务 API（§10.2）：HomeBuild 经 DI 直连调用。 */
+  /** 产出条目归一化：只认规范键 quantity/chance，非数组入参按 JSON 解析容错。 */
 
   parseResourceOutputs(value: any): any[] {
     const outputs = Array.isArray(value)
@@ -3197,7 +3103,7 @@ export class GatherPanelService {
 
       // 产出条目只认规范键：quantity（数量）、chance（概率 0-100）。
       // 名称末尾数字/品质后缀（如「木头3」「寒风s」「工业建筑箱-3」）由
-      // parseResourceOutputName 解析，与概率字段无关。历史「count=概率」编码已废弃。
+      // parseResourceOutputName 解析，与概率字段无关。
       const rawName = String(output.name ?? '').trim();
       const rawQuantity = Number(output.quantity ?? 0);
       return {
@@ -3211,11 +3117,9 @@ export class GatherPanelService {
 
   /**
    * 解析资源的采集指令：条目自带 gatherCmd 优先，缺失时回退到全局资源列表的同名定义。
-   *
-   * 事故背景（2026-09-06）：定时任务掉落货舱/能量元素时只写入了 {name,type,amount}
-   * 字面量，缺 gatherCmd；观察附近照样给它编了号，但 cmd 为空 → 编号不注册 →
-   * 玩家发送编号后完全没有反应（连"未知指令"提示都没有）。
-   * 这里做兜底：只要资源名能在全局资源表里找到，编号就一定点得动。
+   * 兜底必要性：定时任务掉落的货舱/能量元素只写入 {name,type,amount} 字面量、缺 gatherCmd，
+   * 观察附近照样给它编号，但 cmd 为空 → 编号不注册 → 玩家发送编号后完全没有反应
+   * （连"未知指令"提示都没有）。只要资源名能在全局资源表里找到，编号就一定点得动。
    */
 
   resolveGatherCmd(resource: any): string {
@@ -3242,7 +3146,7 @@ export class GatherPanelService {
     return Number(markers[marker] ?? 0) < 1;
   }
 
-  /** 获取玩家永久标记(markers)对象，用于资源采集门禁的"每人一次"判断。 */
+  /** 玩家永久标记(markers)对象，供资源采集门禁的"每人一次"判断。 */
 
   async getPlayerMarkers(userId: number): Promise<Record<string, any>> {
     try {
@@ -3313,11 +3217,9 @@ export class GatherPanelService {
     // 检查是否死亡
       { const __dt = await this.playerService.deathGateText(player); if (__dt) return __dt; }
 
-    // 获取当前地图
     const map = await this.mapService.getMapById(player.mapId);
     if (!map) return '你不在任何地图上！';
 
-    // 解析地图各 JSON 字段
     const monsters = await this.mapService.getMapMonsters(map);
     const resources2 = asJsonValue<any[]>(map.resources2, []);
     const items = asJsonValue<any[]>(map.items, []);
@@ -3329,13 +3231,13 @@ export class GatherPanelService {
 
     const lines: string[] = [
       `🔍 【${map.name}】探测报告`,
-      `━━━━━━━━━━━━━━━`,
+      CARD_DIVIDER,
     ];
 
     // 地图描述
     if (map.description) {
       lines.push(`📖 ${map.description}`);
-      lines.push(`━━━━━━━━━━━━━━━`);
+      lines.push(CARD_DIVIDER);
     }
 
     // 怪物信息
@@ -3353,7 +3255,7 @@ export class GatherPanelService {
     // 可采集资源信息
     const collectableResources = resources2.filter((r: any) => r.amount > 0);
     if (collectableResources.length > 0) {
-      lines.push(`━━━━━━━━━━━━━━━`);
+      lines.push(CARD_DIVIDER);
       lines.push(`⛏️ 可采集资源 (${collectableResources.length}种):`);
       for (const r of collectableResources) {
         lines.push(`  ${r.name} ×${r.amount} ${r.type ? `[${r.type}]` : ''}`);
@@ -3362,7 +3264,7 @@ export class GatherPanelService {
 
     // 固定资源信息
     if (resources.length > 0) {
-      lines.push(`━━━━━━━━━━━━━━━`);
+      lines.push(CARD_DIVIDER);
       lines.push(`📦 固定资源:`);
       for (const r of resources) {
         lines.push(`  ${r.name || '未知'} ${r.amount ? `×${r.amount}` : ''}`);
@@ -3371,7 +3273,7 @@ export class GatherPanelService {
 
     // 可拾取物品
     if (items.length > 0) {
-      lines.push(`━━━━━━━━━━━━━━━`);
+      lines.push(CARD_DIVIDER);
       lines.push(`🎒 地上物品 (${items.length}种):`);
       for (const item of items) {
         const count = item.quantity ?? 1;
@@ -3381,7 +3283,7 @@ export class GatherPanelService {
 
     // NPC 信息
     if (npcs.length > 0) {
-      lines.push(`━━━━━━━━━━━━━━━`);
+      lines.push(CARD_DIVIDER);
       lines.push(`💬 NPC (${npcs.length}个):`);
       for (const npc of npcs) {
         lines.push(`  ${npc.name || '未知'}${npc.description ? ` - ${npc.description}` : ''}`);
@@ -3392,7 +3294,7 @@ export class GatherPanelService {
     // 无主载具可「驾驶 载具名」接管，「查看载具」看零件详情）
     const vehicles = asJsonValue<any[]>(map.vehicles, []);
     if (vehicles.length > 0) {
-      lines.push(`━━━━━━━━━━━━━━━`);
+      lines.push(CARD_DIVIDER);
       lines.push(`🚗 载具 (${vehicles.length}辆):`);
       for (const v of vehicles) {
         const vName = String(v?.name ?? '未知载具');
@@ -3405,7 +3307,7 @@ export class GatherPanelService {
     // 连接信息
     const connections = this.mapService.getConnections(map);
     if (connections.length > 0) {
-      lines.push(`━━━━━━━━━━━━━━━`);
+      lines.push(CARD_DIVIDER);
       lines.push(`🚪 可前往:`);
       for (const c of connections) {
         lines.push(`  → ${c.name}${this.dungeonEntrySuffix(c)} (距离: ${c.distance || '?'})`);
@@ -3416,8 +3318,8 @@ export class GatherPanelService {
   }
 
   /**
-   * 拾取地上物品
-   * 从地图的 items JSON 字段中拾取物品到背包
+   * 「探测雷达」：按雷达等级精度扫描全地图的十类目标（副本入口/行商/神之工匠/露娜/
+   * 小恶魔/废弃载具/花园宝宝/小白狐/货舱/能量元素），等级越高显示越精确。
    */
 
   async handleProbeRadar(userId: number): Promise<string> {
@@ -3783,33 +3685,27 @@ export class GatherPanelService {
   }
 
   /**
-   * 显示地图资源量（简化版）
-   * 对应原版：显示地图资源量（数据显示.ecode L3823-L3875）
-   * 汇总指定地图全部资源的采集产出（数量×几率/100）
+   * 「探测资源」结果里的地图行；原版 显示地图资源量（数据显示.ecode L3823-L3875）的产出
+   * 汇总未接入，当前只回显地图名（产出在调用处已解析）。
    */
 
   formatMapResourceYield(mapName: string): string {
-    // 直接从调用方传入的地图名无法取到地图对象，改为在调用处已提前解析
     return `${mapName}`;
   }
 
   /**
-   * 宠物操作菜单
-   * 对应原版：宠物操作 命令
+   * 「拾取」：无参数只列地面物品；带物品名/序号、「全部」才真正拾取（对应原版 拾取 分支）。
    */
 
   async handlePickup(userId: number, itemName?: string): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
 
-    // 检查是否死亡
       { const __dt = await this.playerService.deathGateText(player); if (__dt) return __dt; }
 
-    // 获取当前地图
     const map = await this.mapService.getMapById(player.mapId);
     if (!map) return '你不在任何地图上！';
 
-    // 解析地图上的物品
     const mapItems = asJsonValue<any[]>(map.items, []);
     if (mapItems.length === 0) {
       return '地上没有可拾取的物品';
@@ -3940,10 +3836,7 @@ export class GatherPanelService {
     return lastStampText ? `${text}\n${lastStampText}` : text;
   }
 
-  /**
-   * 开采资源
-   * 开采当前地图的资源点
-   */
+  /** 「自动开采」：转交 AutoMineService.start（写原版「自动开采/自动开采2」时间标记）。 */
 
   async handleAutoMine(userId: number): Promise<string> {
     return this.autoMineService
@@ -3962,10 +3855,7 @@ export class GatherPanelService {
       : `${this.support.getPlayerName(userId)}自动开采服务尚未加载`;
   }
 
-  /**
-   * 配方解锁
-   * 对应原版：配方解锁 命令
-   */
+  /** 「背包」：列表展示 + 按序号或名称查看单项详情。 */
 
   async handleInventory(userId: number, arg?: string): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -4005,8 +3895,7 @@ export class GatherPanelService {
     // parseLayout 背包分支的正则解析——普通物品行「N. 名称 ×数量」匹配
     // /^(\d+)\.\s*(.+?)\s*×\s*([\d.]+)\s*$/，装备行「N. 名称」匹配 /^(\d+)\.\s*(.+)$/；
     // 标题行「🎒 背包(N种)」匹配 /^🎒\s*(?:资源)?背包\s*\(\d+(?:种)?\)/。
-    // 排序与行格式另由 server/test/inventory-display.spec.ts 契约测试
-    // （'背包展示排序（资源在前、装备在后）'）锁定。改动此处输出必须同步前端正则与契约测试。
+    // 排序与行格式由 server/test/inventory-display.spec.ts 锁定；改此处输出须同步前端正则与该测试。
     const lines = displayItems.map((item: any, index: number) => {
       if (item.type === '装备') {
         return `${index + 1}. ${this.itemService.formatEquipmentInventoryDisplay(item)}`;
@@ -4019,12 +3908,9 @@ export class GatherPanelService {
     return `🎒 背包 (${displayItems.length}种):\n${lines.join('\n')}`;
   }
 
-  /**
-   * 处理查看地图命令
-   */
+  /** 「资源背包」：只列非装备类物品，输出格式与「背包」同构。 */
 
   async handleResourceBag(userId: number): Promise<string> {
-    // 获取玩家数据
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
     const items = this.playerService.getBackpackItems(player);
@@ -4040,15 +3926,12 @@ export class GatherPanelService {
       return '📦 你的资源背包是空的，当前没有资源、材料或消耗品';
     }
 
-    // 输出格式与「背包」列表完全同构（🎒 标题 + 「N. 名字 ×数量」行）：
-    // 前端 RichSystemCard 的背包网格解析与 ChatView isRichCardContent 按同一文本约定复用，
-    // 资源背包不设第二套解析分支（统一调用约定，禁止双重表示）。
-    // 数量口径与 handleInventory 一致走 itemQuantity（只读规范键 quantity），
-    // 禁用旧的 count||quantity 双字段兜底（addToBackpack 历史路径不再写 count）。
-    // 文本契约（RVW04 P2-8）：标题 `🎒 资源背包 (N种):` 与物品行 `N. 名字 ×数量` 的解析正则
-    // 定义在 web/src/components/RichSystemCard.vue parseLayout 背包分支
-    //（/^🎒\s*(?:资源)?背包\s*\(\d+(?:种)?\)/ 与 /^(\d+)\.\s*(.+?)\s*×\s*([\d.]+)\s*$/），
-    // server/test/inventory-display.spec.ts 契约测试同步锁定；改动须服务端、前端正则、契约测试三处一起改。
+    // 输出格式与「背包」列表完全同构（🎒 标题 + 「N. 名字 ×数量」行）：前端 RichSystemCard
+    // 的背包网格解析与 ChatView isRichCardContent 按同一文本约定复用，资源背包不设第二套解析分支。
+    // 数量口径与 handleInventory 一致走 itemQuantity。
+    // 文本契约（RVW04 P2-8）：标题 /^🎒\s*(?:资源)?背包\s*\(\d+(?:种)?\)/、物品行 /^(\d+)\.\s*(.+?)\s*×\s*([\d.]+)\s*$/
+    // 解析正则定义在 web/src/components/RichSystemCard.vue parseLayout 背包分支，
+    // server/test/inventory-display.spec.ts 同步锁定；改动输出须同步前端正则与该测试。
     const lines = resourceItems.map((item: any, index: number) => {
       const itemName = item.name || '未知物品';
       const count = Math.round(this.support.itemQuantity(item) * 100) / 100;
@@ -4082,16 +3965,16 @@ export class GatherPanelService {
 
     const lines: string[] = [];
     lines.push(`【背包搜索】关键词: ${keyword}`);
-    lines.push(`━━━━━━━━━━━━━━━`);
+    lines.push(CARD_DIVIDER);
     for (const item of matchedItems) {
       if (item.type === '装备') {
         lines.push(`  ${item.name} [装备]`);
       } else {
-        // 数量统一走 support.itemQuantity（只读规范键 quantity，历史 count 别名已由持久化边界收敛）
+        // 数量统一走 support.itemQuantity（只读规范键 quantity，不读 count 别名）
         lines.push(`  ${item.name} ×${formatDisplayNumber(this.support.itemQuantity(item))} [${item.type || '资源'}]`);
       }
     }
-    lines.push(`━━━━━━━━━━━━━━━`);
+    lines.push(CARD_DIVIDER);
     lines.push(`共找到 ${matchedItems.length} 个匹配物品`);
 
     return lines.join('\n');
@@ -4121,7 +4004,7 @@ export class GatherPanelService {
 
     const lines: string[] = [];
     lines.push(`【保险柜搜索】关键词: ${keyword}`);
-    lines.push(`━━━━━━━━━━━━━━━`);
+    lines.push(CARD_DIVIDER);
     for (const item of matchedItems) {
       if (item.type === '装备') {
         lines.push(`  ${item.name} [装备]`);
@@ -4130,23 +4013,13 @@ export class GatherPanelService {
         lines.push(`  ${item.name} ×${formatDisplayNumber(this.support.itemQuantity(item))} [${item.type || '资源'}]`);
       }
     }
-    lines.push(`━━━━━━━━━━━━━━━`);
+    lines.push(CARD_DIVIDER);
     lines.push(`共找到 ${matchedItems.length} 个匹配物品`);
 
     return lines.join('\n');
   }
 
-  /**
-   * 查看已装备的装备/武器详情（对应原版 _主程序.ecode L5596 `查看装备/查看武器`）
-   * 支持两种用法：
-   *   - 无参数：列出身上已装备的装备/武器清单
-   *   - 带参数（序号或名称）：查看指定装备/武器的详细属性
-   * 原版按 `查看装备`/`查看武器` 区分查找武器栏或装备栏，此处同样区分。
-   * @param userId 玩家ID
-   * @param arg 参数（空=列表，否则为序号或装备名）
-   * @param kind 装备类型：'武器' 查玩家.weapons，其他查玩家.equipment
-   * @returns 查看结果文本
-   */
+  /** 「背包操作」帮助文本：列出 背包/使用/装备/丢弃/资源背包 的用法。 */
 
   async handleBagOps(userId: number): Promise<string> {
     return `📦 背包操作说明：
@@ -4157,17 +4030,10 @@ export class GatherPanelService {
 使用「资源背包」查看资源类物品`;
   }
 
-  /**
-   * 装备强化
-   * 对应原版：强化()（_主程序.ecode L5050-L5153）
-   * 支持两种强化方式：
-   * 1. 输入数字序号：强化背包中的法宝，消耗「祥瑞气息」，耐久+1（最高9级）
-   * 2. 输入部位名：强化对应使魔装备部位的基础强化熟练度，消耗「合金」
-   *    （强化次数越多所需合金越多；更换装备不影响强化次数）
-   * @param userId 用户ID
-   * @param arg 参数（部位名或背包序号）
-   * @returns 强化结果文本
-   */
+   /**
+    * 「使用 物品名 [数量]」：种子走 handleUseSeed，其余转交 itemService.useItem。
+    * 对应原版：强化()（_主程序.ecode L5050-L5153）
+    */
 
   async handleUseItem(userId: number, itemName: string, count = 1): Promise<string> {
     const cropName = this.getSeedCropName(itemName);
@@ -4263,13 +4129,7 @@ export class GatherPanelService {
   }
 
   /**
-   * 处理装备命令
-   * 用户可能输入的物品名形态：
-   *   - 「基础名」（如 防弹上衣）
-   *   - 「基础名 + 单字母品质码」（如 防弹上衣D）
-   *   - 「基础名 + 品质码 + 可选·后缀特效」（如 防弹上衣D·纯洁无瑕）
-   * 而背包里 item.name 仅存基础名（品质在 item.data，特效在解析层），
-   * 因此做三层回退匹配保证任意形态都能定位到目标物品。
+   * 「查看说明」（对应原版 _主程序.ecode L5503）：当前地图名称、说明、复活点（网页版无图片，仅文本）。
    */
 
   async handleViewDescription(userId: number): Promise<string> {
@@ -4280,21 +4140,21 @@ export class GatherPanelService {
     const respawn = map.respawnPoint || map.复活点 || '未知';
     return [
       `📖 【${map.name}】说明`,
-      `━━━━━━━━━━━━━━━`,
+      CARD_DIVIDER,
       map.description || '（该地图暂无说明）',
       `复活点: ${respawn}`,
     ].join('\n');
   }
 
-  /**
-   * 处理对话咏星跟随命令（对应原版 _主程序.ecode L1368）
-   * 找到当前地图"咏星"怪物，检查好感≥100后将其转为归属于玩家的召唤物（跟随）。
-   */
+   /**
+    * 「查看标记」：列出玩家永久标记 markers（键 × 值）。
+    * 处理对话咏星跟随命令（对应原版 _主程序.ecode L1368）
+    */
 
   async handleViewMarkers(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
-    const lines: string[] = [`🔖 ${player.name || '冒险者'} 游戏标记:`, `━━━━━━━━━━━━━━━`];
+    const lines: string[] = [`🔖 ${player.name || '冒险者'} 游戏标记:`, CARD_DIVIDER];
     const entries = Object.entries(markers || {});
     if (entries.length === 0) {
       lines.push('  (暂无标记)');
@@ -4314,7 +4174,7 @@ export class GatherPanelService {
   async handleViewMarkers2(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers2 } = playerData;
-    const lines: string[] = [`⏱️ ${player.name || '冒险者'} 限时标记:`, `━━━━━━━━━━━━━━━`];
+    const lines: string[] = [`⏱️ ${player.name || '冒险者'} 限时标记:`, CARD_DIVIDER];
     const list = Array.isArray(markers2) ? markers2 : [];
     if (list.length === 0) {
       lines.push('  (暂无标记)');
@@ -4329,10 +4189,7 @@ export class GatherPanelService {
     return lines.join('\n');
   }
 
-  /**
-   * 处理查看说明命令（对应原版 _主程序.ecode L5503）
-   * 显示当前地图名称、说明、复活点（网页版无图片，仅文本）。
-   */
+  /** 背包中指定名称的非装备物品总数量（只累加规范键 quantity）。 */
 
   async backpackQuantity(backpack: any[], name: string): Promise<number> {
     let total = 0;
@@ -4344,14 +4201,11 @@ export class GatherPanelService {
     return total;
   }
 
-  /** 跨子服务 API（§10.2）：MovementVehicle 经 DI 直连调用。 */
+  /** 入包合并：统一走 item-normalize 规范化合并，type 以静态定义为唯一真源（Issue #11）。 */
 
   addBackpackItem(backpack: any[], item: any): void {
-    // 统一走 item-normalize 规范化合并：type 以静态定义为唯一真源（Issue #11）
     mergeBackpackItem(backpack, item, lookupFromStaticData(this.staticData));
   }
-
-  /** 对应原版 制造()：dryRun 只校验，正式执行才消耗资源并产出物品。 */
 
   /** 采集开始阶段的进程内去重时间戳：key=userId（防同刻连发双开任务）。 */
   private readonly gatherStartInflight = new Map<number, number>();

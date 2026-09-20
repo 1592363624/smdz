@@ -61,13 +61,11 @@ async function main() {
   for (const p of players) {
     const cols = wouldChange(p, playerCols, (row) => {
       normalizePlayerRow(row);
-      // tasks 与 migrate 脚本同逻辑：仅对比 JSON，不在这里改写写库
     });
-    // tasks 单独检查
+    // tasks 不参与 normalize 比对：只要 JSON 里含 count 就整体备份
     try {
       const t = p.tasks;
       if (Array.isArray(t) || (typeof t === 'string' && t.trim().startsWith('['))) {
-        // 粗略：只要含 count 就备份
         const s = typeof t === 'string' ? t : JSON.stringify(t);
         if (/"count"/.test(s)) cols.push('tasks');
       }

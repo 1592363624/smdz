@@ -96,7 +96,7 @@ describe('打开箱子端到端（真实远程库）', () => {
     const uid = await makePlayer([
       { name: '奶', type: '资源', quantity: 5 },
     ], { level: 175, upgradeExp: 30630 });
-    // 三池口径（2026-09-07 修正，原版 物品操作 L2289）：奶回复基数 =
+    // 三池口径（原版 物品操作 L2289）：奶回复基数 =
     // buildAttackerBonus 计算护盾 ×10%，封顶 = 各池计算上限。不再用基础 maxShield。
     const t1 = await game.handleUseItem(uid, '奶', 1);
     console.log('[奶·存活]', t1);

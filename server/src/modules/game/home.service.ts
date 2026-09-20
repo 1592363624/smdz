@@ -69,7 +69,7 @@ export interface CropGrowthPlan {
   totalSeconds: number;
   /** 每个阶段的秒数（均分） */
   stageSeconds: number[];
-  /** 收获收益换算口径：总收益 = 基础产出/分 × 总时长/600（与旧版作物口径一致） */
+  /** 收获收益换算口径：产出按“每分钟”计量，总收益 = 基础产出/分 × 总时长/600 */
   rewardScaleDivisor: number;
 }
 
@@ -198,14 +198,10 @@ export class HomeService {
   ) {}
 
   /**
-   * 生成临时建筑 - 多产出
-   * 对应原版：生成临时建筑_多产出()
-   * 创建一个临时建筑资源，产出多个指定物品
-   * 用于生产建筑、种植等场景中的临时资源生成
-   * @param items 产出物品数组
+   * 生成临时建筑 - 多产出（对应原版：生成临时建筑_多产出()）：产出多个指定物品的临时生产者。
+   *
    * @param buildingCount 建筑数量（不指定则默认为1）
    * @param specifiedPriority 指定优先级（不指定则默认为1）
-   * @returns 生产者对象
    */
   createTempBuildingMulti(
     items: ProduceItem[],
@@ -225,17 +221,13 @@ export class HomeService {
   }
 
   /**
-   * 生成临时建筑 - 单产出
-   * 对应原版：生成临时建筑()
-   * 创建一个临时建筑资源，生产指定物品
-   * 支持从建筑列表中查找已有建筑定义
-   * @param outputName 产出名称
-   * @param outputQuantity 产出数量
+   * 生成临时建筑 - 单产出（对应原版：生成临时建筑()）：生产指定物品的临时生产者，
+   * 指定名称命中建筑列表时改用该建筑定义的产出。
+   *
    * @param specifiedName 指定名称（不为空时会从建筑列表查找）
    * @param buildingCount 建筑数量（不指定则默认为1）
    * @param specifiedPriority 指定优先级（不指定且查不到建筑时默认为2）
    * @param buildingList 建筑列表（用于按名称查找建筑定义）
-   * @returns 生产者对象
    */
   createTempBuilding(
     outputName: string,
@@ -274,14 +266,11 @@ export class HomeService {
   }
 
   /**
-   * 是否有特殊宠物
-   * 对应原版：是否有特殊宠物()
-   * 检查地图上是否存在指定特殊序号的宠物
-   * 特殊宠物会影响生产加成（如龙女仆、英招、执行者等）
-   * @param specialSeq 特殊序号
+   * 是否有特殊宠物（对应原版：是否有特殊宠物()）：返回 units 中首个匹配特殊序号的下标，未找到返回 -1。
+   * 特殊宠物会影响生产加成（如龙女仆、英招、执行者等）。
+   *
    * @param units 地图上的单位数组（召唤物/宠物）
    * @param requireAlive 是否要求存活（生命值大于0）
-   * @returns 找到的单元下标，未找到返回-1
    */
   hasSpecialPet(
     specialSeq: number,
@@ -290,11 +279,10 @@ export class HomeService {
   ): number {
     for (let i = 0; i < units.length; i++) {
       const unit = units[i];
-      // 检查特殊序号（原版用"活力"字段存特殊序号）
+      // 原版用"活力"字段存特殊序号
       const unitSpecialSeq = unit.specialSeq || unit.vitality || 0;
       if (unitSpecialSeq === specialSeq) {
         if (requireAlive) {
-          // 需要存活才返回
           if ((unit.hp || unit.currentHp || 0) > 0) {
             return i;
           }
@@ -318,20 +306,10 @@ export class HomeService {
    * 3. 每个产出 = 数量 × 人力供应倍率 × 次数 × 生产时间 / 60
    * 4. 作物产出是建筑的10%
    * 5. 电力/燃料有独立倍率
-   * 
-   * @param producers 生产者数组（建筑/作物）
-   * @param storage 存放地（物品数组，用于消耗品检查）
-   * @param timeDiff 时间差（秒，距离上次观测流逝了多少秒）
-   * @param priority 优先级（只计算指定优先级的产出）
+   *
+   * @param timeDiff 时间差（秒，距上次观测流逝的秒数）
    * @param productionType 生产类型（1=作物，2=建筑）
-   * @param buildingOutputRate 建筑产出倍率
-   * @param cropOutputRate 作物产出倍率
-   * @param powerConsumeRate 电力消耗倍率
-   * @param fuelConsumeRate 燃料消耗倍率
-   * @param powerFuelOutputRate 燃电产出倍率
-   * @param laborSupplyRate 人力供应倍率
-   * @param noConsume 是否无视消耗（为true时无视消耗也能产出）
-   * @returns 产出物品数组
+   * @param noConsume true=无视消耗也能产出
    */
   produceResources(
     producers: Producer[],
@@ -350,11 +328,9 @@ export class HomeService {
     const outputItems: ProduceItem[] = [];
     const tempItem: any = { name: '', quantity: 0 };
 
-    // 遍历所有生产者，只计算指定优先级的
     for (const producer of producers) {
       if (producer.priority !== priority) continue;
 
-      // 计算单个建筑的最小产出时间（受消耗品供应量影响）
       let productionTime: number;
       if (noConsume) {
         productionTime = timeDiff;
@@ -367,31 +343,24 @@ export class HomeService {
         );
       }
 
-      // 遍历该生产者的所有产出
       for (const output of producer.outputs) {
         const outputQuantity = this.getProduceQuantity(output);
-        // 计算基础产出量
         // 公式：数量 × 人力供应倍率 × 次数 × 生产时间 / 60
         let quantity = outputQuantity * laborSupplyRate * producer.count * productionTime / 60;
 
         if (productionType === 1) {
-          // 作物类型：作物相同时间产出是建筑的10%
           if (outputQuantity > 0) {
             quantity = quantity * cropOutputRate * 0.1;
           } else {
             quantity = quantity * 0.1;
           }
         } else {
-          // 建筑类型
           if (outputQuantity > 0) {
-            // 正产出：应用建筑产出倍率
             quantity = quantity * buildingOutputRate;
-            // 电力/燃料有独立倍率
             if (output.name === '电力' || output.name === '燃料') {
               quantity = quantity * powerFuelOutputRate;
             }
           } else {
-            // 负产出（消耗品）：应用消耗倍率
             if (output.name === '电力') {
               quantity = quantity * powerConsumeRate;
             } else if (output.name === '燃料') {
@@ -403,7 +372,6 @@ export class HomeService {
         // 原版产出资源 L116：电力只参与总平衡，不写入家园存放地。
         if (output.name === '电力') continue;
 
-        // 添加到产出列表
         tempItem.name = output.name;
         tempItem.quantity = quantity;
         this.addToOutput(outputItems, tempItem);
@@ -420,7 +388,6 @@ export class HomeService {
    * 受燃料/电力等消耗品供应量影响
    * 如果消耗品不足，产出时间会延长（受限于消耗品库存）
    * 
-   * @param producer 生产者
    * @param timeDiff 时间差（秒）
    * @param storage 存放地（物品数组，用于查找可消耗的物品）
    * @param productionType 生产类型（1=作物，2=建筑）
@@ -476,9 +443,7 @@ export class HomeService {
    * 对应原版：转为生产()
    * 将建筑数据（物品3格式）转换为生产者（资源1格式）
    * 用于统一计算产出
-   * @param buildings 建筑物品数组
    * @param buildingDefs 建筑定义列表（从数据库GameBuilding表加载）
-   * @returns 生产者数组
    */
   convertToProduction(
     buildings: BuildingItem[],
@@ -525,7 +490,6 @@ export class HomeService {
    * @param powerFuelOutputRate 燃电产出倍率
    * @param laborSupplyRate 人力供应倍率
    * @param remainingFuel 初始剩余燃料（会更新）
-   * @returns 地图产出分析结果
    */
   getMapOutput(
     timeDiff: number,
@@ -586,9 +550,9 @@ export class HomeService {
     }
 
     // ----- 计算作物总产出（分阶段成熟玩法） -----
-    // 作物不再按分钟掉落普通物品——收益改为成熟后一次性收获（见 harvestCrop）。
-    // 这里只保留「电力类作物」（如太阳能板）的发电平衡作用，保证纯发电院子的
-    // hasPower 判断与旧版一致；其余产出一律不进入总产出/消耗，也不影响每日产出。
+    // 作物收益在成熟时一次性结算（见 harvestCrop），不按分钟掉落普通物品。
+    // 这里只保留「电力类作物」（如太阳能板）的发电平衡作用，保证纯发电院子
+    // 的 hasPower 判断不漂移；其余产出一律不进入总产出/消耗，也不影响每日产出。
     for (const crop of crops) {
       for (const output of crop.outputs) {
         const outputQuantity = this.getProduceQuantity(output);
@@ -659,7 +623,6 @@ export class HomeService {
    * 牵引光束会从未开拓地中提取资源，产出倍率为5倍
    * 
    * @param count 牵引光束数量
-   * @param map 当前地图对象
    * @param buildingOutputRate 建筑产出倍率
    * @param powerFuelOutputRate 燃电产出倍率
    * @param laborSupplyRate 人力供应倍率
@@ -740,8 +703,6 @@ export class HomeService {
    * 计算地图上非"不占"类型的建筑总数
    * 用于限制建筑数量上限
    * 
-   * @param buildings 建筑物品数组
-   * @param buildingDefs 建筑定义列表
    * @returns 有效建筑数量
    */
   getBuildingCount(
@@ -770,11 +731,7 @@ export class HomeService {
    * 对应原版：建造建筑相关逻辑
    * 在地图上建造建筑，检查材料需求并从背包扣除
    * 
-   * @param map 地图对象
-   * @param buildingName 建筑名称
-   * @param buildingDefs 建筑定义列表
    * @param backpack 玩家背包（会从中扣除材料）
-   * @returns 建造结果对象
    */
   async buildBuilding(
     map: any,
@@ -875,11 +832,7 @@ export class HomeService {
    * 对应原版：拆除建筑相关逻辑
    * 拆除地图上的建筑，返还部分材料（50%）
    * 
-   * @param map 地图对象
-   * @param buildingName 建筑名称
-   * @param buildingDefs 建筑定义列表
    * @param backpack 玩家背包（返还材料会加入）
-   * @returns 拆除结果对象
    */
   async removeBuilding(
     map: any,
@@ -944,11 +897,7 @@ export class HomeService {
    * 对应原版：种植相关逻辑
    * 在地图上种植作物，消耗种子，等待生长后收获
    * 
-   * @param map 地图对象
-   * @param seedName 种子名称
-   * @param backpack 玩家背包
    * @param buildingDefs 建筑定义列表（用于查找作物定义）
-   * @returns 种植结果
    */
   async plantSeed(
     map: any,
@@ -1032,15 +981,8 @@ export class HomeService {
   /**
    * 收获作物（分阶段成熟玩法）
    * 只有**已成熟**的同名作物才会被收获：成熟棵数 = 所有达到总时长的独立条目
-   * 棵数之和，收益 = 产出2正收益 × 棵数 × 总时长/600（等价旧版该时段持续掉落的
-   * 总量，只是把"被动分钟掉落"改成"成熟后一次性收获"）。
-   * 未成熟的作物保留在地里，提示还需多久成熟；没有该作物则走旧存档兼容分支。
-   *
-   * @param map 地图对象
-   * @param cropName 作物名称
-   * @param buildingDefs 建筑定义列表
-   * @param backpack 玩家背包
-   * @returns 收获结果
+   * 棵数之和，收益 = 产出2正收益 × 棵数 × 总时长/600。
+   * 未成熟的作物保留在地里，提示还需多久成熟。
    */
   async harvestCrop(
     map: any,
@@ -1061,7 +1003,7 @@ export class HomeService {
     for (const resource of resources2) {
       if (!isCropEntry(resource)) continue;
       const plantedAt = Number(resource.plantedAt ?? resource['种植时间'] ?? 0);
-      // 无 plantedAt 的条目（旧版聚合存档/历史数据）视为已成熟，可直接收获
+      // 无 plantedAt 的条目视为已成熟，可直接收获
       const ripe = plantedAt <= 0 || (now - plantedAt) >= plan.totalSeconds;
       (ripe ? ripeEntries : unripeEntries).push(resource);
     }
@@ -1084,7 +1026,7 @@ export class HomeService {
       const resourceDef = this.staticData.getAllResources().find((resource: any) =>
         this.getItemName(resource) === cropName,
       );
-      // 收益取 outputs2 的正收益（作物掉落物）；旧版为每分钟口径，这里折算整周期
+      // 收益取 outputs2 的正收益（作物掉落物），口径是整周期总量而非每分钟
       const outputs = this.normalizeProduceItems(
         resourceDef?.outputs2 ?? ripeEntries[0]?.outputs2 ?? [],
       );
@@ -1118,7 +1060,7 @@ export class HomeService {
       };
     }
 
-    // 兼容之前错误写入map.buildings的开发数据。
+    // 存量数据兜底：部分作物条目写在 map.buildings 而非 map.items。
     const mapBuildings = this.safeParseJSON<any[]>(map.buildings, []);
     const cropIndex = mapBuildings.findIndex((b: any) => this.getItemName(b) === cropName);
     if (cropIndex === -1) {
@@ -1165,12 +1107,8 @@ export class HomeService {
    * 对应原版：宠物自动产出（如执行者的蛋产出、英招的羽毛产出等）
    * 计算地图上特殊宠物的额外产出
    * 
-   * @param map 地图对象
-   * @param specialSeq 特殊序号
-   * @param outputName 产出物品名称
    * @param outputQuantity 每个宠物的产出量
    * @param timeDiff 时间差（秒）
-   * @returns 产出物品数组
    */
   petProduction(
     map: any,
@@ -1279,7 +1217,7 @@ export class HomeService {
       .map((item) => ({
         ...item,
         name: this.getItemName(item),
-        // 条目数量只读规范键 quantity（同义旧键 count 已废弃）
+        // 条目数量只读规范键 quantity（count 不作为数量来源）
         quantity: Number(item.quantity ?? 0),
       }));
   }
@@ -1298,7 +1236,7 @@ export class HomeService {
   }
 
   private setItemQuantity(item: any, value: number): void {
-    // 数量只写规范键 quantity（count 镜像已废弃：静态数据与前线消费方均已统一为 quantity）
+    // 数量只写规范键 quantity（双键并存会让同一条目出现两个数量）
     item.quantity = value;
   }
 
@@ -1396,7 +1334,7 @@ export class HomeService {
 
   /**
    * 读取地图/玩家标记（统一走标记读取唯一口径 readMarkerValue）。
-   * 仅额外兼容 Json 列的历史字符串形态：解析后再交给共享实现，
+   * 仅额外兼容 Json 列可能以字符串形态落库：解析后再交给共享实现，
    * 数组/字典两种规范形态与中文别名收敛都由 field-contract 负责。
    */
   private readMarkerValue(source: any, name: string): number {
@@ -1428,7 +1366,6 @@ export class HomeService {
   /**
    * 获取建筑产出倍率
    * 从玩家标记中读取产出倍率设置
-   * @param markers 玩家标记
    * @returns 产出倍率（默认1.0）
    */
   getBuildingOutputRate(markers: Record<string, number>): number {
@@ -1436,7 +1373,7 @@ export class HomeService {
   }
 
   /**
-   * 观测并领取家园产出（QQ 文本出口，行为与历史版本逐字一致）。
+   * 观测并领取家园产出（QQ 文本出口，输出文本格式为对外契约）。
    * 对应地图操作.ecode L53-540：先计算电力/燃料可支撑时间，再按优先级执行产出。
    * 计算与文本已拆分：computeHomeSettlement 负责公式与结算，
    * renderHomeSettlementText 负责 DTO → 文本投影。
@@ -1550,7 +1487,7 @@ export class HomeService {
     const now = Date.now() / 1000;
     const liveMapMarkers = this.safeParseJSON<any>(map.markers, {});
     const mapMarkers = settle ? liveMapMarkers : this.deepCloneJson(liveMapMarkers);
-    // 新版本使用地图标记保存观测时间；兼容此前写入玩家标记的存量家园。
+    // 观测时间以地图标记为准；玩家标记仅作存量数据兜底。
     const lastOutput = this.readMarkerValue(mapMarkers, '观测时间')
       || this.readMarkerValue(mapMarkers, '读取时间')
       || this.readMarkerValue(mapMarkers, '家园产出时间')
@@ -1905,17 +1842,16 @@ export class HomeService {
         directOutput: directOutput.map((item) => ({ ...item })),
         producers: this.snapshotProducers(limitedCrops, buildingProducers),
         storage: this.snapshotStorage(storage),
-        overview: this.buildHomeOverview({
-          playerLevel: player.level || 1,
-          vouchers: this.readMarkerValue(markers, '凭证'),
-          cropCount: cropProducers.reduce((sum, crop) => sum + crop.count, 0),
+        overview: this.homeOverviewOf({
+          player,
+          markers,
+          cropProducers,
           cropLimit,
           buildingCount,
           petCount,
           massageCount,
           laborSupplyRate,
-          totalOutput: analysis.totalOutput,
-          powerGeneration: analysis.powerGeneration,
+          analysis,
           storage,
         }),
       };
@@ -1987,17 +1923,16 @@ export class HomeService {
       petBonusText: [...petBonusText],
       producers: this.snapshotProducers(limitedCrops, buildingProducers),
       storage: this.snapshotStorage(storage),
-      overview: this.buildHomeOverview({
-        playerLevel: player.level || 1,
-        vouchers: this.readMarkerValue(markers, '凭证'),
-        cropCount: cropProducers.reduce((sum, crop) => sum + crop.count, 0),
+      overview: this.homeOverviewOf({
+        player,
+        markers,
+        cropProducers,
         cropLimit,
         buildingCount,
         petCount,
         massageCount,
         laborSupplyRate,
-        totalOutput: analysis.totalOutput,
-        powerGeneration: analysis.powerGeneration,
+        analysis,
         storage,
       }),
     };
@@ -2035,6 +1970,37 @@ export class HomeService {
    * 传入的 storage 须已完成临时肥料移除（原版显示段同样在移除后读取库存）；
    * totalOutput 为每分钟净速率口径，本方法在其副本上追加基础肥沃度后再做燃料/肥料/每日产出判断。
    */
+  /**
+   * 家园总览快照（两处结算返回共用同一取数口径：无电力分支与正常结算分支）。
+   * 新增展示字段只改这里，避免两个返回结构各写一份而慢慢对不上。
+   */
+  private homeOverviewOf(ctx: {
+    player: any;
+    markers: any;
+    cropProducers: any[];
+    cropLimit: number;
+    buildingCount: number;
+    petCount: number;
+    massageCount: number;
+    laborSupplyRate: number;
+    analysis: any;
+    storage: any[];
+  }): HomeOverviewInfo {
+    return this.buildHomeOverview({
+      playerLevel: ctx.player.level || 1,
+      vouchers: this.readMarkerValue(ctx.markers, '凭证'),
+      cropCount: ctx.cropProducers.reduce((sum, crop) => sum + crop.count, 0),
+      cropLimit: ctx.cropLimit,
+      buildingCount: ctx.buildingCount,
+      petCount: ctx.petCount,
+      massageCount: ctx.massageCount,
+      laborSupplyRate: ctx.laborSupplyRate,
+      totalOutput: ctx.analysis.totalOutput,
+      powerGeneration: ctx.analysis.powerGeneration,
+      storage: ctx.storage,
+    });
+  }
+
   private buildHomeOverview(args: {
     playerLevel: number;
     vouchers: number;
@@ -2100,14 +2066,14 @@ export class HomeService {
     map.items = items;
     map.markers = markers;
     // 统一走地图动态字段收口（updateDynamicFields 会失效 map Actor 缓存，
-    // 避免陈旧整行回写覆盖本次落库）；不再保留裸 prisma 写分支。
+    // 避免陈旧整行回写覆盖本次落库）。
     await this.mapService.updateDynamicFields(map.id, { items, markers });
   }
 }
 
 /**
  * 家园结算文本渲染器（纯函数，无副作用）。
- * 输出与历史 collectHomeOutput 逐字一致，供 QQ bot 文本出口消费：
+ * 输出为 QQ bot 文本出口的对外格式（消费方依赖，改动需同步）：
  * 标题行 → 有电短路行 / 「获得XxY」有序产出 → 世界模拟器状态 → 宠物提示 → 空产出兜底。
  */
 export function renderHomeSettlementText(settlement: HomeSettlement): string {

@@ -94,7 +94,7 @@ function makeFixture(options: FixtureOptions) {
   };
 
   // 用真实 PlayerService 的共享用户级锁：本套件专门验证并发推进的串行化，
-  // 直通 stub 会把锁语义抹掉（与生产行为一致）。2026-09-08 起 enqueueUserWrite
+  // 直通 stub 会把锁语义抹掉（与生产行为一致）。enqueueUserWrite
   // 走 ActorRuntime（cell load 需要 prisma.player），必须传同一份 prisma 桩。
   const lockOwner = new PlayerService(prisma as any, staticData as any, {
     // 地图修复分支兜底：返回 null 则跳过修复，不触发建档刷怪
@@ -287,7 +287,7 @@ describe('任务系统兼容入口', () => {
       requirements: JSON.stringify([{ name: '击败怪物', quantity: 2 }]),
       rewards: JSON.stringify([{ name: '水晶', quantity: 1 }]),
     });
-    // 2026-09-08 起 enqueueUserWrite 走 Actor：cell 激活时 getPlayerData 会把无法
+    // enqueueUserWrite 走 Actor：cell 激活时 getPlayerData 会把无法
     // JSON 解析的旧格式任务串归一化为 []（两库实测均无旧格式存档，属正确读档收敛，
     // 旧格式解析能力仅存在于 parsePlayerTasks 兼容层）。因此旧格式编码改在本层直接
     // 验证；推进链路用等价的新格式存档走完整 Actor 往返。

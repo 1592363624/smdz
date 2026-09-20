@@ -116,7 +116,7 @@ describe('掉落率/品质接入普通击杀（原版 后台运作 L846-857）',
       return { player, lines };
     };
 
-    // 普通攻击击杀（含好感为 0）→ 不得清冷却（此前实现误用 好感>=40 兜底，超模）
+    // 普通攻击击杀（含好感为 0）→ 不得清冷却（用 好感>=40 兜底会超模）
     expect(run('攻击b').player.markers2).toHaveLength(1);
     expect(run(undefined).player.markers2).toHaveLength(1);
     // 万象a 击杀 → 清空 + 回显

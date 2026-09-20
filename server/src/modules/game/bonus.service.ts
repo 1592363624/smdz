@@ -1,22 +1,13 @@
 /**
- * 加成计算服务
- * 对应原版易语言：加成计算.ecode
- *
- * 功能：
- * - 加成限制（递减收益）：当属性值超过阈值时，超出部分按比例衰减
- * - 计算增益效果（如铠甲、套装等）
- * - 计算Buff效果
- * - 计算装备加成
- * - 计算最终属性
+ * 加成计算服务：递减收益（加成限制）、装备/增益/套装加成合并、buff 结算、
+ * 地图增益、战斗力与最终属性计算。对应原版易语言：加成计算.ecode
  */
 
 import { Injectable, Logger } from '@nestjs/common';
 import { roundItemQuantity } from '../../common/utils/game-text.util';
 import { toExpireMs } from './expire-time.util';
 
-/**
- * 加成属性接口，对应原版易语言的"加成"数据类型
- */
+/** 加成属性接口，对应原版易语言的"加成"数据类型 */
 export interface BonusData {
   攻击?: number;           // 攻击 [attack]
   魅力?: number;           // 魅力 [charm]
@@ -211,18 +202,10 @@ export class BonusService {
   private readonly logger = new Logger(BonusService.name);
 
   /**
-   * 加成限制（递减收益）
-   * 对应原版：加成限制()
-   * 当数值超过阈值时，超出部分按比例衰减
-   *
-   * 原版逻辑（加成计算.ecode L3-L62）：
-   * - 以“原始数值”判断落在哪个区间（而非剩余值）
-   * - 每个区间先累加前一区间的固定封顶值，再对剩余部分按对应比例衰减
-   *   <1000 不衰减；<2000 乘0.9；<3500 乘0.8；<5500 乘0.7；<8500 乘0.55；
-   *   <12000 乘0.3；<16000 乘0.1；否则乘0.02
-   *
-   * @param value 原始数值
-   * @returns 限制后的数值
+   * 加成限制（递减收益，对应原版 加成限制()，加成计算.ecode L3-L62）：
+   * 以「原始数值」判断落在哪个区间（而非剩余值），每个区间先累加前一区间的固定封顶值，
+   * 再对剩余部分按比例衰减：<1000 不衰减；<2000 ×0.9；<3500 ×0.8；<5500 ×0.7；
+   * <8500 ×0.55；<12000 ×0.3；<16000 ×0.1；其余 ×0.02。
    */
   applyDiminishingReturns(value: number): number {
     if (value < 1000) return value;
@@ -230,7 +213,6 @@ export class BonusService {
     let result = 1000;
     let remaining = value - 1000;
 
-    // 注意：下方 if 判断全部基于“原始数值 value”，与剩余量 remaining 无关（对齐原版）
     if (value < 2000) {
       result += remaining * 0.9;
     } else {
@@ -270,10 +252,7 @@ export class BonusService {
     return result;
   }
 
-  /**
-   * 对加成对象的所有二阶属性应用递减收益
-   * 对应原版：加成限制1()
-   */
+  /** 对加成对象的所有二阶属性应用递减收益（对应原版 加成限制1()）。 */
   applyAllDiminishingReturns(bonus: BonusData): void {
     if (bonus.攻击2) bonus.攻击2 = this.applyDiminishingReturns(bonus.攻击2);
     if (bonus.电伤2) bonus.电伤2 = this.applyDiminishingReturns(bonus.电伤2);
@@ -402,10 +381,10 @@ export class BonusService {
   }
 
   /**
-   * 计算经验值升级所需经验（保留兼容签名，实际升级门槛计算统一走 PlayerService.calcUpgradeExp）
-   * 对应原版升级经验公式（加成计算.ecode L1781-1794）：
+   * 升级所需经验（兼容签名；升级门槛统一走 PlayerService.calcUpgradeExp）。
+   * 对应原版公式（加成计算.ecode L1781-1794）：
    *   a2 = (c*c + 5) * (1 + 升级经验加成/100) * (1 - 风月入墨减益/100)
-   * 注意：原版此处曾误用 100*1.15^(n-1) 近似，已修正为 1:1 公式，避免后续误用产生偏差。
+   * 是 1:1 公式（c²+5），不是 100*1.15^(n-1) 近似，两者会算出不同门槛。
    */
   calcUpgradeExp(level: number, upgradeExpBonus = 0, windMoonReduce = 0): number {
     const base = level * level + 5;
@@ -422,9 +401,6 @@ export class BonusService {
    *        * (1 + (攻击生命+攻击装甲+攻击护盾)/300) / (1 - (护盾穿透+装甲穿透+生命穿透)/300)
    * a1 += 各部位回复加成（生命回复*10 + 生命回复2/10*生命，等）
    * a1 += 速度*5 + 闪避*5 + 命中*5
-   *
-   * @param bonus 加成（属性）数据
-   * @returns 战斗力数值
    */
   calcCombatPower(bonus: BonusData): number {
     const safe = (v: number | undefined) => this.safeNum(v);
@@ -474,8 +450,6 @@ export class BonusService {
 
   /**
    * 安全取值：undefined/null/非有限数统一按 0 处理，避免 NaN 污染计算结果
-   * @param v 数值
-   * @returns 安全数值
    */
   private safeNum(v: number | string | undefined | null): number {
     if (typeof v === 'number') return isFinite(v) ? v : 0;
@@ -491,9 +465,6 @@ export class BonusService {
    * 对应原版：增加全抗()（加成计算.ecode L1473-L1520）
    * 正数按堆叠公式累加到四抗；负数按百分比乘法削弱四抗
    * @param bonus 要修改的加成对象
-   * @param lifeAllRes 生命全抗
-   * @param shieldAllRes 护盾全抗
-   * @param armorAllRes 装甲全抗
    */
   private addAllResistance(bonus: BonusData, lifeAllRes = 0, shieldAllRes = 0, armorAllRes = 0): void {
     if (lifeAllRes !== 0) {
@@ -611,8 +582,6 @@ export class BonusService {
    * - 抗性类按 (100-当前)/100*源值 的堆叠公式累加
    * - 二阶属性（*2）在增益模式下按百分比乘到对应主属性上
    * @param target 目标加成（原地修改）
-   * @param source 来源加成
-   * @param opts 叠加选项
    */
   private mergeBonusTo(
     target: BonusData,
@@ -644,16 +613,16 @@ export class BonusService {
     target.攻击次数 = this.safeNum(target.攻击次数) + this.safeNum(source.攻击次数) * inc;
 
     // 常规主属性（正加负乘）
-    this.addPrimary(target, source, '攻击', '攻击2', inc, isBuff, a1, z);
-    this.addPrimary(target, source, '生命', '生命2', inc, isBuff, a1, z);
-    this.addPrimary(target, source, '护盾', '护盾2', inc, isBuff, a1, z);
-    this.addPrimary(target, source, '装甲', '装甲2', inc, isBuff, a1, z);
-    this.addPrimary(target, source, '闪避', '闪避2', inc, isBuff, a1, z);
-    this.addPrimary(target, source, '命中', '命中2', inc, isBuff, a1, z);
-    this.addPrimary(target, source, '速度', '速度2', inc, isBuff, a1, z);
-    this.addPrimary(target, source, '生命回复', '生命回复2', inc, isBuff, a1, z);
-    this.addPrimary(target, source, '护盾回复', '护盾回复2', inc, isBuff, a1, z);
-    this.addPrimary(target, source, '装甲回复', '装甲回复2', inc, isBuff, a1, z);
+    this.addScaledAttr(target, source, '攻击', '攻击2', inc, isBuff, a1, z, 'percent');
+    this.addScaledAttr(target, source, '生命', '生命2', inc, isBuff, a1, z, 'percent');
+    this.addScaledAttr(target, source, '护盾', '护盾2', inc, isBuff, a1, z, 'percent');
+    this.addScaledAttr(target, source, '装甲', '装甲2', inc, isBuff, a1, z, 'percent');
+    this.addScaledAttr(target, source, '闪避', '闪避2', inc, isBuff, a1, z, 'percent');
+    this.addScaledAttr(target, source, '命中', '命中2', inc, isBuff, a1, z, 'percent');
+    this.addScaledAttr(target, source, '速度', '速度2', inc, isBuff, a1, z, 'percent');
+    this.addScaledAttr(target, source, '生命回复', '生命回复2', inc, isBuff, a1, z, 'percent');
+    this.addScaledAttr(target, source, '护盾回复', '护盾回复2', inc, isBuff, a1, z, 'percent');
+    this.addScaledAttr(target, source, '装甲回复', '装甲回复2', inc, isBuff, a1, z, 'percent');
 
     // 无条件累加字段
     this.addNum(target, source, '钻石', inc);
@@ -742,10 +711,10 @@ export class BonusService {
     this.addWithTenacity(target, source, '攻击生命', inc, a1);
 
     // 元素伤害：正加（非增益受增幅器二阶放大），负按韧性减免后加
-    this.addElemDmg(target, source, '电伤', '电伤2', inc, isBuff, a1, z);
-    this.addElemDmg(target, source, '火伤', '火伤2', inc, isBuff, a1, z);
-    this.addElemDmg(target, source, '物伤', '物伤2', inc, isBuff, a1, z);
-    this.addElemDmg(target, source, '冰伤', '冰伤2', inc, isBuff, a1, z);
+    this.addScaledAttr(target, source, '电伤', '电伤2', inc, isBuff, a1, z, 'resist');
+    this.addScaledAttr(target, source, '火伤', '火伤2', inc, isBuff, a1, z, 'resist');
+    this.addScaledAttr(target, source, '物伤', '物伤2', inc, isBuff, a1, z, 'resist');
+    this.addScaledAttr(target, source, '冰伤', '冰伤2', inc, isBuff, a1, z, 'resist');
 
     // 卷土重来、溅射（默认叠加）
     target.卷土重来 = this.safeNum(target.卷土重来) + this.safeNum(source.卷土重来);
@@ -778,9 +747,11 @@ export class BonusService {
   }
 
   /**
-   * 常规主属性叠加：源值>=0 直接累加（非增益时乘增幅器二阶放大），源值<0 按百分比乘
+   * 主属性 / 元素伤害共用的叠加实现：源值>=0 直接累加（非增益时乘增幅器二阶放大）；
+   * 源值<0 由 negativeMode 决定口径 —— 'percent' 按百分比乘（常规主属性），
+   * 'resist' 乘韧性系数后累加（元素伤害）。
    */
-  private addPrimary(
+  private addScaledAttr(
     target: BonusData,
     source: BonusData,
     field: keyof BonusData,
@@ -789,6 +760,7 @@ export class BonusService {
     isBuff: boolean,
     a1: number,
     z: BonusData,
+    negativeMode: 'percent' | 'resist',
   ): void {
     const val = this.safeNum(source[field] as number);
     if (val >= 0) {
@@ -798,32 +770,10 @@ export class BonusService {
         (target[field] as number) =
           this.safeNum(target[field] as number) + val * (1 + this.safeNum(z[field2] as number) / 100) * inc;
       }
-    } else {
-      (target[field] as number) = this.safeNum(target[field] as number) * (1 + val / 100) * a1 * inc;
+      return;
     }
-  }
-
-  /**
-   * 元素伤害叠加：源值>=0 直接累加（非增益乘增幅器二阶放大），源值<0 按韧性减免后加
-   */
-  private addElemDmg(
-    target: BonusData,
-    source: BonusData,
-    field: keyof BonusData,
-    field2: keyof BonusData,
-    inc: number,
-    isBuff: boolean,
-    a1: number,
-    z: BonusData,
-  ): void {
-    const val = this.safeNum(source[field] as number);
-    if (val >= 0) {
-      if (isBuff) {
-        (target[field] as number) = this.safeNum(target[field] as number) + val * inc;
-      } else {
-        (target[field] as number) =
-          this.safeNum(target[field] as number) + val * (1 + this.safeNum(z[field2] as number) / 100) * inc;
-      }
+    if (negativeMode === 'percent') {
+      (target[field] as number) = this.safeNum(target[field] as number) * (1 + val / 100) * a1 * inc;
     } else {
       (target[field] as number) = this.safeNum(target[field] as number) + val * a1 * inc;
     }
@@ -987,13 +937,10 @@ export class BonusService {
    * - 已存在同名增益时：根据"是否叠加时间"叠加有效期；根据"是否叠加强度"叠加或取较大强度
    * - 不存在时新增一个增益
    * @param buffs 增益列表（原地修改）
-   * @param name 增益名称
    * @param time 持续时间（秒）
-   * @param stackTime 是否叠加时间
    * @param now 当前时间戳（秒）
    * @param strength 强度（可空）
    * @param stackStrength 是否叠加强度（可空，默认取较大值）
-   * @returns 最终强度
    */
   applyBuff(buffs: BuffData[], name: string, time: number, stackTime: boolean, now: number, strength?: number, stackStrength?: boolean): number {
     // 本框架时间戳以秒为单位；原版为 时间 * #转秒(10000000)
@@ -1050,7 +997,7 @@ export class BonusService {
     return list
       .filter((item) => String(item?.name ?? '') === name)
       .reduce((sum, item) => {
-        // 数量：只读规范键 quantity（count/数量 已由持久化边界收敛，见 field-contract.util）
+        // 数量：只读规范键 quantity（count/数量 别名在持久化边界归一化，见 field-contract.util）
         const raw = item?.quantity;
         const quantity = raw === undefined || raw === null || raw === '' ? 1 : this.safeNum(raw);
         return sum + quantity;
@@ -1075,7 +1022,7 @@ export class BonusService {
       items.splice(index, 1);
       return;
     }
-    // 只写规范键 quantity，不再写 count/数量 镜像（镜像正是「同一条目两个数量打架」的根源）
+    // 只写规范键 quantity：count/数量 双键并存会造成同一条目两个数量打架
     item.quantity = next;
   }
 
@@ -1179,7 +1126,6 @@ export class BonusService {
    * 对应原版：计算buff()（加成计算.ecode L3097-L3142）
    * 遍历玩家所有活跃增益，按名称执行特殊效果或叠加增益列表中定义的加成。
    * @param attributes 玩家属性（原地修改）
-   * @param buffs 玩家增益列表
    * @param buffDefinitions 增益列表（名称→加成定义）
    * @param now 当前时间戳（秒）
    * @param context 额外上下文（当前麻醉量、特效文本、加成对象等）
@@ -1278,8 +1224,6 @@ export class BonusService {
    * - 关键公式：最终伤害 = (伤害+攻击+来源攻击) * (1+来源伤害2/100) * (1+来源攻击2/100) * (1+自身攻击2/100)
    * - 速度/命中/闪避/护盾/装甲/生命按二阶百分比放大
    * @param target 目标加成（原地修改，为最终结果）
-   * @param source 来源加成
-   * @param debug 是否输出调试日志
    */
   calculateFinalBonus(target: BonusData, source: BonusData, debug = false): void {
     const safe = this.safeNum;
@@ -1746,7 +1690,7 @@ export class BonusService {
       // 秒/毫秒双口径：与 expire-time.util 一致（否则毫秒 expireAt 会被当成永不过期）
       const expireMs = toExpireMs(item);
       if (expireMs > 0 && Math.floor(expireMs / 1000) <= Math.floor(nowSec)) return undefined;
-      // 强度规范键 = strength（value 为战斗层历史英文别名，已由 field-contract 在读写边界收敛）
+      // 强度规范键 = strength（value 是战斗层英文别名，读写边界由 field-contract 归一化）
       return this.safeNum(item.strength);
     };
     const hasEquipBySeq = (seq: number): boolean =>

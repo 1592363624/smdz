@@ -1,6 +1,6 @@
 <template>
   <div class="player-info">
-    <!-- 玩家昵称与「当前使魔」已合并到顶部用户卡片展示（见 ChatView .user-marker），此处不再重复占一行 -->
+    <!-- 昵称与「当前使魔」由 ChatView 顶部用户卡片（.user-marker）展示，此处不重复渲染 -->
     <div class="pi-row pi-row-level">
       <span class="pi-label">等级</span>
       <span class="pi-value">Lv.{{ info.level }}</span>
@@ -49,7 +49,7 @@
       </div>
     </div>
 
-    <!-- 装备栏：15 个栏位一览；常态单行（槽位+装备名），详情悬浮展示（移动端点击切换） -->
+    <!-- 装备栏：后端下发的全部栏位一览；常态单行（槽位+装备名），详情悬浮展示（移动端点击切换） -->
     <div class="pi-section">
       <button type="button" class="pi-section-title pi-toggle" @click="eqOpen = !eqOpen">
         📋 装备<span class="pi-count">{{ equippedCount }}/{{ eqList.length }}</span>
@@ -77,9 +77,8 @@
       </div>
     </div>
 
-    <!-- 武器详情列表（2026-09-09）：点击任意武器格展开/收起。
-         武器可装备多件（手持 + 背上备用），逐件展示品质/特效/强化/属性，每件带「卸下」按钮，
-         按已装备序号发「卸下 N」精确卸到指定那把（同名武器也能区分）。 -->
+    <!-- 武器详情（点击武器格展开/收起）：可多件同时装备（手持 + 背上备用），逐件展示品质/特效/强化/属性；
+         每件按已装备序号发「卸下 N」，同名武器也能精确卸到指定那把。 -->
     <div class="pi-section pi-weapons" v-show="weaponsOpen && weaponEntries.length">
       <div class="pi-weapons-title">⚔️ 武器详情<span class="pi-count">{{ weaponEntries.length }}</span></div>
       <div v-for="w in weaponEntries" :key="'wp-' + w.slot" class="pi-weapon">
@@ -167,7 +166,7 @@ import { gameApi } from '../api';
 const props = defineProps({
   // buildPlayerInfo 快照（REST 全量 / socket player:update 推送，结构一致）
   info: { type: Object, required: true },
-  // 玩家昵称：昵称展示已上移到顶部用户卡片，此 prop 保留以兼容既有调用方
+  // 玩家昵称：面板内不展示（昵称在顶部用户卡片），ChatView 仍传入，保留 prop 以兼容调用方
   nickname: { type: String, default: '' },
 });
 
@@ -177,7 +176,7 @@ const r = (v) => Math.round(Number(v) || 0);
 /** 向父组件（ChatView）回传指令：武器列表「卸下」按钮 → 发「卸下 N」按序号精确卸下 */
 const emit = defineEmits(['send']);
 
-// ===== 武器详情列表（2026-09-09，交互修订版） =====
+// ===== 武器详情列表 =====
 // 装备栏固定 15 格不变（背上武器不占格）；全部武器（手持+背上）详情由服务端挂在
 // 「武器」格的 weapons 子字段。单击「武器」格展开列表：逐件详情 + 卸下按钮，
 // 按序号发「卸下 N」精确卸到指定那把（序号与「信息」面板/卸下指令三处同源）。
@@ -269,9 +268,8 @@ const eqList = computed(() => (Array.isArray(props.info?.equipment) ? props.info
 const eqOpen = ref(true);
 const equippedCount = computed(() => eqList.value.filter((e) => e.name).length);
 // 品质配色档位（E 普通灰/D 良好绿/C 优秀蓝/B 精良紫/A 史诗橙/S 传说金/X 神迹红）
-// 2026-09-10 口径统一：服务端 equipment-ref.util.equipmentQualityLabel 直接下发**品质码字母**
-// （与背包显示名「冰雹S」同源），前端只把小写化后取配色，禁再抄一份中文品质名映射
-// （旧 QUALITY_KEY 中文表已删除：中文名与字母码两套表示并存，改一处必漏另一处）。
+// 服务端 equipment-ref.util.equipmentQualityLabel 下发的是**品质码字母**（与背包显示名「冰雹S」同源），
+// 前端只小写化后取配色：禁止再抄一份中文品质名映射（字母码与中文名两套表示并存必然漏改）。
 const qKey = (q) => String(q || '').toLowerCase() || 'e';
 // 品质档位 → 边框/光晕颜色（用于装备格按品质描边，与聊天卡片一致）
 const EQ_COLOR = { e: '', d: '#4ade80', c: '#60a5fa', b: '#a78bfa', a: '#fb923c', s: '#fbbf24', x: '#f87171' };

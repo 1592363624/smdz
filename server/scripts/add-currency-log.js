@@ -1,4 +1,4 @@
-/* 守卫式建表：CurrencyLog 货币审计日志（P4，幂等） */
+/* 守卫式建表：CurrencyLog 货币审计日志（幂等） */
 const { PrismaClient } = require('@prisma/client');
 const p = new PrismaClient();
 

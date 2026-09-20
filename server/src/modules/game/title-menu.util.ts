@@ -5,17 +5,16 @@
  * 本文件只负责「分组数据 → 文本 + 编号注册项」这一步；进度计算与系列归组仍在
  * FamiliarSystemService.viewAvailableTitles 完成（数据归数据、版式归版式）。
  *
- * 2026-09-15 可读性重排（玩家反馈「提示有 N 个可领，却看不出是哪几个」）：
- * 旧版把「已达成」标记 ✦ 放在每行行尾，混在进度文本里基本看不见；新版拆成两个区块——
+ * 版式为两个区块，解决「提示有 N 个可领，却看不出是哪几个」：
  *  - 「✅ 现在就能领」：所有已达成项置顶，行首 ✅ + 独立编号，领奖入口一眼可见；
  *  - 「⏳ 下一阶进度」：每系列只展开首个未达成阶位，组头展示当前值/目标值/进度条；
  * 顶部汇总行还会直接点名可领取的称号（超过配置上限时折算为「…（共 N 个）」）。
  */
 
-import { formatDamageText, formatSecondsDurationText } from '../../common/utils/game-text.util';
+import { CARD_DIVIDER, formatDamageText, formatSecondsDurationText } from '../../common/utils/game-text.util';
 
 /** 消息线框分隔线（与其余游戏消息同一套字符） */
-export const TITLE_DIVIDER = '━━━━━━━━━━━━━━━';
+export const TITLE_DIVIDER = CARD_DIVIDER;
 /** 列表标题（渲染时拼上「（未拥有数/总数）」） */
 export const TITLE_LIST_LABEL = '📜 可领取的称号';
 /** 「现在就能领」区块标题 */
@@ -156,7 +155,7 @@ export function renderAvailableTitles(
   }
   lines.push(TITLE_DIVIDER);
 
-  // 区块一：可立即领取（置顶，行首 ✅ 便于扫读；旧版行尾 ✦ 玩家根本找不到）
+  // 区块一：可立即领取（置顶 + 行首 ✅，便于扫读）
   if (readyCount > 0) {
     lines.push(TITLE_READY_LABEL);
     for (const p of readyPlanned) {

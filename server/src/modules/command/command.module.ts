@@ -1,7 +1,4 @@
-/**
- * 指令引擎模块
- * 提供统一的指令分发、处理器注册与执行能力。
- */
+/** 指令引擎模块：统一指令分发、处理器注册与执行。 */
 
 import { Module, forwardRef } from '@nestjs/common';
 import { CommandService } from './command.service';
@@ -17,7 +14,7 @@ import { GameModule } from '../game/game.module';
     CommandService,
     CommandSourceRegistry, // 记录用户最后指令渠道，供 ChatService 过滤 bot:push 回推
     ...handlerProviders,
-    CommandHandlerMap, // 构建 key -> handler 的映射 provider
+    CommandHandlerMap,
   ],
   controllers: [CommandController],
   exports: [CommandService, CommandSourceRegistry],

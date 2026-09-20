@@ -1,13 +1,8 @@
 /**
- * 签到奖励配置：配置键、数据结构与默认值（纯常量模块，不依赖任何服务）
- *
- * 单独成文件的原因：系统配置中心(system-config)需要「默认值」来补数据库行，
- * 签到业务服务需要「同一份默认值」做兜底。若把默认值放在业务服务里再由
- * system-config 反向 import，会形成 system-config → game → system-config 的
- * 运行时循环依赖（Nest 解析出的可能是 undefined）。因此抽成无依赖常量模块。
- *
- * 遵循"配置项抽取"原则：签到给多少经验、哪天给什么东西，全部可在后台
- * 「系统配置中心 → 游戏数据」在线调整，改完立即生效，无需改代码或重启。
+ * 签到奖励配置：配置键、数据结构与默认值（纯常量模块，不依赖任何服务）。
+ * 单独成文件是为了避开 system-config → game → system-config 的运行时循环依赖
+ * （Nest 解析出的可能是 undefined）：配置中心与签到业务共用这一份默认值。
+ * 数值全部可在后台「系统配置中心 → 游戏数据」在线调整，改完立即生效。
  */
 
 /** 签到奖励类型：item=背包物品 / exp=经验 / vitality=活力 */
@@ -17,7 +12,7 @@ export type CheckinRewardType = 'item' | 'exp' | 'vitality';
 export interface CheckinRewardEntry {
   type: CheckinRewardType;
   name: string;
-  /** 奖励数量：规范键 quantity（同义旧键 count 已废弃） */
+  /** 奖励数量：规范键只有 quantity，读写 count 拿到 undefined */
   quantity: number;
 }
 
@@ -50,19 +45,16 @@ export const CHECKIN_CONSECUTIVE_EXP_MAX_DAYS_KEY = 'game.checkinConsecutiveExpM
 /** 签到奖励表（每日/连续/累计三张表，JSON） */
 export const CHECKIN_REWARDS_KEY = 'game.checkinRewards';
 
-// ===== 默认值：与改造前硬编码规则完全一致 =====
+// ===== 默认值 =====
 
-/** 原实现：baseExp = 50 */
 export const DEFAULT_CHECKIN_BASE_EXP = 50;
-/** 原实现：连续奖励 = min(连续天数, 30) * 5 */
+/** 连续奖励 = min(连续天数, 封顶天数) × 本值 */
 export const DEFAULT_CHECKIN_CONSECUTIVE_EXP_PER_DAY = 5;
 export const DEFAULT_CHECKIN_CONSECUTIVE_EXP_MAX_DAYS = 30;
 
 /**
- * 默认奖励表（= 当前游戏真实存在的签到默认奖励）：
- * 默认只保留经验奖励（基础 50 + 每连续 1 天 +5，封顶 30 天，见上方三个数值键），
- * 三张物品奖励表默认留空——「签到礼包/累计签到礼包」并不在游戏道具表(items.json)中，
- * 属于历史残留规则，不应作为默认配置。
+ * 默认奖励表：经验奖励见上方三个数值键，三张物品表刻意留空——
+ * 「签到礼包/累计签到礼包」不在游戏道具表(items.json)中，不应作为默认配置，
  * 「哪天给什么物品」由运营在后台按需配置（物品从目录中选择，保证一定存在）。
  */
 export const DEFAULT_CHECKIN_REWARDS: CheckinRewardsConfig = {
@@ -76,12 +68,9 @@ export const DEFAULT_CHECKIN_REWARDS: CheckinRewardsConfig = {
 export const DEFAULT_CHECKIN_REWARDS_JSON = JSON.stringify(DEFAULT_CHECKIN_REWARDS);
 
 /**
- * 历史版本的默认奖励表（含「签到礼包/累计签到礼包」）。
- * 仅用于启动时迁移：库里「恰好等于该值」的行会被升级为新默认（空表），
- * 管理员自定义过的奖励表不受影响。
- *
- * 注意：本常量必须与历史落库值**逐字一致**（故仍保留当时的旧键 count），
- * 是「存量比对基准」而非现行字段规范；现行字段规范键为 quantity。
+ * 存量比对基准（非现行字段规范）：启动迁移时库里「恰好等于该 JSON」的行会被升级成
+ * DEFAULT_CHECKIN_REWARDS，管理员自定义过的奖励表不受影响。
+ * 必须与历史落库值**逐字一致**（故保留当时的旧键 count），否则迁移比对失配。
  */
 export const LEGACY_CHECKIN_REWARDS_JSON = JSON.stringify({
   dailyCycleDays: 7,

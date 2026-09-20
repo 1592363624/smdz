@@ -6,7 +6,7 @@
 import { defineStore } from 'pinia';
 import { FLOATING_CHAT_CONFIG } from '../config';
 
-/** 本地最多保留的聊天条数，超出丢最旧，防止长时间挂机内存膨胀（数值见 config.js） */
+/** 本地最多保留的聊天条数，超出丢最旧，防止长时间挂机内存膨胀 */
 const MAX_CHAT_MESSAGES = FLOATING_CHAT_CONFIG.maxMessages;
 
 let pendingSeq = 0;
@@ -19,7 +19,6 @@ export const useFloatingChatStore = defineStore('floatingChat', {
     unread: 0,
     /** 面板是否展开（小窗/伪全屏） */
     open: false,
-    /** 伪全屏 */
     fullscreen: false,
     /** 红包状态表：packetId → 红包视图（红包卡片渲染数据源） */
     redPackets: {},
@@ -63,7 +62,6 @@ export const useFloatingChatStore = defineStore('floatingChat', {
       if (msg.id != null) {
         if (this.messages.some((m) => m.id === msg.id)) return;
       } else if (msg._pending && msg._localKey) {
-        // 本地回显：同 localKey 已存在则跳过
         if (this.messages.some((m) => m._localKey === msg._localKey)) return;
       }
 
@@ -104,7 +102,6 @@ export const useFloatingChatStore = defineStore('floatingChat', {
       if (idx >= 0) this.messages.splice(idx, 1);
     },
 
-    /** 记录当前用户 id，用于判断消息是否自己发的（自己发的不计未读） */
     setSelfId(id) {
       this.selfId = id == null ? null : String(id);
     },

@@ -1,5 +1,5 @@
 /**
- * GameService 桩工厂契约测试（P1-6 建立，P4 过渡清理 B 批重写）
+ * GameService 桩工厂契约测试
  *
  * 验证 test/helpers/game-service-stub.factory.ts 的「惰性挂载」语义：
  * 1. 按生产构造签名挂支撑层与全部 15 个子服务（首次访问时构建，委托目标非 undefined）；

@@ -1,7 +1,7 @@
 /**
  * 回归：mutate 的 ALS 上下文逃逸进定时器，导致延时结算静默丢失
  *
- * 根因（医疗箱/休眠仓可无限重复采集的反复复发根因）：
+ * 根因（症状：医疗箱/休眠仓可无限重复采集）：
  * 采集开始路径跑在 mutatePlayer（mutate ALS）内，10~16s 的采集定时器在该 ALS
  * 作用域内调度。Node 的 AsyncLocalStorage 会跟随 setTimeout 回调，定时器触发时
  * settleGatherResource 的整条异步链仍持有开始那条链的 ALS 快照——
@@ -12,7 +12,7 @@
  * 5 秒兜底扫描随后发现库里的「采集中」已过期且指纹已结算，走清理分支，
  * 用扫描时读到的陈旧 markers 整列覆盖 → 标记彻底丢失 → 资源可无限重复采集。
  *
- * 修复：mutate/read 收口时把上下文登记为已结束（WeakSet），已收口上下文对
+ * 防线：mutate/read 收口时把上下文登记为已结束（WeakSet），已收口上下文对
  * 后续异步链（含 ALS 逃逸进定时器的回调）不可见，savePlayer 走正常 Actor 分支。
  *
  * 本测试用真实 AsyncLocalStorage + 真实定时器复现逃逸场景：
@@ -35,7 +35,7 @@ function makePrisma(rows: any[]) {
         return row ? { ...row } : null;
       }),
       update: jest.fn(async ({ where, data }: any) => {
-        // 2026-09-11 起 persistPlayer 按 where.userId（unique）落库，mock 同步双键匹配
+        // persistPlayer 按 where.userId（unique）落库，mock 同步双键匹配
         const row = rows.find((r) =>
           (where?.userId !== undefined && r.userId === where.userId)
           || (where?.id !== undefined && r.id === where.id));

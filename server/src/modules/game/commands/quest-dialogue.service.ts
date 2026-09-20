@@ -1,19 +1,11 @@
 /**
- * 任务/对话/帮助指令域服务（game 模块化重构 P3-1 抽出）
- *
- * 职责：查看单位/NPC 对话（露娜/永兴/小恶魔）、任务接取/完成/放弃、图鉴、
- * 游戏介绍/术语/帮助/更新记录、反馈/发文字/计算器、菜单/功能菜单/
- * 游戏菜单、刷新数据/重载数据、设置系列（指引/采集/活力/倍率等）、
- * 新手使魔门/自动使魔技能触发、确认帮助、生产入口。
- * 依赖方向：依赖 Player、Map、Shortcut（临时输入）、Prisma、Task、StaticData、
- * SystemConfig、FamiliarSystem、Handbook、Tutorial、Achievement、CombatSystem、
- * Feedback、FamiliarSkills 与支撑层；跨域直接注入兄弟子服务 RescueWhite
- * （ensurePlayerWhite）与 MovementVehicle（performArrival），单向边无环。
- * 单一真相源：编号菜单统一支撑层 buildNumberedMenu；快捷输入统一 ShortcutService。
+ * 任务/对话/帮助指令域服务：NPC 对话、任务接取/完成/放弃、图鉴、帮助与设置类指令。
+ * 编号菜单统一走支撑层 buildNumberedMenu，快捷输入统一 ShortcutService；
+ * 依赖方向单向无环（跨域直连 RescueWhite / MovementVehicle）。
  * 对口原版：_主程序.ecode 任务/对话/设置分支。
  */import { Injectable, Logger, Optional } from '@nestjs/common';
 import { asJsonValue } from '../../../common/utils/json-value.util';
-import { padToWidth } from '../../../common/utils/game-text.util';
+import { CARD_DIVIDER, padToWidth } from '../../../common/utils/game-text.util';
 import { lookupFromStaticData, mergeBackpackItem } from '.././item-normalize.util';
 import { buildFamiliarGateMenu } from '.././familiar-menu.util';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -60,12 +52,16 @@ export class QuestDialogueService {
     private readonly feedbackService: FeedbackService,
     private readonly taskService: TaskService,
     private readonly shortcutService: ShortcutService,
-    // 跨域兄弟直连（P4 清理：原过渡期经门面引用），单向边无环。
+    // 跨域兄弟服务直连，单向边无环。
     private readonly rescue: RescueWhiteService,
     private readonly movement: MovementVehicleService,
     @Optional() private readonly handbookService?: HandbookService,
   ) {}
 
+  /**
+   * 查看地图单位详情（原版 对话菜单 1、查看 → 查看X，_主程序.ecode L1519-1520）。
+   * 支持 NPC/召唤物/怪物；找不到返回空串（由调用方回退到查看自己）。
+   */
   async handleViewUnit(userId: number, unitName: string): Promise<string> {
     const name = String(unitName || '').trim();
     if (!name) return '';
@@ -122,19 +118,11 @@ export class QuestDialogueService {
     return '';
   }
 
-  /**
-   * 处理玩家攻击命令
-   * 对应原版：攻击 命令
-   * 委托给完整的战斗子系统 combatSystem.weaponAttack 执行完整攻击流程
-   * 包括：武器攻击 → 伤害计算（含暴击/命中） → 使魔特效 → 怪物死亡处理 → 经验获得 → 掉落生成
-   */
-
   async handleTalk(userId: number, npcName: string): Promise<string> {
-    // 获取玩家数据
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 特殊NPC剧情映射（新手流程固定NPC，不依赖地图数据）
+    // 新手流程固定NPC，不依赖地图数据
     // 原版中这些NPC由"生成人物"指令动态生成，地图 npcs 字段可能为空，
     // 因此将固定剧情前置处理，保证新手引导中的「对话 新手引导员」始终可用。
     const specialNpcs: Record<string, { title: string; dialogs: Record<string, string> }> = {
@@ -199,10 +187,7 @@ export class QuestDialogueService {
     // 避免未唤醒时直接推进“对话白”任务。
     const isKnownSpecialNpc = !!npcName && !!specialNpcs[npcName];
 
-    // 获取当前地图
     const map = await this.mapService.getMapById(player.mapId);
-
-    // 解析地图NPC列表
     const npcs = asJsonValue<any[]>(map ? map.npcs : [], []);
     const parsedSummons = asJsonValue<any>(map ? map.summons : [], []);
     const mapSummons = Array.isArray(parsedSummons) ? parsedSummons : [];
@@ -223,7 +208,7 @@ export class QuestDialogueService {
       } catch { mapMonsters = []; }
     }
 
-    // 如果没有指定NPC名称，显示可对话对象列表（附带编号快捷选项，发数字即可对话）
+    // 未指定 NPC 名：列出可对话对象（编号快捷选项，发数字即可对话）
     if (!npcName) {
       const lines = [`💬 【${map.name}】可对话对象:`];
       // 编号快捷对话选项：label=展示文本，cmd=实际触发的「对话 名称」
@@ -334,28 +319,24 @@ export class QuestDialogueService {
       return this.buildUnitDialogue(player, userId, npcName, targetNpc, unitKind);
     }
 
-    // 根据NPC类型生成对话文本
     const npcType = targetNpc.type || 'generic';
     const npcTitle = targetNpc.title || '未知NPC';
     const dialogLines: string[] = [];
 
-    // 基础问候
     const greetings = [
       `你好，${player.name || '冒险者'}！`,
       `欢迎来到${map ? map.name : '新手村'}！`,
       `有什么事吗？`,
     ];
     dialogLines.push(`【${npcTitle}】`);
-    dialogLines.push(`━━━━━━━━━━━━━━━`);
+    dialogLines.push(CARD_DIVIDER);
     dialogLines.push(greetings[Math.floor(Math.random() * greetings.length)]);
 
-    // 特殊NPC对话剧情（对话阶段推进）
-    // 对话引导文本在块内消费、块外拼接到正文末尾（见下方 talkTutorialText 使用处）
+    // 特殊NPC对话剧情（对话阶段推进）；引导文本在块内消费、块外拼接到正文末尾
     let talkTutorialText = '';
     {
-      // 根据教程进度和与当前NPC的对话历史确定对话阶段
       const tutorialValue = markers['教程'] || 0;
-      // 检查与该NPC的独立对话进度（支持每个NPC独立的对话推进）
+      // 每个 NPC 有独立对话进度（对话_<名称>）
       const talkProgress = markers[`对话_${npcName}`] || 0;
       let dialogPhase: string;
       if (talkProgress >= 3) {
@@ -367,14 +348,12 @@ export class QuestDialogueService {
       } else {
         dialogPhase = 'hello';
       }
-      // 如果用独立对话进度得出的阶段与教程阶段冲突，取较高级的那个
-      // 例如：教程已到done阶段，但从未和该NPC对话过，仍展示高级内容
+      // 独立对话阶段与教程阶段冲突时取较高级：教程已到 done 但从未对话过该 NPC，仍展示 done
       if (tutorialValue >= 3 && dialogPhase !== 'done') {
         dialogPhase = 'done';
       }
 
-      // 检查新手指引中的对话引导（就地消费：与「对话_XX」进度同批 savePlayer 落库，
-      // 不再走 consumeTutorial 二次 patch，避免同一次对话对 markers 列写两遍）
+      // 指引就地消费：与「对话_XX」进度同批 savePlayer 落库，避免同一次对话对 markers 列写两遍
       const tutorialText = this.tutorialService.getTutorial('talk', markers);
       if (tutorialText) {
         talkTutorialText = tutorialText;
@@ -383,33 +362,26 @@ export class QuestDialogueService {
         await this.playerService.savePlayer(player);
       }
 
-      // 检查当前NPC是否在特殊NPC列表中
       const specialNpc = specialNpcs[npcName];
       if (specialNpc) {
-        // 使用特殊NPC的标题替换默认标题
         const dialogText = specialNpc.dialogs[dialogPhase] || specialNpc.dialogs['hello'];
         dialogLines.push(dialogText);
 
-        // 更新与该NPC的对话进度
         markers[`对话_${npcName}`] = (talkProgress + 1);
         player.markers = markers; // Json 列直接写对象
         await this.playerService.savePlayer(player);
 
-        // 对话进度提示
         if (talkProgress < 3) {
-          dialogLines.push(`━━━━━━━━━━━━━━━`);
+          dialogLines.push(CARD_DIVIDER);
           dialogLines.push(`💡 继续对话可了解更多信息`);
         }
-        // 跳过后续通用NPC对话逻辑
       } else {
-        // 非特殊NPC，使用通用对话逻辑
         dialogLines.push(this.genericNpcChatLine(npcType));
       }
     }
 
-    // NPC描述文本
     if (targetNpc.description) {
-      dialogLines.push(`━━━━━━━━━━━━━━━`);
+      dialogLines.push(CARD_DIVIDER);
       dialogLines.push(`${targetNpc.description}`);
     }
 
@@ -420,13 +392,12 @@ export class QuestDialogueService {
       { label: `对话 ${npcName}`, cmd: `对话 ${npcName}` }, // 1=继续对话，推进对话阶段
       { label: '任务', cmd: '查看任务' },                      // 2=查看任务
     ], '💡 发送编号数字(如 1)快速操作');
-    dialogLines.push(`━━━━━━━━━━━━━━━`);
+    dialogLines.push(CARD_DIVIDER);
     dialogLines.push(...menuLines);
 
-    // 新手指引：引导追加在对话正文之后（2026-09-13 修复：旧实现只写标记+落库，
-    // tutorialText 从未拼进正文——引导被消费却永远看不到）
+    // 指引文本必须真正拼进正文：只写标记+落库会让引导被消费却看不见
     if (talkTutorialText) {
-      dialogLines.push(`━━━━━━━━━━━━━━━`);
+      dialogLines.push(CARD_DIVIDER);
       dialogLines.push(`💡 ${talkTutorialText}`);
     }
 
@@ -490,7 +461,7 @@ export class QuestDialogueService {
     const ownerIds = new Set([String(userId), String(player?.id ?? '')].filter(Boolean));
     const isOwned = ownerIds.has(ownerOf);
 
-    const dialogLines: string[] = [`【${nameOf}】`, `━━━━━━━━━━━━━━━`];
+    const dialogLines: string[] = [`【${nameOf}】`, CARD_DIVIDER];
     // 对话文本（原版 取对话：怪物取敌对聊天，其余取友好聊天）
     const chatText = this.staticData.getDialogue(
       String(player?.name || ''),
@@ -565,7 +536,7 @@ export class QuestDialogueService {
       }
     }
 
-    dialogLines.push(`━━━━━━━━━━━━━━━`);
+    dialogLines.push(CARD_DIVIDER);
     const menuLines = await this.support.buildNumberedMenu(
       userId,
       options,
@@ -576,14 +547,11 @@ export class QuestDialogueService {
     return dialogLines.join('\n');
   }
 
-  /** 毫秒 → 可读时间文本（对应原版 数字到时间 的秒/分秒简化）。 */
-
   async handleDialogueLuna(userId: number, arg: string): Promise<string> {
-    // 获取玩家数据
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers, backpack } = playerData;
 
-    // 获取当前地图，确认露娜在场
+    // 露娜必须在场
     const map = await this.mapService.getMapById(player.mapId);
     if (!map) return '你不在任何地图上！';
 
@@ -596,29 +564,27 @@ export class QuestDialogueService {
     // 解析兑换选项：无参数时展示选项，参数为1/2时执行兑换
     const choice = parseInt(arg.replace(/[^\d]/g, ''), 10) || 0;
 
-    // 统计背包中的"未知物品"数量（背包条目已归一化，数量统一读 quantity）
+    // 未知物品数量：背包条目已归一化，数量只读规范键 quantity
     const unknownItems = backpack.filter((item: any) => item.name === '未知物品' || item.name.includes('未知物品'));
     const unknownCount = unknownItems.reduce((sum: number, item: any) => sum + (item.quantity || 1), 0);
 
     if (choice === 0) {
-      // 展示兑换菜单
       if (unknownCount <= 0) {
-        return '【露娜】\n━━━━━━━━━━━━━━━\n这是……具现装置的产物？！\n这种东西对你来说也没用，不如交给我，我可以用你想要的东西作为奖励。\n\n不过你现在好像没有「未知物品」，去具现装置那里看看吧。';
+        return `【露娜】\n${CARD_DIVIDER}\n这是……具现装置的产物？！\n这种东西对你来说也没用，不如交给我，我可以用你想要的东西作为奖励。\n\n不过你现在好像没有「未知物品」，去具现装置那里看看吧。`;
       }
-      return `【露娜】\n━━━━━━━━━━━━━━━\n这是……具现装置的产物？！\n这种东西对你来说也没用，不如交给我，我可以用你想要的东西作为奖励。\n\n你拥有「未知物品」×${unknownCount}，想兑换什么？\n1、工业建筑箱\n2、专属装备补给箱\n\n输入「对话露娜未知 1」或「对话露娜未知 2」进行兑换`;
+      return `【露娜】\n${CARD_DIVIDER}\n这是……具现装置的产物？！\n这种东西对你来说也没用，不如交给我，我可以用你想要的东西作为奖励。\n\n你拥有「未知物品」×${unknownCount}，想兑换什么？\n1、工业建筑箱\n2、专属装备补给箱\n\n输入「对话露娜未知 1」或「对话露娜未知 2」进行兑换`;
     }
 
     if (unknownCount <= 0) {
       return '你的背包中没有「未知物品」，无法兑换。';
     }
 
-    // 确定兑换目标
     const rewardName = choice === 1 ? '工业建筑箱' : '专属装备补给箱';
     if (choice !== 1 && choice !== 2) {
       return '请输入正确的选项：1=工业建筑箱，2=专属装备补给箱';
     }
 
-    // 扣除未知物品，给予奖励物品（背包条目已归一化，数量统一读 quantity）
+    // 扣除未知物品
     let remaining = unknownCount;
     player.backpack = backpack
       .map((item: any) => {
@@ -635,35 +601,27 @@ export class QuestDialogueService {
     const rewardItem = { name: rewardName, quantity: unknownCount };
     mergeBackpackItem(player.backpack, rewardItem, lookupFromStaticData(this.staticData));
 
-    // 增加露娜熟练度
+    // 露娜熟练度：每个未知物品 10 点
     markers['露娜熟练度'] = (markers['露娜熟练度'] || 0) + unknownCount * 10;
     player.markers = markers; // Json 列直接写对象
     await this.playerService.savePlayer(player);
 
     this.logger.log(`玩家 ${userId} 与露娜兑换：${unknownCount}个未知物品 → ${rewardName}`);
-    return `【露娜】\n━━━━━━━━━━━━━━━\n非常感谢！\n（露娜熟练度+${unknownCount * 10}，用${unknownCount}个未知物品跟她换了${rewardName}）`;
+    return `【露娜】\n${CARD_DIVIDER}\n非常感谢！\n（露娜熟练度+${unknownCount * 10}，用${unknownCount}个未知物品跟她换了${rewardName}）`;
   }
 
-  /**
-   * 处理来倒目的（延时移动）
-   * 对应原版：来倒目的 命令
-   * 由系统延时任务触发，格式为"地图名$来源地图"，将玩家移动到指定地图
-   * 若目标为"四圣祭坛"且四个祭坛均无怪物，则刷出神兽麒麟
-   */
+  /** 来倒目的（延时移动，原版同名命令）：参数格式 "地图名$来源地图"，由系统延时任务触发。 */
 
   async handleArriveAt(userId: number, arg: string): Promise<string> {
-    // 获取玩家数据
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
 
-    // 解析参数："目标地图$来源地图"
     const parts = (arg || '').split('$');
     const targetName = parts[0]?.trim();
     if (!targetName) {
       return '移动输入的数据不正确';
     }
 
-    // 查找目标地图
     const targetMap = await this.mapService.getMapByName(targetName);
     if (!targetMap) {
       return `目标地图「${targetName}」不存在`;
@@ -675,10 +633,7 @@ export class QuestDialogueService {
     return arrivalResult;
   }
 
-  /**
-   * 处理家园命令
-   * 家园系统的入口，支持子命令
-   */
+  /** 对话咏星：好感满 100 时把地图临时怪物咏星转为归属玩家的跟随召唤物。 */
 
   async handleDialogueYongxing(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -721,7 +676,6 @@ export class QuestDialogueService {
       fresh.push(summon);
     });
 
-    // 记录成就「拐妹子」
     await this.achievementService.addAchievement(player, '拐妹子', 1);
     return `咏星愿意跟随你了！`;
   }
@@ -806,14 +760,12 @@ export class QuestDialogueService {
   }
 
   /**
-   * 处理召唤货舱命令
-   * 在当前地图召唤货舱（可采集资源），如果没有则生成一个临时货舱
-   */
-  /**
+   * 领取任务（对齐原版 领取任务 分支 _主程序.ecode L7321-7404）：
+   * - 无参数：列出当前地图各单位（NPC/召唤物/跟随的白）任务池中可领取的任务；
+   * - 参数为 NPC 名：从该 NPC 的任务池随机接取一个（原版 随机文本），
+   *   已有该 NPC 任务时提示“你已经领取了X的任务了，先去完成吧”；
+   * - 参数为任务名：直接领取该任务。
    * 发射信号枪（原版 _主程序.ecode L6281-6296）。
-   * 门禁：数量<=0 用法提示 → 背包需有信号枪 → 10 秒冷却。
-   * 成功：成就"召唤货舱"+1 → 活跃度+1 → 6 秒延时「召h货1藏」结算（completeCargoSummon）。
-   * 注意：原版信号枪只用于召唤货舱（资源补给），引怪由覅攻击pd（采集/传送触发）承担。
    */
 
   async handleAcceptQuest(userId: number, questName?: string): Promise<string> {
@@ -997,33 +949,18 @@ export class QuestDialogueService {
     ).trim();
   }
 
-  /**
-   * 查看任务
-   * 查看当前已接取的任务列表
-   */
+  /** 完成任务：条件校验与奖励结算都在 TaskService.completePendingTask 内。 */
 
   async handleCompleteQuest(userId: number, questName: string): Promise<string> {
     const result = await this.taskService.completePendingTask(userId, questName);
     return result || '正常任务完成后奖励已自动发放';
   }
 
-  /**
-   * 躺下（原版 _主程序.ecode L7086-7096）。
-   * 门禁：死亡 → 行动无限制（理由6=自动开采中也可躺下）→ 建筑要求（床）→“需要床”。
-   * 成功：置“躺下”标记 + 陪睡宠物数写入 sets.sleepover（有洛写负数，离线经验再×1.1）
-   * + 躺下起床显示(1)（每秒经验/经验加成/陪睡加成/最终每秒获得，原版 数据显示.ecode L288-325）。
-   * 注：躺下只结算经验，不回复 HP。
-   */
-
   async handleAbandonQuest(userId: number, questName: string): Promise<string> {
     return this.taskService.abandonTask(userId, questName);
   }
 
-  /**
-   * 菜单（原版 接口1.ecode L325-330）。
-   * 原版按“是否开启游戏”分流：游戏开启 → 游戏菜单/功能菜单；关闭 → 计算/快捷输入。
-   * Web 端游戏常开，固定输出游戏菜单/功能菜单两层入口。
-   */
+  /** 图鉴入口：组装玩家上下文（熟练度/好感/掉落加成）后委托 HandbookService.handle。 */
 
   async handleHandbook(userId: number, arg: string): Promise<string> {
     if (!this.handbookService) {
@@ -1051,8 +988,8 @@ export class QuestDialogueService {
       // 图鉴是只读展示，加成取不到时按 0 展示基础掉落即可
     }
 
-    // 世界等级与各物种熟练度不再由本方法透传：HandbookService 直接读
-    // GlobalProficiencyService（原版「全局标记」），避免"接口留了数据没接"的中间层。
+    // 世界等级与各物种熟练度不在这里透传：HandbookService 直接读
+    // GlobalProficiencyService（原版「全局标记」）。
     return this.handbookService.handle(arg, {
       userId,
       playerName: String((playerData as any)?.player?.name ?? (playerData as any)?.name ?? (player as any)?.name ?? '冒险者'),
@@ -1065,12 +1002,11 @@ export class QuestDialogueService {
       hasGemRibbon,
     });
   }
-  // ========== 物品操作命令 ==========
 
   /**
-   * 处理切换武器命令
+   * 使魔大战主菜单（对应原版 使魔大战 命令，_主程序.ecode L1573）：
+   * 输出编号子菜单并写入临时输入替换，玩家直接发编号数字即可进入对应功能。
    * 对应原版 _主程序.ecode L4303-4432 切换武器()：
-   * 无参数/数字越界→列出武器清单；数字→按编号切换；其他→按武器名切换（"拳头"=空手）
    */
 
   async handleGameIntro(userId: number): Promise<string> {
@@ -1112,7 +1048,7 @@ export class QuestDialogueService {
 
     const lines: string[] = [
       `🎮 使魔大战 - 主菜单`,
-      `━━━━━━━━━━━━━━━`,
+      CARD_DIVIDER,
       `发送下方编号数字即可进入对应功能：`,
     ];
     // 两列排版（32 项高度减半；序号右对齐、左列按显示宽度补空格，
@@ -1130,7 +1066,7 @@ export class QuestDialogueService {
       }
       lines.push(`  ${row}`);
     }
-    lines.push(`━━━━━━━━━━━━━━━`);
+    lines.push(CARD_DIVIDER);
     lines.push(`💡 发送编号数字(如 1)即可快速进入功能`);
     lines.push(`也可以直接发送指令名，如「背包」「攻击」「移动 地图名」`);
 
@@ -1142,17 +1078,9 @@ export class QuestDialogueService {
     return lines.join('\n');
   }
 
-  /**
-   * 新玩家"选第一个使魔"门禁（对应原版 _主程序.ecode L11464-11480）
-   * 原版：新玩家(老玩家==假)发任何指令都会被强制拦截，返回"选择你的第一个使魔来开始游戏"，
-   * 列出所有不可召唤=假的使魔并生成编号快捷（数字@选择使魔<名称>），选中后才正式开局。
-   *
-   * @param userId 玩家用户ID
-   * @returns 未选使魔时返回门禁菜单文本；已选使魔返回 null
-   */
+  /** 游戏名词解释：按术语名查词典；无参数时列出全部可用术语。 */
 
   async handleGameTerms(userId: number, termName: string): Promise<string> {
-    // 术语词典
     const terms: Record<string, string> = {
       '使魔': '玩家培养的宠物/伙伴，可以协助战斗和采集资源',
       '家园': '玩家自己建造的领地，可以建造建筑、种植作物、生产资源',
@@ -1171,14 +1099,13 @@ export class QuestDialogueService {
     };
 
     if (!termName) {
-      // 没有指定术语，显示所有可用术语列表
       const termList = Object.keys(terms).map((name, i) => `  ${i + 1}. ${name}`).join('\n');
       return [
         `📖 游戏名词解释`,
-        `━━━━━━━━━━━━━━━`,
+        CARD_DIVIDER,
         `可用术语：`,
         termList,
-        `━━━━━━━━━━━━━━━`,
+        CARD_DIVIDER,
         `发送「游戏解释 术语名」查看详细解释`,
       ].join('\n');
     }
@@ -1191,16 +1118,12 @@ export class QuestDialogueService {
     return `📖 【${termName}】\n${explanation}`;
   }
 
-  /**
-   * 处理更多帮助命令
-   * 显示更多帮助信息，包括游戏进阶玩法说明
-   * 对应原版：更多 命令
-   */
+  /** 更多帮助：游戏进阶玩法说明（对应原版 更多 命令）。 */
 
   async handleMoreHelp(userId: number): Promise<string> {
     return [
       `📚 更多帮助信息`,
-      `━━━━━━━━━━━━━━━`,
+      CARD_DIVIDER,
       `【家园系统】`,
       `  圈地 - 开始建造家园`,
       `  开挖地基 - 消耗材料开挖地基`,
@@ -1208,20 +1131,20 @@ export class QuestDialogueService {
       `  建造房子 - 消耗材料建造房子`,
       `  家园 - 查看家园状态`,
       `  家园产出 - 收取家园产出资源`,
-      `━━━━━━━━━━━━━━━`,
+      CARD_DIVIDER,
       `【宠物系统】`,
       `  开始捕捉 怪物名 - 开始捕捉怪物`,
       `  停止捕捉 怪物名 - 停止捕捉`,
       `  捕捉 怪物名 - 直接捕捉`,
       `  全部跟随 - 让所有宠物跟随`,
       `  宠物操作 - 查看宠物操作菜单`,
-      `━━━━━━━━━━━━━━━`,
+      CARD_DIVIDER,
       `【载具系统】`,
       `  组装 核心名 - 创建载具`,
       `  驾驶 载具名 - 驾驶载具`,
       `  载具 - 查看载具状态`,
       `  载具操作 - 查看操作指南`,
-      `━━━━━━━━━━━━━━━`,
+      CARD_DIVIDER,
       `【其他系统】`,
       `  贸易 - 打开贸易市场`,
       `  签到 - 每日签到`,
@@ -1231,16 +1154,12 @@ export class QuestDialogueService {
     ].join('\n');
   }
 
-  /**
-   * 处理更新历史命令
-   * 显示游戏更新日志/更新历史
-   * 对应原版：更新历史 命令
-   */
+  /** 更新历史：固定文案的版本日志（对应原版 更新历史 命令）。 */
 
   async handleChangelog(userId: number): Promise<string> {
     return [
       `📜 更新历史`,
-      `━━━━━━━━━━━━━━━`,
+      CARD_DIVIDER,
       `【v1.0.0】`,
       `  - 实现家园系统（圈地、开挖地基、建造地基、建造房子）`,
       `  - 实现宠物捕捉系统`,
@@ -1248,26 +1167,22 @@ export class QuestDialogueService {
       `  - 实现贸易市场系统`,
       `  - 实现每日签到系统`,
       `  - 实现战斗系统`,
-      `━━━━━━━━━━━━━━━`,
+      CARD_DIVIDER,
       `【v0.9.0】`,
       `  - 实现基础攻击与战斗循环`,
       `  - 实现物品与装备系统`,
       `  - 实现地图与怪物系统`,
       `  - 实现玩家创建与升级系统`,
-      `━━━━━━━━━━━━━━━`,
+      CARD_DIVIDER,
       `【v0.8.0】`,
       `  - 项目初始化`,
       `  - 实现基础框架搭建`,
-      `━━━━━━━━━━━━━━━`,
+      CARD_DIVIDER,
       `更多更新内容请关注后续版本`,
     ].join('\n');
   }
 
-  /**
-   * 处理贸易命令
-   * 玩家间贸易市场系统，支持查看市场、上架物品、下架物品、购买物品
-   * 对应原版：贸易 命令
-   */
+  /** 求助：无参数时找露娜给编号确认入口，带问题文本时记录求助并回显求助卡。 */
 
   async handleHelpMe(userId: number, question: string): Promise<string> {
     if (!question) {
@@ -1286,32 +1201,28 @@ export class QuestDialogueService {
       return `【${luna.name || '露娜'}】\n有解决不了的麻烦需要我帮忙的吗？\n1、求助确认`;
     }
 
-    // 获取玩家信息
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
 
-    // 获取用户QQ号
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     const userQQ = user?.qqNumber || '';
 
-    // 记录求助日志
     this.logger.log(`玩家 ${userId} (${userQQ}) 求助: ${question}`);
 
-    // 返回求助信息（在实际游戏中，这里应发送到世界频道）
+    // 未接世界频道，只回显求助卡
     return [
       `📢 求助信息已发送`,
-      `━━━━━━━━━━━━━━━`,
+      CARD_DIVIDER,
       `玩家: ${player.name || '冒险者'}`,
       `问题: ${question}`,
-      `━━━━━━━━━━━━━━━`,
+      CARD_DIVIDER,
       `你的求助已记录，请等待其他玩家帮助`,
     ].join('\n');
   }
 
   /**
-   * 处理反馈指令（指令通道，简化版）
-   * 格式：反馈 内容  或  反馈 bug 标题|内容
-   * 完整交互（分类选择/附件上传/回复）请使用网页内的反馈面板
+   * 反馈（指令通道简化版）：整段文本作为内容建单（标题取前 30 字、分类 general）；
+   * 完整交互（分类选择/附件上传/回复）请用网页反馈面板。
    */
 
   async handleFeedback(userId: number, raw: string): Promise<string> {
@@ -1327,24 +1238,15 @@ export class QuestDialogueService {
     return `反馈已提交，工单号 #${feedback.id}，我们会尽快处理。`;
   }
 
-  /**
-   * 领取任务（对齐原版 领取任务 分支 _主程序.ecode L7321-7404）：
-   * - 无参数：列出当前地图各单位（NPC/召唤物/跟随的白）任务池中可领取的任务；
-   * - 参数为 NPC 名：从该 NPC 的任务池随机接取一个（原版 随机文本），
-   *   已有该 NPC 任务时提示“你已经领取了X的任务了，先去完成吧”；
-   * - 参数为任务名：直接领取该任务。
-   */
+  /** 发文字：无内容时切换「文本发送模式」，有内容时按当前模式发送文本。 */
 
   async handleTextSend(userId: number, content: string): Promise<string> {
-    // 获取玩家数据
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers } = playerData;
 
-    // 检查当前文本发送模式状态
     const currentMode = markers['文本发送模式'] || 0;
 
     if (!content) {
-      // 没有指定模式，显示当前状态并切换
       const newMode = currentMode === 0 ? 1 : 0;
       markers['文本发送模式'] = newMode;
       player.markers = markers; // Json 列直接写对象
@@ -1355,23 +1257,21 @@ export class QuestDialogueService {
       return `已切换至「${modeText}」`;
     }
 
-    // 处理文本内容发送
+    // 普通模式下发消息会顺带开启文本发送模式
     if (currentMode === 0) {
-      // 当前是普通模式，切换到文本模式并发送
       markers['文本发送模式'] = 1;
       player.markers = markers; // Json 列直接写对象
       await this.playerService.savePlayer(player);
     }
 
-    // 在当前模式下发送文本内容
     this.logger.log(`玩家 ${userId} 发送文本: ${content}`);
     return `📨 文本消息已发送:\n${content}`;
   }
 
   /**
-   * 处理查看指定玩家命令
-   * 按QQ号或名称查找玩家，显示基本信息
-   * 对应原版：查看玩家 命令
+   * 计算（原版 接口1.ecode L338-355）。
+   * 表达式归一（x→*、全角括号→半角、。→.、、→/、去空格）→ 三角函数 sin/cos/tan
+   * （需括号）→ 白名单字符校验后求值，支持 + - * / ^（乘方）。
    */
 
   async handleCalculate(userId: number, expression: string): Promise<string> {
@@ -1415,8 +1315,9 @@ export class QuestDialogueService {
   }
 
   /**
-   * 数据刷新（原版 接口1.ecode L294-304）。
-   * 原版把玩家在内存列表中重排到首位；Web 端等价动作是重读玩家最新数据。
+   * 菜单（原版 接口1.ecode L325-330）。
+   * 原版按“是否开启游戏”分流：游戏开启 → 游戏菜单/功能菜单；关闭 → 计算/快捷输入。
+   * Web 端游戏常开，固定输出游戏菜单/功能菜单两层入口。
    */
 
   async handleMenu(userId: number): Promise<string> {
@@ -1453,9 +1354,8 @@ export class QuestDialogueService {
   }
 
   /**
-   * 计算（原版 接口1.ecode L338-355）。
-   * 表达式归一（x→*、全角括号→半角、。→.、、→/、去空格）→ 三角函数 sin/cos/tan
-   * （需括号）→ 白名单字符校验后求值，支持 + - * / ^（乘方）。
+   * 数据刷新（原版 接口1.ecode L294-304）。
+   * 原版把玩家在内存列表中重排到首位；Web 端等价动作是重读玩家最新数据。
    */
 
   async handleRefreshData(userId: number): Promise<string> {
@@ -1486,13 +1386,11 @@ export class QuestDialogueService {
     return `${playerData.player.name || '冒险者'}已经重新读取了你的存档数据`;
   }
 
-  // ========== 其他命令 ==========
+  // ===== 设置命令 =====
 
   /**
-   * 处理游戏主菜单命令
-   * 显示使魔大战的主菜单，并通过临时输入替换生成编号子菜单（对齐原版 _主程序.ecode L1573）。
-   * 玩家直接发编号数字即可进入对应功能，无需记忆指令名。
-   * 对应原版：使魔大战 命令
+   * 设置（对应原版 _主程序.ecode 中「设置」指令）：无参数列出全部设置项与编号快捷；
+   * 指定项按「开/关/数字」解析后写入玩家 markers。
    */
 
   async handleSettings(userId: number, settingName?: string, settingValue?: string): Promise<string> {
@@ -1528,7 +1426,7 @@ export class QuestDialogueService {
     }
 
     // 指定设置项：按「开/关/数字」解析并写入 markers
-    // 已知将被移除/锁定的设置项：随机数、背景音乐、自动购物已不再出现在菜单中；
+    // 随机数/背景音乐/自动购物已从菜单移除，命中时返回"功能已移除"；
     // 使用活力、自动采集由管理员全局控制；新手指引永远开启。
     const settingKey = settingName;
 
@@ -1575,7 +1473,7 @@ export class QuestDialogueService {
       }
     }
 
-    // 新手指引已不再允许修改（永远开启）
+    // 新手指引不可修改（永远开启）
     if (settingKey === '指引') {
       return `新手指引默认开启，无法关闭`;
     }
@@ -1583,7 +1481,7 @@ export class QuestDialogueService {
     // 宠物不扶、显示倍率仍为用户可设置项（markers）
     const actualKey = settingKey === '新手指引' ? '指引' : settingKey;
     if (actualKey !== settingKey) {
-      // 防坑：老旧 경로로 '指引' 直接传入也禁止修改
+      // 防坑：'指引' 直接传入也禁止修改
       return `新手指引默认开启，无法关闭`;
     }
     player.markers[actualKey] = newValue;
@@ -1597,11 +1495,7 @@ export class QuestDialogueService {
   }
 
   /**
-   * 切换玩家标记类设置（存储在 markers 中）
-   * 对应原版 _主程序.ecode「设置」系列指令的切换逻辑：
-   * 读取当前值，若处于“开”则切换为“关”，否则切换为“开”
-   * @param userId 用户ID
-   * @param key 标记键名
+   * 切换玩家标记类设置（值存在 markers 中），对应原版 _主程序.ecode「设置」系列指令。
    * @param onValue 标记中表示“开”的数值
    * @param offValue 标记中表示“关”的数值
    * @param onText 切换到“开”时返回的提示文本
@@ -1631,81 +1525,50 @@ export class QuestDialogueService {
     });
   }
 
-  /**
-   * 设置新手指引开关
-   * 对应原版：设置指引
-   * 标记「指引」：0=开启, 1=关闭
-   */
+  /** 设置指引开关（原版 设置指引）：标记「指引」0=开启、1=关闭。 */
 
   async handleSettingsGuide(userId: number): Promise<string> {
     return this.toggleSetting(userId, '指引', 0, 1, '开启了新手指引', '关闭了新手指引');
   }
 
-  /**
-   * 设置随机数开关
-   * 对应原版：设置随机
-   * 标记「自动战斗」：1=显示随机数, 0=不显示
-   */
+  /** 设置随机数开关（原版 设置随机）：标记「自动战斗」1=显示随机数、0=不显示。 */
 
   async handleSettingsRandom(userId: number): Promise<string> {
     return this.toggleSetting(userId, '自动战斗', 1, 0, '开启了随机数', '关闭了随机数');
   }
 
-  /**
-   * 设置自动采集开关
-   * 对应原版：设置采集
-   * 标记「自动采集」：1=开启, 0=关闭
-   */
+  /** 设置自动采集开关（原版 设置采集）：标记「自动采集」1=开启、0=关闭。 */
 
   async handleSettingsGather(userId: number): Promise<string> {
     return this.toggleSetting(userId, '自动采集', 1, 0, '开启了自动采集', '关闭了自动采集');
   }
 
-  /**
-   * 设置活力消耗开关
-   * 对应原版：设置活力
-   * 标记「使用活力」：0=击杀怪物消耗活力, 1=不消耗
-   */
+  /** 设置活力消耗开关（原版 设置活力）：标记「使用活力」0=击杀怪物消耗活力、1=不消耗。 */
 
   async handleSettingsVitality(userId: number): Promise<string> {
     return this.toggleSetting(userId, '使用活力', 0, 1, '活力现在击杀怪物会消耗', '活力现在击杀怪物不会消耗');
   }
 
-  /**
-   * 设置宠物是否扶起主人
-   * 对应原版：设置不扶
-   * 标记「不扶」：1=宠物不扶, 0=宠物会扶起
-   */
+  /** 设置宠物是否扶起主人（原版 设置不扶）：标记「不扶」1=不扶、0=会扶起。 */
 
   async handleSettingsNoHelp(userId: number): Promise<string> {
     return this.toggleSetting(userId, '不扶', 1, 0, '你现在不会被宠物扶起', '存活的宠物现在会扶你起来');
   }
 
-  /**
-   * 设置背景音乐开关
-   * 对应原版：设置音乐
-   * 标记「bgm」：0=播放bgm, 1=不播放
-   */
+  /** 设置背景音乐开关（原版 设置音乐）：标记「bgm」0=播放、1=不播放。 */
 
   async handleSettingsMusic(userId: number): Promise<string> {
     return this.toggleSetting(userId, 'bgm', 0, 1, '播放bgm', '不播放bgm');
   }
 
-  /**
-   * 设置显示攻击倍率开关
-   * 对应原版：设置倍率
-   * 标记「bl」：1=显示倍率, 0=不显示
-   */
+  /** 设置显示攻击倍率开关（原版 设置倍率）：标记「bl」1=显示倍率、0=不显示。 */
 
   async handleSettingsMultiplier(userId: number): Promise<string> {
     return this.toggleSetting(userId, 'bl', 1, 0, '显示倍率', '不显示倍率');
   }
 
   /**
-   * 设置自动购物对象
-   * 对应原版：设置购物
-   * 记录在 markers['自动购物'] 中，用于「购物自动」指令对自家行商自动购买
-   * @param userId 用户ID
+   * 设置自动购物对象（原版 设置购物）：记在 markers['自动购物']，供「购物自动」对自家行商自动购买。
    * @param value 购物对象关键词（为空时表示查看当前设置）
    */
 
@@ -1744,10 +1607,7 @@ export class QuestDialogueService {
   }
 
   /**
-   * 设置玩家位置（管理员）
-   * 对应原版：设置位置
-   * 将指定玩家移动到地图列表下标或地图名称对应的地图
-   * @param userId 调用者用户ID
+   * 设置玩家位置（管理员，对应原版 设置位置）
    * @param value 参数：「目标 地图列表数组下标/地图名称」
    */
 
@@ -1802,10 +1662,8 @@ export class QuestDialogueService {
   }
 
   /**
-   * 设置玩家/宠物标记（管理员）
-   * 对应原版：设置标记
-   * 支持修改玩家或宠物/召唤物的成就/标记/增益/标记2/配方
-   * @param userId 调用者用户ID
+   * 设置玩家/宠物标记（管理员，对应原版 设置标记）：
+   * 支持修改玩家或宠物/召唤物的成就/标记/增益/标记2/配方。
    * @param value 参数：「@人/宠物id 标记名称 数值 位置(成就/标记/增益/标记2/配方) 持续时间」
    */
 
@@ -1898,10 +1756,8 @@ export class QuestDialogueService {
   }
 
   /**
-   * 开启副本
-   * 使用副本钥匙在当前地图开启副本，生成临时怪物
-   * @param userId 用户ID
-   * @returns 副本开启信息
+   * 新玩家"选第一个使魔"门禁（对应原版 _主程序.ecode L11464-11480）：
+   * 未选使魔时返回拦截菜单文本，已选返回 null。
    */
 
   async getFirstFamiliarGate(userId: number): Promise<string | null> {
@@ -1945,17 +1801,6 @@ export class QuestDialogueService {
 
     return lines.join('\n');
   }
-
-  /**
-   * 生成编号快捷菜单（"编号选项"统一入口）
-   * 对齐原版"快捷输入"的临时输入替换机制：为每个选项生成 编号@触发指令 的临时替换，
-   * 玩家发送对应编号数字即可触发指令，无需记忆指令名。
-   * 统一展示格式：1、选项A  2、选项B ...
-   * @param userId 玩家用户ID
-   * @param options 选项列表 [{ label: 展示文本, cmd: 触发指令(为空则仅展示不生成快捷) }]
-   * @param hint 底部提示语（默认：💡 发送编号数字(如 1)即可快速操作）
-   * @returns 生成的编号菜单展示行（含分隔线和提示），调用方直接 push 到输出即可
-   */
 
   async handleConfirmHelp(userId: number, targetName: string): Promise<string> {
     // 对应原版：求助确认（_主程序.ecode L9877）
@@ -2004,31 +1849,14 @@ export class QuestDialogueService {
     }
   }
 
-  /**
-   * 自动购物
-   * 对应原版：购物自动 命令
-   */
+  /** 生产入口：委托 FamiliarSystemService.handleHome 的「产出」分支。 */
 
   async handleProduce(userId: number, productName: string): Promise<string> {
-    // 委托到 FamiliarSystemService 的家园产出操作
-    // productName 参数在完整实现中可用于指定生产特定资源
+    // productName 目前未使用，预留给指定生产特定资源
     return this.familiarSystemService.handleHome(userId, '产出');
   }
-
-  // ========== 副本命令 ==========
-
-  /**
-   * 处理副本清空命令
-   * 清空当前副本的怪物，重置副本状态
-   * 对应原版：清空副本 命令
-   */
 
   async handleViewQuests(userId: number, selector = ''): Promise<string> {
     return this.taskService.listTasks(userId, selector);
   }
-
-  /**
-   * 提交任务
-   * 完成的任务进行提交，获得奖励
-   */
 }

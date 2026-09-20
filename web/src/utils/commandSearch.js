@@ -1,15 +1,9 @@
 /**
  * 指令检索工具（中文 / 别名 / 拼音全拼 / 拼音首字母）
- *
- * 背景：指令名以中文为主，玩家习惯用拼音连续输入（beibao、bbss），
- * 因此除原有「中文名/别名/描述」匹配外，还需支持「全拼」「首字母」两类拼音匹配。
- *
- * 实现要点：
- * - 为每条指令惰性构建检索索引（原名、别名、全拼、首字母），并用 Map 缓存，
- *   避免每次按键都重复调用拼音库（指令列表只在进入页面时加载一次）。
- * - 打分排序：名称直接命中 > 别名直接命中 > 拼音命中 > 描述兜底，
- *   同分时保持指令原有顺序（后端 sortOrder），保证候选列表稳定不跳动。
- * - 所有阈值、权重、条数上限集中在 config.js 的 COMMAND_SEARCH_CONFIG，调参无需改动本文件。
+ * 指令名以中文为主、玩家习惯拼音连续输入（beibao、bbss），故中文名/别名/描述之外还要支持两类拼音匹配。
+ * - 每条指令的检索索引用 Map 缓存，避免每次按键重复调用拼音库。
+ * - 打分排序：名称直接命中 > 别名直接命中 > 拼音命中 > 描述兜底；同分保持后端 sortOrder 顺序，
+ *   候选列表稳定不跳动。阈值/权重/条数上限集中在 config.js 的 COMMAND_SEARCH_CONFIG。
  */
 import { pinyin } from 'pinyin-pro';
 import { COMMAND_SEARCH_CONFIG } from '../config';
@@ -71,8 +65,7 @@ function toInitials(text) {
 
 /**
  * 构建（或命中缓存的）单条指令检索索引
- * @param {object} cmd 指令对象 { name, alias, description }
- * @returns {object} 含原名/别名/全拼/首字母的检索索引
+ * @param {object} cmd { name, alias, description }
  */
 function buildIndex(cmd) {
   const name = String(cmd.name || '');
@@ -222,7 +215,7 @@ export function searchCommands(list, query, options = {}) {
   const { limit = 0, matchDescription = true, withMatch = false } = options;
   const take = (arr) => (limit > 0 ? arr.slice(0, limit) : arr);
   const q = normalize(query);
-  // 空查询：不打分，按原顺序返回（保持原有「清空搜索框即展示全部指令」的行为）
+  // 空查询：不打分，按原顺序返回全部指令
   if (!q) return take(source.slice());
 
   const scored = [];

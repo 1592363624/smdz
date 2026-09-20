@@ -1,15 +1,9 @@
 /**
- * 装备/强化/植入/增幅器指令域服务（game 模块化重构 P2-6 抽出）
- *
- * 职责：装备/卸下/切换武器、装备强化与词条、装备预设（保存/删除/切换）、
- * 武器维修、植入体（查看/切换/重置）、增幅器（查看/切换/强化/重置）、
- * 被动效果、查看装备/对比/仓库。
- * 依赖方向：依赖 ItemSystemService（强化唯一入口 applyEquipReinforce）、
- * ItemService、Player、CombatState、StaticData、支撑层（hasEquippedSpecial、
- * getBackpackDisplayItems、incrementMarker、mutatePlayer、hasEquip 等）；不依赖其他指令域子服务。
- * 单一真相源：强化计算唯一入口 ItemSystemService.applyEquipReinforce；
- * 强化展示统一 formatReinforcedEquipAttrs；品质展示统一 equipmentQualityLabel；
- * 背包展示顺序统一支撑层 getBackpackDisplayItems。
+ * 装备/强化/植入/增幅器指令域：装备/卸下/切换武器、装备强化与词条、装备预设
+ * （保存/删除/切换）、武器维修、植入体与增幅器（查看/切换/强化/重置）、被动效果、查看/对比/保险柜。
+ * 单一真相源：强化计算唯一入口 ItemSystemService.applyEquipReinforce，强化展示统一
+ * formatReinforcedEquipAttrs、品质展示统一 equipmentQualityLabel、背包展示顺序统一
+ * GameSupportService.getBackpackDisplayItems；本子服务不依赖其他指令域子服务。
  * 对口原版：_主程序.ecode 装备/强化/植入/增幅器分支。
  */import { Injectable, Logger } from '@nestjs/common';
 import { asJsonValue } from '../../../common/utils/json-value.util';
@@ -22,6 +16,7 @@ import { ItemSystemService } from '.././item-system.service';
 import { StaticDataService } from '.././static-data.service';
 import { CombatStateService } from '.././combat-state.service';
 import { GameSupportService } from '.././game-support.service';
+import { CARD_DIVIDER } from '../../../common/utils/game-text.util';
 
 @Injectable()
 export class EquipCommandService {
@@ -53,11 +48,9 @@ export class EquipCommandService {
       return this.itemService.equipItem(userId, items.indexOf(displayItems[idx]) + 1);
     }
 
-    // 名称定位统一走 equipment-ref.util 单一实现（与「锁定装备/解锁」同源）：
-    //   整名精确 → 基础名+品质码（带品质码不降级为任意品质，2026-09-06 品质错配事故）
-    //   → 剥掉·特效后缀的基础名 → 背包显示全名（冰雹S·绝对零度）。
-    // 2026-09-10：此前本方法内联了一份「末尾字母品质码」正则，锁定/解锁各写一套，
-    // 属双重表示；现三处共用同一解析器，后续修品质口径只需改一处。
+    // 名称定位统一走 equipment-ref.util 的单一实现（与「锁定装备/解锁」同源）：
+    //   整名精确 → 基础名+品质码 → 剥掉·特效后缀的基础名 → 背包显示全名（冰雹S·绝对零度）。
+    //   带品质码时不得降级为任意品质匹配，否则会装到品质不同的同名装备上。
     const index = resolveEquipmentRefIndex(items, normalizedName, {
       displayName: (item: any) => this.itemService.formatEquipmentInventoryDisplay(item),
     });
@@ -67,33 +60,24 @@ export class EquipCommandService {
     return this.itemService.equipItem(userId, index + 1);
   }
 
-  /**
-   * 处理卸下装备命令
-   */
-
+  /** 卸下装备：按部位槽位移除，装备回背包 */
   async handleUnequip(userId: number, slot: string): Promise<string> {
     return this.itemService.unequipItem(userId, slot);
   }
 
-  /**
-   * 处理查看技能命令
-   */
-
+  /** 切换手持武器（下标 1-based，0=拳头） */
   async handleSwitchWeapon(userId: number, weaponName: string): Promise<string> {
     return this.itemSystemService.switchWeapon(userId, weaponName || '');
   }
 
   /**
-   * 处理强化植入体命令
-   * 对应原版：物品操作.ecode 强化植入体()，参数格式"属性名+次数"（如"攻击3"/"3"）
+   * 装备强化（对应原版 _主程序.ecode L5053-5127）：参数格式"部位名+次数"（如"头部3"）
+   * 消耗合金强化该部位基础属性；只给数字时强化背包中的法宝（耐久即等级，最高9级，消耗祥瑞气息）。
    */
-
   async handleEquipEnhance(userId: number, arg: string): Promise<string> {
-    // 读改写整体进用户写队列、基于活态执行（见 mutatePlayer 注释）。
-    // 旧实现在锁外裸读档 → 末尾把 markers/backpack 整列用旧快照覆盖：读到的是
-    // 「上一次落库时的行」，同一指令内/并发写入活态但尚未落库的改动（好感、使用计数…
-    // ）会被整体抹掉。正式库实证：7960 剑圣 13:53-13:54 连续执行「强化武器100/强化脚部100」
-    // 后，markers 里的「使用巧克力」计数与「剑圣好感」被抹回更早的旧值。
+    // 读改写必须整体进用户写队列、基于活态执行（mutatePlayer）：管道外裸读档再落库时，
+    // 会把 markers/backpack 整列用旧快照覆盖，同一指令内/并发写入但尚未落库的改动
+    // （好感、使用计数…）被整体抹掉。
     return this.support.mutatePlayer(userId, async (ctx: any) => {
     const { player } = ctx;
     const markers: Record<string, number> = ctx.markers
@@ -122,14 +106,12 @@ export class EquipCommandService {
       if (level > 9) {
         return `${player.name || '冒险者'}已经强化到了顶级`;
       }
-      // 按当前等级确定所需祥瑞气息数量
       const cost = level < 3 ? 2 : level < 6 ? 3 : level < 9 ? 5 : 10;
       const auraItem = items.find((it: any) => it.name === '祥瑞气息');
       const auraCount = auraItem ? (auraItem.quantity || 0) : 0;
       if (auraCount < cost) {
         return `${player.name || '冒险者'}需要${cost}祥瑞气息来强化${item.name}，你只有${auraCount}`;
       }
-      // 扣除祥瑞气息
       if (auraCount === cost) {
         items.splice(items.indexOf(auraItem), 1);
       } else {
@@ -144,9 +126,8 @@ export class EquipCommandService {
     // 输入了部位名：强化装备部位基础属性（消耗合金，每次消耗当前强化等级数量）
     const validParts = ['头部', '饰品', '肩膀', '上身', '手臂', '手掌', '腰部', '背部', '下身', '腿部', '腿环', '脚部', '武器'];
     if (!validParts.includes(part)) {
-      // 原版文案是「玩家名+不是可以强化的部位。」（称呼前缀风格，缺逗号易歧义读成
-      // 「玩家名这个部位」）；主语改为用户输入的名称，语义直指非法强化目标。
-      // 2026-09-09 用户实测「强化动力头盔」回「剑圣不是可以强化的部位」确认歧义。
+      // 原版文案是「玩家名+不是可以强化的部位。」（称呼前缀易被读成「玩家名这个部位」），
+      // 这里把主语改为用户输入的名称，语义直指非法强化目标。
       return `${part}不是可以强化的部位。`;
     }
     const current = this.playerService.getMarkerValue(markers, `${part}强化`);
@@ -172,7 +153,6 @@ export class EquipCommandService {
     if (done === 0) {
       return `${player.name || '冒险者'}强化${part}需要${level}合金，你只有${alloyCount}`;
     }
-    // 扣除合金
     if (alloyItem && used > 0) {
       if (alloyItem.quantity === used) {
         items.splice(items.indexOf(alloyItem), 1);
@@ -189,14 +169,10 @@ export class EquipCommandService {
   }
 
   /**
-   * 装备加成
-   * 对应原版：装备加成（_主程序.ecode L4210-L4220）
-   * 汇总当前已装备装备（含当前武器）提供的全部属性加成
-   * @param userId 用户ID
-   * @param itemName 参数（兼容保留，不影响查询）
-   * @returns 加成汇总文本
+   * 装备加成汇总（对应原版 装备加成，_主程序.ecode L4210-L4220）：
+   * 累加当前已装备装备（含当前手持武器）提供的全部属性加成。
+   * @param itemName 兼容保留，不影响查询
    */
-
   async handleEquipBonus(userId: number, itemName: string): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
@@ -239,7 +215,6 @@ export class EquipCommandService {
       addParsed(weapons[currentWeapon - 1]);
     }
 
-    // 展示常用加成字段
     const fieldLabels: [string, string][] = [
       ['攻击', '攻击'], ['生命', '生命'], ['装甲', '装甲'], ['护盾', '护盾'],
       ['速度', '速度'], ['闪避', '闪避'], ['命中', '命中'], ['暴击', '暴击'],
@@ -263,15 +238,10 @@ export class EquipCommandService {
   }
 
   /**
-   * 装备预设管理
-   * 对应原版：装备预设（_主程序.ecode L4156-L4206）
-   * 支持：无参数查看列表、新建预设、删除预设（装备回背包）、数字查看预设详情
-   * @param userId 用户ID
+   * 装备预设管理（对应原版 装备预设，_主程序.ecode L4156-L4206）：
+   * 支持 无参数查看列表 / 新建预设 / 删除预设（装备回背包）/ 数字查看预设详情。
    * @param action 操作参数（空=列表 / 新建名称 / 删除序号 / 序号）
-   * @param args 附加参数
-   * @returns 操作结果文本
    */
-
   async handleEquipPreset(userId: number, action: string, args: string[]): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
@@ -331,12 +301,7 @@ export class EquipCommandService {
     return this.listEquipPresets(player, presets);
   }
 
-  /**
-   * 显示装备预设列表
-   * @param player 玩家对象
-   * @param presets 预设数组
-   */
-
+  /** 显示装备预设列表（含每个预设的件数） */
   listEquipPresets(player: any, presets: any[]): string {
     if (presets.length === 0) {
       return `${player.name || '冒险者'}，你可以把装备放到[装备预设]里面，可以快速一键批量换装\n「装备预设新建生命套」来新建一个名为生命套的装备预设`;
@@ -350,13 +315,7 @@ export class EquipCommandService {
     return lines.join('\n');
   }
 
-  /**
-   * 计算预设装备的总加成（含装备强化效果）
-   * 对应原版：解析装备 + 计算装备强化 + 叠加加成
-   * @param player 玩家对象
-   * @param preset 预设
-   */
-
+  /** 计算预设装备的总加成（含装备强化效果）；对应原版：解析装备 + 计算装备强化 + 叠加加成 */
   async calcPresetBonus(player: any, preset: any): Promise<Record<string, number>> {
     const markers = asJsonValue<any>(player.markers, {});
     const total: Record<string, number> = {};
@@ -390,11 +349,7 @@ export class EquipCommandService {
     return total;
   }
 
-  /**
-   * 格式化加成对象为可读文本
-   * @param bonus 加成对象
-   */
-
+  /** 加成对象 → 可读文本（只输出常见属性字段，数值四舍五入） */
   formatBonusText(bonus: Record<string, number>): string {
     const fieldLabels: [string, string][] = [
       ['攻击', '攻击'], ['生命', '生命'], ['装甲', '装甲'], ['护盾', '护盾'],
@@ -412,27 +367,19 @@ export class EquipCommandService {
     return lines.join('\n');
   }
 
-  /**
-   * 活跃度商店
-   * 对应原版：活跃度商店 命令
-   */
-
+  /** 装备预设保存/切换：`save:预设名`（或 `保存:预设名`）保存当前装备，其余按名切换 */
   async handlePresetSwitch(userId: number, presetName: string): Promise<string> {
-    // 尝试先作为保存操作处理（格式：save:预设名）
     if (presetName.startsWith('save:') || presetName.startsWith('保存:')) {
       const name = presetName.replace(/^(save:|保存:)/, '');
       return this.itemSystemService.savePreset(userId, name);
     }
-    // 尝试保存为预设
     return this.itemSystemService.switchPreset(userId, presetName);
   }
 
   /**
-   * 处理回充命令
-   * 对应原版 _主程序.ecode L7001-L7010：装备护盾回充器后启动10秒回充增益，
+   * 装甲回充（对应原版 _主程序.ecode L7001-L7010）：装备护盾回充器后启动10秒回充增益，
    * 共用90秒「回充冷却」，不消耗背包物品。
    */
-
   async handleRepairItem(userId: number, itemName: string): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, markers, markers2 } = playerData;
@@ -450,7 +397,7 @@ export class EquipCommandService {
       await this.playerService.savePlayer(player);
       return `${player.name}装甲修理冷却${remaining.value}`;
     }
-    // 刚写入的「回充冷却」补类型标签（方案B）：面板据此显示「特效冷却中」而非兜底的「武器冷却中」
+    // 刚写入的「回充冷却」补类型标签：面板据此显示「特效冷却中」而非兜底的「武器冷却中」
     tagMarkerKind(markers2, '回充冷却', 'effect-cd');
     this.support.incrementMarker(markers, '活跃度', 1);
     this.combatState.addMarker('修理', 10, markers2, now);
@@ -460,101 +407,57 @@ export class EquipCommandService {
     return `${player.name}启动了纳米注喷器`;
   }
 
-  /**
-   * 处理装填命令
-   * 对应原版 _主程序.ecode L7410-L7489：普拉娜超装填或管风琴装填，
-   * 通过「工作」标记和延时事件完成，不消耗背包弹药。
-   */
-
+  /** 强化植入体（对应原版 物品操作.ecode L57 强化植入体），参数"属性名+次数"（如"攻击3"/"3"） */
   async handleEnhanceImplant(userId: number, target: string): Promise<string> {
     return this.itemSystemService.upgradeImplant(userId, target || '');
   }
 
-  /**
-   * 处理查看植入体命令
-   * 查看已安装的植入体列表
-   */
-
+  /** 查看已安装的植入体列表 */
   async handleViewImplant(userId: number): Promise<string> {
     return this.itemSystemService.viewImplant(userId);
   }
 
-  /**
-   * 处理切换植入体命令
-   * 切换当前激活的植入体
-   */
-
+  /** 切换当前激活的植入体（消耗凭证） */
   async handleSwitchImplant(userId: number, implantName: string): Promise<string> {
     return this.itemSystemService.switchImplant(userId, implantName);
   }
 
-  /**
-   * 处理还原植入体命令
-   * 还原/重置所有植入体
-   */
-
+  /** 还原/重置所有植入体强化（无损耗） */
   async handleResetImplant(userId: number): Promise<string> {
     return this.itemSystemService.resetImplant(userId);
   }
 
-  /**
-   * 处理查看增幅器命令
-   * 查看已安装的增幅器列表
-   */
-
+  /** 确认还原植入体等级（二次确认回执） */
   async handleConfirmResetImplant(userId: number): Promise<string> {
     return `✅ 已确认还原植入体等级。`;
   }
 
-  /**
-   * 确认还原增幅器等级
-   * 对应原版：确认还原增幅器等级 命令
-   */
-
+  /** 查看已安装的增幅器列表（对应原版 _主程序.ecode L10873） */
   async handleViewAmplifier(userId: number): Promise<string> {
     return this.itemSystemService.viewAmplifier(userId);
   }
 
-  /**
-   * 处理切换增幅器命令
-   * 切换当前激活的增幅器
-   */
-
+  /** 切换当前激活的增幅器（消耗凭证） */
   async handleSwitchAmplifier(userId: number, amplifierName: string): Promise<string> {
     return this.itemSystemService.switchAmplifier(userId, amplifierName);
   }
 
-  /**
-   * 处理强化增幅器命令
-   * 对应原版：物品操作.ecode 强化增幅器()，参数格式"属性名+次数"（如"攻击3"/"3"）
-   */
-
+  /** 强化增幅器（对应原版 物品操作.ecode L211 强化增幅器），参数"属性名+次数"（如"攻击3"/"3"） */
   async handleEnhanceAmplifier(userId: number, target: string): Promise<string> {
     return this.itemSystemService.upgradeAmplifier(userId, target || '');
   }
 
-  /**
-   * 处理还原增幅器命令
-   * 还原/重置所有增幅器
-   */
-
+  /** 还原/重置所有增幅器强化（无损耗） */
   async handleResetAmplifier(userId: number): Promise<string> {
     return this.itemSystemService.resetAmplifier(userId);
   }
 
-  /**
-   * 处理炼丹命令
-   * 消耗材料炼制丹药，从制造配方中查找炼丹配方
-   */
-
+  /** 确认还原增幅器等级（二次确认回执） */
   async handleConfirmResetAmplifier(userId: number): Promise<string> {
     return `✅ 已确认还原增幅器等级。`;
   }
 
-  /**
-   * 获取玩家名称的辅助方法
-   */
-
+  /** 被动效果面板：分层展示装备加成、当前武器特效、套装等级与活跃召唤物 */
   async handlePassiveEffects(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, equipment, weapons, sets } = playerData;
@@ -562,14 +465,13 @@ export class EquipCommandService {
     const lines: string[] = [
       // 原版 _主程序.ecode L11247：「<名称>当前拥有的被动效果」；下按来源分层展示装备/武器被动
       `【${player.name || '冒险者'}】当前拥有的被动效果`,
-      `━━━━━━━━━━━━━━━`,
+      CARD_DIVIDER,
     ];
 
-    // 解析装备列表
+    // 解析装备/武器列表（优先用 playerData 已解析的数组，否则回读 JSON 列）
     const equipList = equipment.length > 0 ? equipment : asJsonValue<any[]>(player.equipment, []);
     const weaponList = weapons.length > 0 ? weapons : asJsonValue<any[]>(player.weapons, []);
 
-    // 显示装备被动效果
     const equipEffects: string[] = [];
     for (const eq of equipList) {
       if (eq.bonus) {
@@ -592,7 +494,7 @@ export class EquipCommandService {
     // 显示武器特殊效果
     // 原版 数据显示.ecode L102-105：玩家只显示当前手持武器的被动效果（当前武器≠0 时才读对应武器序号）；
     // 非玩家（怪物/召唤物）才遍历全部武器。此处 client 恒为玩家，故只读当前武器。
-    lines.push(`━━━━━━━━━━━━━━━`);
+    lines.push(CARD_DIVIDER);
     lines.push(`◆来自武器的被动效果:`);
     const currentWeaponIdx = Number(player.currentWeapon ?? 0) - 1; // 1-based 索引转 0-based
     const currentWeap = currentWeaponIdx >= 0 ? weaponList[currentWeaponIdx] : undefined;
@@ -611,7 +513,7 @@ export class EquipCommandService {
     // 显示套装效果
     const setData = sets || asJsonValue<any>(player.sets, {});
     const setEntries = Object.entries(setData).filter(([, v]) => v && (v as number) > 0);
-    lines.push(`━━━━━━━━━━━━━━━`);
+    lines.push(CARD_DIVIDER);
     lines.push(`🎯 套装效果:`);
     if (setEntries.length > 0) {
       const setNames: Record<string, string> = {
@@ -631,11 +533,10 @@ export class EquipCommandService {
       lines.push(`  无套装效果`);
     }
 
-    // 显示召唤物信息
-    lines.push(`━━━━━━━━━━━━━━━`);
+    lines.push(CARD_DIVIDER);
     lines.push(`👾 召唤物:`);
     const buffs = asJsonValue<any[]>(player.buffs, []);
-    // 只显示仍在有效期内的召唤物，剩余时间按统一口径计算
+    // 只显示仍在有效期内的召唤物（filterActive 统一口径），剩余时间走 remainSeconds
     const summons = filterActive(buffs).filter((b: any) => b.type === 'summon' || b.name?.includes('召唤'));
     if (summons.length > 0) {
       const nowSummon = Date.now();
@@ -650,19 +551,11 @@ export class EquipCommandService {
   }
 
   /**
+   * 查看武器/装备（kind 决定读 weapons 还是 equipment 列表）：
+   * 无参数列出身上全部该类别物品并标出当前手持，带参数按序号或名称定位后走 analyzeEquipment。
+   * @param arg 序号或名称（空=列表）
    * 处理图鉴命令（对应原版 数据显示.ecode L2632 子程序 使魔图鉴）
-   * 完整 20 分类复刻已迁移到 HandbookService，本方法仅作入口与上下文桥接。
-   *
-   * 用法：
-   *   图鉴                → 20 分类两列菜单 + 统计串（原版 L2654）
-   *   图鉴<分类名>        → 类目列表
-   *   图鉴<地点>附近      → 附近地图分组
-   *   图鉴<完整名称>      → 精确匹配，直达详情
-   *   图鉴<关键词>        → 跨分类模糊搜索
-   *   图鉴载具            → 二级入口
-   *   图鉴<怪物名>详细    → 怪物详细数据（属性/装备/掉落/麻醉值，原版 L3170-3245）
    */
-
   async handleViewEquip(userId: number, arg: string, kind: '武器' | '装备'): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
@@ -696,15 +589,7 @@ export class EquipCommandService {
     return this.itemSystemService.analyzeEquipment(userId, item.name);
   }
 
-  /**
-   * 查看保险柜内容（对应原版 _主程序.ecode L5435 `查看保险柜`）
-   * 原版需要建筑【次元保险柜】才可查看，网页版暂不强制建筑要求，直接列出保险柜物品。
-   * 支持带参数（序号或名称）查看单项详情。
-   * @param userId 玩家ID
-   * @param arg 参数（空=列表，否则为序号或物品名）
-   * @returns 查看结果文本
-   */
-
+  /** 比较两件装备的属性（需两个名称，缺一时回用法提示） */
   async handleCompareEquip(userId: number, targetName: string, compareName: string): Promise<string> {
     if (!targetName || !compareName) {
       return '请指定两件要比较的装备名称，例如：比较装备 剑 盾';
@@ -713,11 +598,10 @@ export class EquipCommandService {
   }
 
   /**
-   * 处理被动效果命令
-   * 显示当前装备的被动效果、套装效果、武器特殊效果和召唤物信息
-   * 对应原版：被动效果 命令
+   * 查看保险柜内容（对应原版 _主程序.ecode L5435 `查看保险柜`）：
+   * 原版需要建筑【次元保险柜】才可查看，网页版暂不强制建筑要求，直接列出保险柜物品。
+   * @param arg 参数（空=列表，否则为序号或物品名，装备类走 analyzeEquipment）
    */
-
   async handleViewSafe(userId: number, arg: string): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, safeBox } = playerData;
@@ -753,9 +637,4 @@ export class EquipCommandService {
     });
     return `🔒 保险柜 (${safeBox.length}种):\n${lines.join('\n')}`;
   }
-
-  /**
-   * 处理比较装备命令
-   * 比较两件装备的属性
-   */
 }

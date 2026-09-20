@@ -33,7 +33,6 @@ export class AchievementService {
    * 对应原版：添加成就(名称, 数值, 成就数组, 任务数组)
    * 给指定成就增加数值，负数则减少；数值<=0时删除该成就
    * @param player 玩家对象（含 Prisma 数据，会修改并保存）
-   * @param name 成就名称
    * @param value 要增加的数值（负数则减少）
    * @param checkTitle 是否检查称号触发，默认true
    */
@@ -64,15 +63,13 @@ export class AchievementService {
         markers[name] = value;
       }
 
-      // 4. 更新 markers 字段到 player 对象
       player.markers = markers;
 
-      // 5. 如果 checkTitle，调用 checkTitles
       if (checkTitle) {
         await this.checkTitles(player);
       }
 
-      // 6. 保存玩家；快照过期则重读最新行、同步到本快照后重放同一增量
+      // 4. 保存玩家；快照过期则重读最新行、同步到本快照后重放同一增量
       try {
         await this.playerService.savePlayer(player);
       } catch (error: any) {
@@ -97,7 +94,6 @@ export class AchievementService {
    * 获取成就熟练度
    * 对应原版：取成就熟练度(成就数组, 名称)
    * @param markers 玩家标记对象或JSON字符串
-   * @param name 成就名称
    * @returns 成就数值，不存在返回0
    */
   getAchievement(markers: any, name: string): number {
@@ -112,7 +108,6 @@ export class AchievementService {
    * 对应原版：置成就熟练度(名称, 成就数组, 熟练度)
    * 用于在批量操作中直接修改 markers 对象，需调用方自行保存
    * @param markers 玩家标记对象（会被直接修改）
-   * @param name 成就名称
    * @param value 要设置的数值（<=0 时删除该成就）
    */
   setAchievement(markers: Record<string, number>, name: string, value: number): void {
@@ -136,11 +131,7 @@ export class AchievementService {
     return [];
   }
 
-  /**
-   * 获取玩家所有成就列表（格式化文本）
-   * @param player 玩家对象
-   * @returns 格式化后的成就列表文本
-   */
+  /** 获取玩家所有成就列表（格式化文本） */
   getAchievementsDisplay(player: any): string {
     const markers = asJsonValue<Record<string, number>>(player.markers, {});
     const lines: string[] = ['🏆 成就列表'];
@@ -160,11 +151,7 @@ export class AchievementService {
     return lines.join('\n');
   }
 
-  /**
-   * 获取玩家所有称号列表（格式化文本）
-   * @param player 玩家对象
-   * @returns 格式化后的称号列表文本
-   */
+  /** 获取玩家所有称号列表（格式化文本） */
   getTitlesDisplay(player: any): string {
     const rawTitles = asJsonValue<any[]>(player.titles, []);
     const titles = Array.isArray(rawTitles)

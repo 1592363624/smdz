@@ -1,6 +1,6 @@
 /**
- * 前端路由配置
- * 定义各页面路径、组件与访问权限（需要登录/需要管理员）。
+ * 前端路由配置：各页面路径与组件
+ * 守卫只校验 requiresAuth（未登录跳 /login）；requiresAdmin 由 AdminView 自行判定。
  */
 import { createRouter, createWebHistory } from 'vue-router';
 import LoginView from '../views/LoginView.vue';

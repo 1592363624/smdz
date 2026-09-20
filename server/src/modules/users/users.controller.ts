@@ -1,7 +1,6 @@
 /**
- * 用户控制器
- * 暴露用户相关的 HTTP API（绑定QQ、设置昵称、查看个人信息），并生成 OpenAPI 文档。
- * 注：登录仅通过 QQ 互联完成，本控制器不提供自注册/自登录接口。
+ * 用户控制器：绑定 QQ、设置昵称、查看个人信息等 HTTP API。
+ * 登录仅通过 QQ 互联完成，本控制器不提供自注册/自登录接口。
  */
 
 import {
@@ -22,10 +21,7 @@ import { UsersService } from './users.service';
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
-  /**
-   * 设置游戏昵称（需登录）
-   * QQ 互联首次注册后前端引导用户设置，也可用于修改昵称
-   */
+  /** QQ 互联首次注册后前端引导用户设置昵称，也可用于后续修改。 */
   @Post('nickname')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
@@ -35,9 +31,6 @@ export class UsersController {
     return { success: true, data: user };
   }
 
-  /**
-   * 查看个人信息（需登录）
-   */
   @Get('me')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
@@ -47,9 +40,7 @@ export class UsersController {
     return { success: true, data: user };
   }
 
-  /**
-   * 获取当前用户自定义的常用指令列表（前端指令面板置顶展示）
-   */
+  /** 前端指令面板把这份列表置顶展示。 */
   @Get('favorite-commands')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
@@ -60,9 +51,7 @@ export class UsersController {
     return { success: true, data: list };
   }
 
-  /**
-   * 设置（全量覆盖）当前用户的常用指令列表
-   */
+  /** 全量覆盖当前用户的常用指令列表。 */
   @Post('favorite-commands')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()

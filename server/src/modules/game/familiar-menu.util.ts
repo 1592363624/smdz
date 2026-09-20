@@ -165,25 +165,22 @@ function resolveElementKey(...texts: string[]): FamiliarElementKey {
 }
 
 /**
- * 解析 description2 的结构化字段。
- * 原版格式（#换行 分节，节内两空格分隔）：
+ * 是否为由原版作者留下的「设计:」署名行。
+ * 文本渠道（选择使魔预览）原样输出，但对 Web 引导页首屏是噪声——只在展示层剥掉，
+ * **不代表源数据缺失**，改内容时不要反过来去动 familiars.json。
+ */
+function isDesignCredit(line: string): boolean {
+  return /^设计\s*[:：]/.test(line);
+}
+
+/**
+ * 解析 description2 的结构化字段。原版格式（#换行 分节，节内两空格分隔）：
  *   [可选故事行]
  *   定位:辅助    专精:雷电
  *   优点:全体复活、全体回复、…
  *   操作难度:超超低
  * 解析失败的节一律归入 flavor（绝不丢内容）。
  */
-/**
- * 是否为由原版作者留下的「设计:」署名行。
- *
- * 说明2 中有部分使魔带 `设计:某某(QQ前缀**)` 的作者署名，文本渠道（选择使魔预览）原样输出，
- * 但对玩家首屏的引导页属于噪声——Web DTO 在展示层剥掉它，**不代表源数据缺失**，
- * 修改内容时不要反过来去动 familiars.json。
- */
-function isDesignCredit(line: string): boolean {
-  return /^设计\s*[:：]/.test(line);
-}
-
 function parseStyleSection(description2: unknown): {
   roleTags: string[];
   specialty: string;

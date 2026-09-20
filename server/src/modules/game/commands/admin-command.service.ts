@@ -14,6 +14,7 @@ import { AdminService } from '../../admin/admin.service';
 import { DelayedTaskService } from '.././delayed-task.service';
 import { GameSupportService } from '.././game-support.service';
 import { asJsonValue } from '../../../common/utils/json-value.util';
+import { CARD_DIVIDER } from '../../../common/utils/game-text.util';
 
 @Injectable()
 export class AdminCommandService {
@@ -193,7 +194,7 @@ export class AdminCommandService {
   getAdminHelpText(): string {
     return [
       `📋 GM 管理员命令帮助`,
-      `━━━━━━━━━━━━━━━━━━━━`,
+      `${CARD_DIVIDER}}}}}}`,
       `gm 状态 / admin status - 获取服务器状态`,
       `gm 公告 内容 - 发送系统公告`,
       `gm 世界等级 数字 - 设置世界等级`,
@@ -208,7 +209,7 @@ export class AdminCommandService {
       `gm 更新配置 键 值 - 更新系统配置`,
       `gm 用户列表 [关键词] - 搜索用户列表`,
       `gm 帮助 - 显示本帮助`,
-      `━━━━━━━━━━━━━━━━━━━━`,
+      `${CARD_DIVIDER}}}}}}`,
       `别名：gm / 管理 / admin / 管理员`,
     ].join('\n');
   }
@@ -222,7 +223,7 @@ export class AdminCommandService {
     const uptimeStr = this.support.formatUptime(status.uptime);
     return [
       `📊 服务器状态`,
-      `━━━━━━━━━━━━━━━`,
+      CARD_DIVIDER,
       `👥 用户总数: ${status.totalUsers}`,
       `🎮 玩家总数: ${status.totalPlayers}`,
       `🟢 在线玩家: ${status.onlinePlayers}`,
@@ -290,7 +291,7 @@ export class AdminCommandService {
     const result = await this.adminService.getPlayersList(page, pageSize);
     const lines = [
       `🎮 玩家列表 (第${page}页，共${result.total}人)`,
-      `━━━━━━━━━━━━━━━`,
+      CARD_DIVIDER,
     ];
     for (const p of result.players) {
       const userInfo = p.user ? `${p.user.nickname || p.user.username}(${p.user.id})` : `ID:${p.userId}`;
@@ -299,7 +300,7 @@ export class AdminCommandService {
     if (result.players.length === 0) {
       lines.push(`  暂无玩家数据`);
     }
-    lines.push(`━━━━━━━━━━━━━━━`);
+    lines.push(CARD_DIVIDER);
     lines.push(`共 ${result.total} 人，当前显示第 ${page} 页`);
     return lines.join('\n');
   }
@@ -349,7 +350,7 @@ export class AdminCommandService {
     const result = await this.adminService.listUsers(page, pageSize, keyword);
     const lines = [
       `👥 用户列表${keyword ? `(关键词: ${keyword})` : ''} (第${page}页，共${result.total}人)`,
-      `━━━━━━━━━━━━━━━━━━━━━━`,
+      `${CARD_DIVIDER}}}}}}}}`,
     ];
     for (const u of result.list) {
       const roleTag = u.role === 'SUPER_ADMIN' ? '🛡️' : u.role === 'ADMIN' ? '⚔️' : '👤';
@@ -359,7 +360,7 @@ export class AdminCommandService {
     if (result.list.length === 0) {
       lines.push(`  暂无匹配的用户`);
     }
-    lines.push(`━━━━━━━━━━━━━━━━━━━━━━`);
+    lines.push(`${CARD_DIVIDER}}}}}}}}`);
     lines.push(`共 ${result.total} 人，当前显示第 ${page} 页`);
     return lines.join('\n');
   }

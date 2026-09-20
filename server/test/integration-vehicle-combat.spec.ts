@@ -3,7 +3,7 @@
  *
  * 对应原版：
  *  - 载具承伤：战斗相关.ecode L3175-3529（防御方驾驶载具时，载具先承第一道伤；普通溢出不会在同次攻击转给玩家）
- *  - 扫荡完整模型：game.service.ts handleSweep 现改为调用 combatSystem.weaponAttack 完整闭环
+ *  - 扫荡完整模型：game.service.ts handleSweep 调用 combatSystem.weaponAttack 完整闭环
  *    （原版 .扫荡 即连续自动攻击，含怪物反击/召唤物协同/死亡掉落）
  *
  * 测试策略：
@@ -15,22 +15,17 @@
  *  - 测试4 扫荡走完整模型：调用 gameService.handleSweep → 断言返回击杀/经验且玩家存在。
  *  - afterAll 清理测试账号（User 级联删 Player）。
  *
- * 偶发失败排查结论（2026-09-12）：
- *  - 本文件在全量套件中偶发（约 1/3 全量跑）单用例失败，单独跑稳定全绿；
- *    失败点漂移（测试7 护盾归零 / 测试2 载具写丢失 / 测试8、11 resetPlayer CAS 冲突）。
- *    经探针与开启日志实测：与门面/测试桩清理无关，也非读副本延迟（单主库）。
- *  - **根因（实锤）＝共享远程库上的「在线时长统计」并发写者**：
- *    ScheduleService.accumulatePlayTime 每分钟 :30 给所有 5 分钟内活跃的玩家
- *    推进 version（本进程实例 + 部署在共享库 smdztest 上的服务端实例各有一个）。
- *    e2e 玩家全程高频写 → 每轮都被选中 → 测试的「锁外快照式保存」被它挤掉：
- *    mergeIntoLiveState stale-block **静默丢写**（测试7 护盾回到 0）或 CAS 冲突
- *    抛错被反击路径的整体 catch 吞掉（部分应用，测试2 载具写丢失）。
- *    失败时间戳全部落在每分钟 :31-:32，与 cron 触发窗口吻合。
+ * 共享远程库的并发写者（本套件偶发失败的根因）：
+ *  - ScheduleService.accumulatePlayTime 每分钟 :30 给所有 5 分钟内活跃的玩家推进
+ *    version（本进程实例 + 部署在共享库 smdztest 上的服务端实例各有一个）。e2e
+ *    玩家全程高频写 → 每轮都被选中 → 测试的「锁外快照式保存」被它挤掉：
+ *    mergeIntoLiveState stale-block **静默丢写**，或 CAS 冲突抛错被反击路径的
+ *    整体 catch 吞掉（表现为部分字段未生效）。
  *  - 处置：① 本进程实例经 PLAYTIME_CRON=off 停用（test/jest.env.cjs 全局注入，
  *            外部服务端实例无法从测试侧关闭）；
- *          ② 本文件所有「读快照→改→存」改走 savePlayerResilient（CAS 冲突时
- *            重读最新行重新应用字段后重试）；
- *          ③ 本文件启动保留 warn/error 日志，吞掉的失败从此可见；
+ *          ② 本文件所有「读快照→改→存」走 savePlayerResilient（CAS 冲突时
+ *            重读最新行、重新应用字段后重试）；
+ *          ③ 启动保留 warn/error 日志，否则被吞掉的失败不可见；
  *          ④ jest.retryTimes(2) 兜底 + afterAll 打印写模型诊断。
  */
 import { NestFactory } from '@nestjs/core';
@@ -121,7 +116,7 @@ describe('载具承伤 + 扫荡完整模型（真实远程库端到端）', () =
 
   beforeAll(async () => {
     // 注意：不要用 logger:false——反击路径的吞错点只走 logger.warn/error，
-    // 关掉日志会让「部分应用」类偶发失败完全不可见（2026-09-12 排查结论）。
+    // 关掉日志会让「部分应用」类偶发失败完全不可见。
     app = await NestFactory.createApplicationContext(AppModule, { logger: ['error', 'warn'] });
     prisma = app.get(PrismaService);
     combat = app.get(CombatSystemService);
@@ -130,7 +125,7 @@ describe('载具承伤 + 扫荡完整模型（真实远程库端到端）', () =
     statsService = app.get(StatsService);
     gameService = app.get(GameService);
 
-    // 防复发清理（2026-09-06 事故）：进程中断导致 afterAll 未执行时，e2e 测试地图会
+    // 防复发清理：进程中断导致 afterAll 未执行时，e2e 测试地图会
     // 泄漏进真实库并被定时任务当成普通地图（累计吸走货舱/能量元素、挂副本入口）。
     // 每次测试启动先按命名标记清一次历史残留，保证幂等。
     try {

@@ -1,5 +1,5 @@
 /**
- * 物品身份规范化唯一出口（Issue #11 架构收敛）。
+ * 物品身份规范化唯一出口。
  *
  * 原则：同一物品名无论从哪个渠道获得（制造 / 掉落 / 采集 / 任务奖励 / GM 发放 / 商店），
  * 写入玩家背包时必须是"同一样东西"——type 等身份数据由静态定义（equipments.json /
@@ -71,7 +71,7 @@ export function mergeBackpackItem(
 
   const canonical = canonicalItemType(name, lookup, item?.type);
   if (canonical === '装备') {
-    // 装备品质码不变量（2026-09-10）：原版唯一的装备构造入口是「生成装备」
+    // 装备品质码不变量：原版唯一的装备构造入口是「生成装备」
     // （物品操作.ecode L1128-1261），其数据串恒为 `品质 + 加成转数据 + "!bx" + 特效`
     // —— 首字符必然是品质码（e/d/c/b/a/s），原版不存在无品质码的装备。
     // 因此入包出口在此兜底：数据串没有合法品质码时前置补最低档 E，保证
@@ -93,9 +93,8 @@ export function mergeBackpackItem(
   );
   if (existing) {
     const next = roundItemQuantity(entryQuantity(existing) + entryQuantity(item));
-    // 数量只写规范键 quantity：count/数量 等历史别名已由 field-contract.util 在
-    // 读档/落库边界统一收敛删除，此处不再写镜像字段（写镜像正是历史上
-    // 「同一条目两个数量互相打架」的根源）。
+    // 数量只写规范键 quantity：count/数量 等别名由 field-contract.util 在读档/落库边界
+    // 统一收敛，此处不得写镜像字段——两个字段并存会互相打架。
     existing.quantity = next;
     // 自愈：存量条目若带历史脏 type（同名不同 type 分叉的根源），收敛到规范值
     if (existing.type !== canonical) {

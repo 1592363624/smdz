@@ -24,7 +24,7 @@ function makeFixture(options: { resources?: any[]; outputs?: any[] } = {}) {
     markers: '{}',
     markers2: '[]',
     backpack: '[]',
-    // P1 货币列化：货币真相源在列上（读取时物化回背包）
+    // 货币列化：货币真相源在列上（读取时物化回背包）
     diamonds: 2000,
     tickets: 20,
     dataCores: 0,
@@ -36,7 +36,7 @@ function makeFixture(options: { resources?: any[]; outputs?: any[] } = {}) {
     resources: JSON.stringify(options.resources ?? [{
       name: '矿脉',
       marker: '',
-      // 产出数量走规范键 quantity（normalizeOutputs 只读 quantity，count 已废弃）
+      // 产出数量走规范键 quantity（normalizeOutputs 只读 quantity，不读 count）
       outputs: options.outputs ?? [{ name: '铁矿', quantity: 2, chance: 100 }],
     }]),
     vehicles: JSON.stringify([{
@@ -57,7 +57,7 @@ function makeFixture(options: { resources?: any[]; outputs?: any[] } = {}) {
       // 调用方对象）。
       findUnique: jest.fn(async ({ where }: any) => (where?.userId === player.userId ? { ...player } : undefined)),
       update: jest.fn(async ({ where, data }: any) => {
-        // 2026-09-11 起 persistPlayer 按 where.userId（unique）落库，mock 同步双键校验
+        // persistPlayer 按 where.userId（unique）落库，mock 同步双键校验
         if (where?.id !== undefined && where.id !== player.id) throw new Error(`player id 不匹配: ${where?.id}`);
         if (where?.userId !== undefined && where.userId !== player.userId) throw new Error(`player userId 不匹配: ${where?.userId}`);
         Object.assign(player, data);
@@ -68,7 +68,7 @@ function makeFixture(options: { resources?: any[]; outputs?: any[] } = {}) {
     gameMap: { findUnique: jest.fn(async () => map) },
   };
 
-  // 真实的 PlayerService：共享用户级锁是本次回归的核心。
+  // 真实的 PlayerService：共享用户级锁是本套件验证的核心。
   const realPlayerService = new PlayerService(
     prisma,
     { getEquipmentByName: () => undefined } as unknown as StaticDataService,
@@ -149,7 +149,7 @@ describe('兑换与后台结算的用户级锁互斥', () => {
     const diamondAfter = afterExchange.find((item: any) => item.name === '钻石');
     const ticketAfter = afterExchange.find((item: any) => item.name === '召唤券');
     expect(diamondAfter.quantity).toBeCloseTo(960);
-    // 货币物化条目只写规范键 quantity（count 镜像已废弃）
+    // 货币物化条目只写规范键 quantity（不写 count 镜像）
     expect(ticketAfter.quantity).toBeCloseTo(72);
 
     // 后台结算在「读快照」处挂起，模拟远程库高延迟窗口
@@ -214,7 +214,7 @@ describe('兑换与后台结算的用户级锁互斥', () => {
     await Promise.all([first, second]);
 
     expect(order).toEqual(['first-done', 'second-done']);
-    // P1 货币列化：从物化视图断言（savePlayer 后 JSON 中无货币条目）
+    // 货币列化：从物化视图断言（savePlayer 后 JSON 中无货币条目）
     const view = await familiarSystem['playerService'].getPlayerData(42);
     const backpack = JSON.parse(view.player.backpack);
     const diamonds = backpack.find((item: any) => item.name === '钻石');

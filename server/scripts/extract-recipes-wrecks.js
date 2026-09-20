@@ -22,7 +22,7 @@ const 去数字 = (s) => String(s || '').replace(/\d/g, '');
 /** 取出字符串中的数字 */
 const 取数字 = (s) => (String(s || '').match(/\d/g) || []).join('');
 
-// ---------- 读段 ----------
+// 读段
 const raw = fs.readFileSync(SRC, 'utf8');
 const lines = raw.split(/\r?\n/);
 
@@ -46,7 +46,7 @@ for (const line of lines) {
 }
 if (cur) sections.push(cur);
 
-// ---------- 解析"名称，数量,几率"三元组列表 ----------
+// 解析"名称，数量,几率"三元组列表
 function parseTriple(text) {
   const out = [];
   if (!text || !text.trim()) return out;
@@ -69,7 +69,7 @@ function parseTriple(text) {
   return out;
 }
 
-// ---------- 1. 配方 ----------
+// 1. 配方
 const recipes = [];
 for (const sec of sections) {
   if (sec.fields['类型'] !== '配方') continue;
@@ -93,7 +93,7 @@ for (const sec of sections) {
   });
 }
 
-// ---------- 2. 随机载具（废弃载具） ----------
+// 2. 随机载具（废弃载具）
 const wrecks = [];
 for (const sec of sections) {
   if (sec.fields['类型'] !== '随机载具') continue;

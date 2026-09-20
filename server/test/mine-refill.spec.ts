@@ -5,7 +5,7 @@ import { parseJson } from './parse-json.util';
 import { createGameServiceStub } from './helpers/game-service-stub.factory';
 
 /**
- * 手动载具开采与补魔语义对齐自检（修复迁移审计发现 1 / 发现 2）：
+ * 手动载具开采与补魔语义对齐自检：
  * - handleMine 无参 = 原版 _主程序.ecode L7491-7531「开采」（载具开采门禁链 +
  *   工作60秒 + 覅攻击pd引怪 + 开采1c2c 60秒延时结算）
  * - settleManualMine = 原版 L7534-7608「开采1c2c」（16倍产出、跟随因子、次数-6、
@@ -187,7 +187,7 @@ function makeFixture(options: {
     pushPlayerUpdate: jest.fn(async () => undefined),
     pushMapUpdate: jest.fn(async () => undefined),
   });
-  // P3-3：delayed 域已迁出，经门面引用调用 gather/panel 域方法——桩自挂门面
+  // delayed 域在子服务上，经门面引用调用 gather/panel 域方法——桩自挂门面
   return {
     service, player, map, taskService, prisma, chatService, playerService,
     combatSystem, delayedTaskService, delayedTaskRows, shortcutService: (service as any).shortcutService,
@@ -442,7 +442,7 @@ describe('补魔结算（原版 L7158「覅b魔w成」）', () => {
     const playerBuffs = parseJson(fixture.player.buffs, []);
     const excitement = playerBuffs.find((b: any) => (b.name ?? b.名称) === '兴奋');
     expect(excitement).toBeTruthy();
-    // 增益有效期只写规范键 expireAt（中文旧键 有效期至 已废弃）
+    // 增益有效期只写规范键 expireAt（不写中文键 有效期至）
     expect(excitement.expireAt - Date.now()).toBeLessThanOrEqual(600 * SECOND_MS);
 
     // 露娜在跟随显示名单中出现（原版 召唤物跟随显示 不排除露娜），
@@ -472,7 +472,7 @@ describe('补魔结算（原版 L7158「覅b魔w成」）', () => {
     await fixture.service.completeRefill(42);
     const playerBuffs = parseJson(fixture.player.buffs, []);
     const excitement = playerBuffs.find((b: any) => (b.name ?? b.名称) === '兴奋');
-    // 增益有效期只写规范键 expireAt（中文旧键 有效期至 已废弃）
+    // 增益有效期只写规范键 expireAt（不写中文键 有效期至）
     const remainSec = (excitement.expireAt - Date.now()) / SECOND_MS;
     expect(remainSec).toBeGreaterThan(3590);
     expect(remainSec).toBeLessThanOrEqual(3600);

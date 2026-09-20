@@ -1,38 +1,15 @@
 /**
- * 全局熟练度（原版「全局标记」）—— 怪物等级动态化的数据源。
- *
- * ===== 原版语义（复刻依据）=====
- * 1. 存储：`全局标记` 是 @Global.ecode L8 声明的全局技能数组，随存档写入
- *    `地图存档/全局标记/1`（数据存取.ecode L1495 保存、L1360 读取），全局唯一一份。
- * 2. 积累：战斗相关.ecode L3667-3688——**任意一方被击杀**都会给全局标记加 1：
- *      · 怪物击杀目标（L3672-3673）：`攻击方.名称+"熟练度"` +1、`"世界熟练度"` +1
- *      · 目标被玩家/宠物击杀（L3684-3688）：`防御方.名称+"熟练度"` +1、
- *        击杀者是宠物时另加 `攻击方.类型+"熟练度"` +1、`"世界熟练度"` +1
- *    → 玩家杀得越多，该物种与世界等级越高，之后刷出的怪就越强（"越打越强"）。
- * 3. 换算：数据显示.ecode L1640 `显示熟练度等级(标记, 名称)` =
- *      最小 a 使 点数 < a²，即 **floor(√点数) + 1**（点数 0 → 1 级）。
- * 4. 怪物等级：加成计算.ecode L2711 / L2796
- *      `g.等级 = 显示熟练度等级(全局标记, 物种名, 去物种前缀=真)
- *               + 显示熟练度等级(全局标记, "世界")`
- *    且 `L2710 / L2797` 前置「配置等级 > 0 则直接用，= 0 才走上述动态公式」。
- *    原版 数据存取.ecode L551-602 的怪物节**根本不读取「等级」字段**，
- *    故原版怪物等级恒为动态。
- *
- * ===== 本实现的取舍（已核对，非自造）=====
- * · 条目命名沿用原版 `<名称>熟练度`（如 `史莱姆熟练度`、`世界熟练度`），
- *   便于与原版存档逐条对照；后缀拼接只在本文件出现一次。
- * · 写入侧按**去物种前缀后的基名**计数（精英史莱姆 → 史莱姆熟练度）。
- *   原版写入用的是未去前缀的 `防御方.名称`，而读取用的是去前缀后的基名，
- *   两者不匹配 → 原版 145 只怪中有 26 只带前缀（精英/神兽/深蓝/巨型）
- *   的击杀**永远不计入熟练度**（原版缺陷）。此处按读取侧意图统一，
- *   使前缀怪与普通怪共用同一份熟练度，功能才真正可用。
- * · 存储落在系统配置 `game.globalMarkers`（type=json），键为
- *   `Record<"<名称>熟练度", number>`。原版是"内存为准 + 定期落盘"，
- *   本实现同构：内存权威、定时脏写回，避免每次击杀都打一次库。
- *
- * 单一实现约束：等级公式与熟练度累加只在此处维护；
- * 调用方（map.service 生成怪物、combat-system 结算击杀、面板/图鉴展示）
- * 一律经本服务，禁止各自 `Math.sqrt` 或自行拼 `xxx熟练度` 键。
+ * 全局熟练度（原版「全局标记」@Global.ecode L8，随存档写入 `地图存档/全局标记/1`，
+ * 对应原版 数据存取.ecode L1495 保存、L1360 读取）—— 怪物等级动态化的唯一数据源。
+ * 原版语义：任意一方被击杀都给全局标记 +1（战斗相关.ecode L3667-3688），杀得越多该物种与
+ * 世界等级越高；等级 = floor(√点数) + 1（数据显示.ecode L1640）；怪物等级 = 物种熟练度等级
+ * + 世界熟练度等级，仅当配置等级 > 0 时短路（加成计算.ecode L2711 / L2796；原版
+ * 数据存取.ecode L551-602 的怪物节不读取「等级」字段，故原版怪物等级恒为动态）。
+ * 与原版唯一的取舍差异：写入侧按去物种前缀后的基名计数（精英史莱姆 → 史莱姆熟练度）。
+ * 原版写入用未去前缀名、读取用基名，导致 26 只带前缀怪的击杀永远不计入，此处按读取侧意图统一。
+ * 存储：系统配置 `game.globalMarkers`（type=json），内存权威 + 定时脏写回。
+ * 单一实现约束：等级公式与熟练度累加只在此处维护；调用方（map.service 刷怪、combat-system
+ * 击杀结算、面板/图鉴展示）一律经本服务，禁止各自 `Math.sqrt` 或自行拼 `xxx熟练度` 键。
  */
 
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
@@ -41,7 +18,7 @@ import { stripSpeciesPrefix } from './species-prefix.util';
 
 /** 系统配置键：原版「全局标记」的落库位置 */
 export const GLOBAL_MARKERS_KEY = 'game.globalMarkers';
-/** 已被取代的旧配置键：原版语义下世界等级是熟练度换算结果，不是可直接设定的配置 */
+/** 仅作一次性迁移来源的旧配置键；世界等级不是可直接设定的配置 */
 const LEGACY_WORLD_LEVEL_KEY = 'game.worldLevel';
 /** 世界熟练度的条目名（换算时自动补 `熟练度` 后缀 → `世界熟练度`） */
 export const WORLD_PROFICIENCY_NAME = '世界';
@@ -129,8 +106,8 @@ export class GlobalProficiencyService implements OnModuleInit, OnModuleDestroy {
     const row = await this.prisma.systemConfig.findUnique({ where: { key: GLOBAL_MARKERS_KEY } });
     let raw: Record<string, any> = {};
     let migratedFromLegacy = false;
-    // 旧键无论走哪个分支都要清除：它已不再是任何代码的读取源，
-    // 留在库里只会在管理后台「系统配置」里显示成一个改了没用的「世界等级」输入框。
+    // 两个分支都要读取并清除 `game.worldLevel`：世界等级的唯一真相源是 世界熟练度，
+    // 留着只会在管理后台「系统配置」里多出一个改了没用的「世界等级」输入框。
     const legacyPoints = await this.takeLegacyWorldLevel();
     if (row?.value) {
       try {
@@ -150,7 +127,7 @@ export class GlobalProficiencyService implements OnModuleInit, OnModuleDestroy {
       if (Number.isFinite(num) && num !== 0) this.points.set(key, num);
     }
     this.loaded = true;
-    // 迁移结果必须立刻落库：旧键已被删除，若只留在内存，进程重启即丢失世界等级
+    // 必须立刻落库：takeLegacyWorldLevel 已删掉 `game.worldLevel` 行，只留在内存则进程重启即丢失世界等级
     if (migratedFromLegacy) {
       this.dirty = true;
       await this.flush();
@@ -159,11 +136,10 @@ export class GlobalProficiencyService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * 一次性迁移：旧版把世界等级存成可直接设置的 `game.worldLevel`，
-   * 原版语义下它是 `世界熟练度` 的换算结果。按 `显示熟练度等级` 的逆运算
-   * 取 `(等级-1)²` 作为点数（floor(√((L-1)²))+1 = L）。
-   * 无论是否用得上它的值，读取后都立刻删除旧键，保证世界等级只有一个真相源。
-   * @returns 迁移出的点数（无旧键或等级 ≤ 1 时为 0）
+   * 把 `game.worldLevel` 换算成 `世界熟练度` 点数：按 显示熟练度等级 的逆运算取
+   * `(等级-1)²`（满足 floor(√((L-1)²))+1 = L）。无论是否用得上返回值，读取后都立刻删除该配置行，
+   * 保证世界等级只有一个真相源。
+   * @returns 换算出的点数（无该配置或等级 ≤ 1 时为 0）
    */
   private async takeLegacyWorldLevel(): Promise<number> {
     try {
@@ -239,9 +215,8 @@ export class GlobalProficiencyService implements OnModuleInit, OnModuleDestroy {
     return this.monsterLevelSync(monsterName);
   }
 
-  // ==================== 同步视图（供同步渲染代码使用）====================
-  // 公式仍只有一份（proficiencyLevelFromPoints），异步方法只是它的 await 包装。
-  // 调用方必须先 await ensureLoaded()；未加载时按 0 计数（等价原版无该标记）。
+  // ===== 同步视图（公式仍只有一份 proficiencyLevelFromPoints，异步方法只是它的 await 包装）=====
+  // 下列同步方法要求调用方先 await ensureLoaded()；未加载时按 0 计数（等价原版无该标记）。
 
   /** 同步读点数（须先 ensureLoaded） */
   pointsSync(name: string): number {

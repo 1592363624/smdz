@@ -1,10 +1,10 @@
 /**
  * 装备特效数值「展示 vs 战斗」一致性审计
  *
- * 背景：装备特效（data 串 bx 编号 → effects.json）曾只在展示路径
- * （ItemService.parseEquipment）结算，战斗路径（CombatSystemService.resolveItemBonus /
- * getWeaponData）另起炉灶且不读 effects.json，导致「面板看得到、打架打不出」。
- * 修复后两侧共用 equipment-effect.util 的同一实现，本套件用断言把一致性固化，
+ * 背景：装备特效（data 串 bx 编号 → effects.json）若只在展示路径
+ * （ItemService.parseEquipment）结算、战斗路径（CombatSystemService.resolveItemBonus /
+ * getWeaponData）另起炉灶不读 effects.json，就会「面板看得到、打架打不出」。
+ * 两侧共用 equipment-effect.util 的同一实现，本套件把一致性固化为断言，
  * 任何一侧再次漂移都会失败。
  *
  * 原版口径：物品操作.ecode L1438-1475（解析装备 bx 段）。

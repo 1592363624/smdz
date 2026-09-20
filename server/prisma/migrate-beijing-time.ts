@@ -11,7 +11,7 @@
  *
  * 说明：
  *  - DateTime 为 NULL 的行自动跳过（SQL 语义：NULL + INTERVAL 仍为 NULL）。
- *  - 表名/列名来自 server/prisma/schema.prisma（MySQL 映射：User→User ...）。
+ *  - 表名/列名与 schema.prisma 的 MySQL 映射一致。
  *  - JSON 列内嵌的 epoch 毫秒（lastOpTime/readTime/playTime 等 BigInt）是绝对时刻，
  *    不属于 DateTime，不做偏移。
  *

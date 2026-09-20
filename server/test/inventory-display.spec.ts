@@ -5,7 +5,7 @@ import { BonusService } from '../src/modules/game/bonus.service';
 import { createGameServiceStub } from './helpers/game-service-stub.factory';
 
 /**
- * 背包展示契约（用户约定 2026-09-09）：
+ * 背包展示契约（用户约定）：
  * - 「背包」显示全部物品，排序=资源/材料/消耗品在前、装备在后（组内保持背包原始顺序）。
  * - 数字入参（背包 N / 装备 N）= 展示列表序号，与「背包」输出同源
  *   （前端悬浮图鉴按行序号回查「背包 N」，编号必须与展示一致）。

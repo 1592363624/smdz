@@ -5,7 +5,7 @@ import { StaticDataService } from '../src/modules/game/static-data.service';
 import { parseJson } from './parse-json.util';
 
 /**
- * P2 mutate 管道 + P4 货币审计回归：
+ * mutate 管道 + 货币审计回归：
  * - mutate 持锁读取新鲜快照、执行变更、统一落库；
  * - 货币列变化时写 CurrencyLog（delta/balanceAfter），无变化不写。
  */
@@ -21,7 +21,7 @@ function makePrisma(rows: any[]) {
       update: jest.fn(async ({ where, data }: any) => {
         const cv = where?.id_version;
         if (!cv) {
-          // 2026-09-11 起 persistPlayer 按 where.userId（unique）落库，mock 同步双键匹配
+          // persistPlayer 按 where.userId（unique）落库，mock 同步双键匹配
           const rowById = rows.find((r) =>
             (where?.userId !== undefined && r.userId === where.userId)
             || (where?.id !== undefined && r.id === where.id));

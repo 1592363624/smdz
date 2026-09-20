@@ -9,18 +9,17 @@ jest.mock('fs', () => ({
 import * as fs from 'fs';
 
 /**
- * StaticDataService 启动校验 + name 索引回归（RVW04 P2-7）
+ * StaticDataService 启动校验 + name 索引回归
  *
  * 覆盖三件事：
- * 1. **JSON 损坏 fail-fast**：旧实现 loadRaw 解析失败 catch 后 warn 并返回 []，
- *    整张表静默为空、服务照常启动——这是全库数据级 P0（悬空引用/异常值）无拦截点
- *    的根因。新实现：解析失败直接抛错（onModuleInit 全量预载 → 应用拒绝启动），
- *    且失败结果不进缓存（修复文件后立即可读回，无需 refresh/重启）。
+ * 1. **JSON 损坏 fail-fast**：解析失败直接抛错（onModuleInit 全量预载 → 应用拒绝启动），
+ *    不得退化为 warn + 返回 []（整张表静默为空、服务照常启动，是全库数据级 P0
+ *    无拦截点的根因）；且失败结果不进缓存（修复文件后立即可读回，无需 refresh/重启）。
  * 2. **内容校验告警不阻断**：重复名/空表/负数量汇总为一条告警日志，数据照常入缓存
- *    ——存量脏数据只暴露、不挡死整个服务；文件缺失维持旧行为（warn + 空数组），
+ *    ——存量脏数据只暴露、不挡死整个服务；文件缺失只 warn + 空数组，
  *    vehicle-recipes 等可选文件允许无配置。
- * 3. **findByKey Map 索引语义不变**：索引只做查找加速，命中返回缓存行**同一引用**
- *    （与旧 Array.find 完全一致，不 clone、不换对象），未命中 undefined，
+ * 3. **findByKey Map 索引只做查找加速**：命中返回缓存行**同一引用**
+ *    （与 Array.find 一致，不 clone、不换对象），未命中 undefined，
  *    重复名取首条，refresh() 后索引失效重建。
  */
 
@@ -49,7 +48,7 @@ describe('StaticDataService 启动校验 + findByKey 索引（RVW04 P2-7）', ()
       const { svc, warn } = makeService();
 
       expect(() => svc.loadRaw('items')).toThrow(/items\.json.*解析失败/);
-      // 旧实现此处是 warn + 返回 []，新实现绝不静默
+      // 绝不静默失败（warn + 返回 [] 就是静默失败）
       expect(warn).not.toHaveBeenCalled();
 
       // 失败结果不得进缓存：修复文件后立即可读回（无需 refresh/重启）
@@ -119,7 +118,7 @@ describe('StaticDataService 启动校验 + findByKey 索引（RVW04 P2-7）', ()
       mockedRead.mockReturnValue(
         JSON.stringify([
           { name: '正常物品', quantity: 3 },
-          // 数量口径统一后校验只认规范键 quantity（旧键 count/数量 已随静态数据全量改名废弃）
+          // 数量口径统一：校验只认规范键 quantity（不认旧键 count/数量）
           { name: '负数量物品', quantity: -2 },
         ]),
       );
@@ -166,7 +165,7 @@ describe('StaticDataService 启动校验 + findByKey 索引（RVW04 P2-7）', ()
       const { svc } = makeService();
       const cached = svc.loadRaw('items');
 
-      // 与旧实现一致：返回缓存数组内的原始行引用（项目红线：对外不额外 clone）
+      // 返回缓存数组内的原始行引用（项目红线：对外不额外 clone）
       expect(svc.getItemByName('石头')).toBe(cached[1]);
       expect(svc.getItemByName('不存在')).toBeUndefined();
     });

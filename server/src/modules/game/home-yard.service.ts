@@ -1,18 +1,12 @@
 /**
- * 家园院子格子视图装配服务（只读）。
- *
- * 面向 Web 端「家园」独立页面：把家园的聚合存储（GameMap.buildings 建筑、
- * GameMap.resources2 作物与地面障碍）投影成 QQ 农场式的"一格一格"地块数组，
- * 并附带玩家背包里可种植 / 可安装的库存，供玩家直接在格子上操作。
+ * 家园院子格子视图装配服务（只读）：把 GameMap.buildings（建筑）与 GameMap.resources2
+ * （作物与地面障碍）投影成 QQ 农场式的"一格一格"地块数组，附带背包里可种植/可安装的库存。
  *
  * 设计约定（务必遵守）：
- * 1. **只读**：本服务不写任何数据、不推进观测时间、不领取产出。所有变更依旧
- *    由 QQ / 网页统一的指令通道（种植 / 收获 / 安装 / 拆除 / 产出）执行，
- *    杜绝出现第二条写路径造成结算双轨。
- * 2. **聚合展开**：后端按"名称 + 数量"聚合存储，这里把 quantity=N 展开为 N 个
- *    地块；对某一格执行收获 / 拆除即等于该名称数量 -1，与指令语义天然一致。
- * 3. **上限即地块数**：作物上限 cropLimit、建筑上限 buildingLimit 就是当前可用
- *    地块总数（原版由玩家等级与凭证决定），超额部分渲染为待开垦（locked）。
+ * 1. **只读**：不写数据、不推进观测时间、不领取产出；变更只有 QQ/网页统一的指令通道一条
+ *    路径，杜绝第二条写路径造成结算双轨。
+ * 2. **聚合展开**：存储按"名称+数量"聚合，quantity=N 展开为 N 个地块，收获/拆除一格 = 该名称 -1。
+ * 3. **上限即地块数**：cropLimit / buildingLimit 就是可用地块总数，超额部分渲染为待开垦(locked)。
  */
 
 import { Injectable, Logger } from '@nestjs/common';
@@ -23,7 +17,7 @@ import { HomeService, HomeSettlement } from './home.service';
 import { HOME_YARD_CONFIG } from './home-yard.config';
 import { asJsonValue } from '../../common/utils/json-value.util';
 
-// ==================== DTO ====================
+// ===== DTO =====
 
 /** 速率/数量条目：quantity 允许为负，负数表示消耗 */
 export interface HomeYardRate {
@@ -150,7 +144,6 @@ export class HomeYardService {
   /**
    * 装配家园院子格子视图（只读，不结算、不写库）。
    *
-   * @param userId 当前登录用户 ID
    * @returns 院子视图 DTO；家园不存在时返回 blocked
    */
   async getHomeYard(userId: number): Promise<HomeYardInfo> {
@@ -353,7 +346,6 @@ export class HomeYardService {
       obstacles,
       seeds,
       buildings,
-      /** 背包资源存量 map（引导卡片「已有 X/需要 Y」用；装备不计入） */
       materials,
       storage,
       overview: overview ?? null,
@@ -361,7 +353,7 @@ export class HomeYardService {
     };
   }
 
-  // ==================== 内部工具 ====================
+  // ===== 内部工具 =====
 
   /**
    * 把聚合条目（名称 + 数量）展开成地块数组。
@@ -396,7 +388,6 @@ export class HomeYardService {
           total: slot.quantity,
           outputs: slot.outputs.slice(0, HOME_YARD_CONFIG.outputsPerPlot),
           harvest: slot.harvest.slice(0, HOME_YARD_CONFIG.outputsPerPlot),
-          // 作物格计算生长阶段；建筑格不参与
           stage: args.kind === 'crop' ? this.buildCropStage(slot.name, slot.plantedAt) : undefined,
           description: slot.description,
           unlockHint: '',
@@ -485,7 +476,6 @@ export class HomeYardService {
     const plan = this.homeService.getCropGrowthPlan(cropName);
     const stageCount = Math.max(1, plan.stageNames.length);
     const now = Date.now() / 1000;
-    // 无 plantedAt（旧聚合存档）视为已成熟：elapsed 拉满，ripe=true
     const plantedSec = plantedAt && plantedAt > 0 ? plantedAt : 0;
     const elapsed = plantedSec ? Math.max(0, now - plantedSec) : plan.totalSeconds;
     const ripe = !plantedSec || elapsed >= plan.totalSeconds;
@@ -523,7 +513,6 @@ export class HomeYardService {
 
   /** 取条目数量（规范键 quantity；地图资源条目另有 times=可采集次数） */
   private quantityOf(item: any): number {
-    // 地图资源条目：数量为 quantity、可采集次数为 times（均已是规范键）
     return Number(item?.quantity ?? item?.times ?? 0) || 0;
   }
 

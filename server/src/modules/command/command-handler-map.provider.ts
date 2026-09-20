@@ -11,8 +11,7 @@ import { CommandHandler } from './interfaces/command.interface';
 export const COMMAND_HANDLER_MAP = 'COMMAND_HANDLER_MAP';
 
 /**
- * 工厂 Provider
- * 通过 @Inject 拿到所有 handler 实例数组，构建 key -> handler 映射。
+ * 工厂 Provider：构建 key -> handler 映射。
  * 注意：inject 数组会逐个解析，因此 useFactory 用 rest 参数接收所有 handler 实例。
  */
 export const CommandHandlerMap: Provider = {

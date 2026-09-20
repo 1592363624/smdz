@@ -1,14 +1,9 @@
 /**
- * 延时任务/存图指令域服务（game 模块化重构 P3-3 抽出）
+ * 延时任务/存图指令域服务
  *
  * 职责：装填（reload）与补给（refill）的排程与延时结算、保存图片（存图）系列。
- * 依赖方向：依赖 Player、DelayedTaskService（排程）、CombatState、Chat、
- * Achievement、Prisma、Map、FamiliarSystemService、StaticData、Dungeon、Task、
- * HomeService、SkillCommandService、ShopTradeService、QuestDialogueService、
- * HomeBuildService 与支撑层；内核域（panel）的推送/跟随显示入口直接注入
- * 兄弟子服务 GatherPanel，单向边无环。
- * 单一真相源：dts.registerHandler 注册块仍整体保留在 GameService.onModuleInit
- * （§4.2 C5：门面是唯一知道全部延时入口的地方，注册时序不可变，R9 冒烟测试锁定）。
+ * 注意：dts.registerHandler 注册块整体保留在 GameService.onModuleInit——门面是唯一
+ * 知道全部延时入口的地方，注册时序不可变（有冒烟测试锁定）。
  * 对口原版：_主程序.ecode 延时任务/装填/补给/存图分支。
  */import { Injectable, Logger, Optional } from '@nestjs/common';
 import { asJsonValue } from '../../../common/utils/json-value.util';
@@ -40,7 +35,7 @@ export class DelayedSettleService {
     private readonly chatService: ChatService,
     private readonly taskService: TaskService,
     private readonly combatState: CombatStateService,
-    // 跨域兄弟直连（P4 清理：原过渡期经门面引用），单向边无环。
+    // 跨域兄弟直连，单向边无环。
     private readonly panel: GatherPanelService,
     @Optional() private readonly delayedTaskService?: DelayedTaskService,
   ) {}
@@ -141,9 +136,8 @@ export class DelayedSettleService {
   }
 
   /**
-   * 处理生成神之工匠命令
-   * 在当前地图生成一个神之工匠NPC，用于高级装备制作
-   * 对应原版：神之工匠 命令
+   * 处理补魔（refill）命令：门禁通过后写入延时排程
+   * 对应原版：_主程序.ecode「补魔」分支
    */
 
   async handleRefill(userId: number): Promise<string> {
@@ -155,7 +149,7 @@ export class DelayedSettleService {
       const { player, markers, markers2 } = ctx;
 
       // 门禁1：需「躺下」成就状态（原版 L7111 取成就熟练度(玩家.标记,"躺下")==0 → 需要躺下；
-      // 新版 handleLieDown 写 markers['躺下']=1、handleWakeUp 清除，语义等价）
+      // 本作 handleLieDown 写 markers['躺下']=1，自动起床在 combat-system 的躺下门禁里清零）
       if (this.playerService.getMarkerValue(asJsonValue<Record<string, any>>(player.markers, {}), '躺下') !== 1) {
         return `${player.name ?? '冒险者'}需要“躺下”`;
       }
@@ -319,9 +313,8 @@ export class DelayedSettleService {
   }
 
   /**
-   * 处理挤奶命令。
+   * 保存图片开关的提示入口：仅作者（SUPER_ADMIN）可用，回显开始/停止两个子命令的用法。
    * 对齐原版 _主程序.ecode L9034-L9084：成功对象按“对象QQ+当天”冷却，
-   * 普通召唤物默认产奶0.25，怪物/捕捉动物读取产奶量；所有成功对象共用一套结算。
    */
 
   async handleSaveImage(userId: number, imageName: string): Promise<string> {
@@ -372,9 +365,4 @@ export class DelayedSettleService {
     await this.playerService.savePlayer(player);
     return '已停止。';
   }
-
-  /**
-   * 停止接管载具
-   * 对应原版：接管停止 命令
-   */
 }

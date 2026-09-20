@@ -3,11 +3,11 @@ import { CommandSourceRegistry } from '../src/modules/command/command-source.reg
 import { CommandSource } from '../src/modules/command/interfaces/command.interface';
 
 /**
- * bot:push 回推来源过滤回归（2026-09-08 Bug 修复）：
- * ChatService.broadcastSystem 此前仅凭「senderId 绑定了 QQ 号」就向 bot 房间推
- * bot:push，导致玩家在网页端操作的延时结果（移动到达/采集完成等）被 AstrBot
- * 错推到 QQ 群。修复约定：按「用户最后一次发指令的渠道」归属判定（无时间窗口）
- * ——QQ 发的指令延时结果永远推 QQ；切回网页端发指令后立即停止回推。
+ * bot:push 回推来源过滤回归：
+ * 若仅凭「senderId 绑定了 QQ 号」就向 bot 房间推 bot:push，玩家在网页端操作的
+ * 延时结果（移动到达/采集完成等）会被 AstrBot 错推到 QQ 群。
+ * 归属判定按「用户最后一次发指令的渠道」（无时间窗口）：
+ * QQ 发的指令延时结果永远推 QQ；切回网页端发指令后立即停止回推。
  * 本套用例锁定：
  * 1. QQ 来源指令后 → 推 bot:push；
  * 2. 网页来源指令后 → 不推；

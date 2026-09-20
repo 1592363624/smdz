@@ -46,7 +46,7 @@ describe('StaticDataAdminService', () => {
   it('listCategories 返回注册表分类并统计条目数', () => {
     const cats = service.listCategories();
     const keys = cats.map((c) => c.key);
-    // 覆盖用户要求的核心类别：物品/装备/怪物/地图/任务
+    // 覆盖核心类别：物品/装备/怪物/地图/任务
     for (const k of ['items', 'equipments', 'monsters', 'maps', 'tasks', 'familiars', 'titles']) {
       expect(keys).toContain(k);
     }

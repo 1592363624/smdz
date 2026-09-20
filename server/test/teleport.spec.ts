@@ -94,11 +94,11 @@ function makeService(options: {
   // 内部到达链打桩：观测地图/剪毛/资产迁移/观察附近/跟随显示均为独立重逻辑，
   // 本套件只验证传送自身的门禁与文本分支。
   service.applyArrivalTriggers = jest.fn(async () => '');
-  // P3-6a：实体已迁出 MovementVehicleService——spy 改挂子服务实例
+  // 实体归 MovementVehicleService 子服务——spy 挂在子服务实例上
   (service as any).movementVehicleService.migratePlayerAssetsOnMove = jest.fn(async () => undefined);
   service.handleLookAround = jest.fn(async () => '👀 【目标地图】附近情况');
   service.summonFollowDisplay = jest.fn(async () => ({ names: [], count: 0, indexes: [] }));
-  // P3-6a：movement/vehicle 域已迁出，跨簇调用经门面引用——桩自挂门面
+  // movement/vehicle 域在子服务上，跨簇调用经门面引用——桩自挂门面
   return { service, player, currentMap, targetMap, saved, playerService };
 }
 

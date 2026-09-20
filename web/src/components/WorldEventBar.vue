@@ -1,9 +1,7 @@
 <template>
   <!--
-    全服世界事件实时进度条（三层观看路径的前两层）：
-      ① 常驻细条：贴 header 下方，不挡聊天；显示 图标 + 名称 + 细进度 + 百分比 + 剩余时间。
-      ② 点击展开完整面板（Teleport 居中弹窗，仿 RedPacketMinePanel）：大进度条 + 里程碑刻度 +
-         四档卡片（可领/已领/未达）+ 领取按钮（走发指令通道，与 QQ 同一路径）。
+    全服世界事件进度条：① 常驻细条贴 header 下方（图标 + 名称 + 进度 + 百分比 + 剩余时间）；
+    ② 点击展开 Teleport 居中面板（大进度条 + 里程碑刻度 + 四档卡片 + 领取按钮，领取走统一指令通道，与 QQ 同一路径）。
     数据：首屏 GET /game/world-event/current；此后由父组件把 socket `worldEvent:progress` 作为
     `live` prop 传入做实时增量（不轮询）；文案/颜色全部取自 config WORLD_EVENT_UI。
   -->

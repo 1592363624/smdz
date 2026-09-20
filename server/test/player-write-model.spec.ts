@@ -98,8 +98,7 @@ describe('写模型止血回归：统一聚合键 / 逃逸回调防护 / 乐观�
   let playerService: PlayerService;
 
   // CAS 模式是类静态字段（进程级）：用例改前保存原值、改后还原原值（而非硬编码
-  // 'log'）——默认值翻转（RVW04 P1-3：log→strict）后不会把旧默认值泄漏给同进程
-  // 的其它套件。
+  // 'log'），避免把默认值泄漏给同进程的其它套件。
   let casModeBefore: 'off' | 'log' | 'strict';
   beforeEach(() => {
     casModeBefore = (PlayerService as any).CAS_MODE;
@@ -134,7 +133,7 @@ describe('写模型止血回归：统一聚合键 / 逃逸回调防护 / 乐观�
   });
 
   it('ALS 逃逸回调（run 已结束）：不得走邮箱内快捷分支，须排队按活态落库', async () => {
-    // 默认值已翻转 strict（RVW04 P1-3）：本用例构造的逃逸回调携带旧快照
+    // 本用例构造的逃逸回调携带旧快照
     // （version=0），验证的是「逃逸回调排队进邮箱落库」机制本身（与 CAS 模式
     // 解耦），须显式声明 log 让旧快照字段照常合并，不随默认值漂移。
     (PlayerService as any).CAS_MODE = 'log';
@@ -169,7 +168,7 @@ describe('写模型止血回归：统一聚合键 / 逃逸回调防护 / 乐观�
   });
 
   it('log 模式：旧快照整包写记录冲突后照常合并（行为兼容）', async () => {
-    // 默认值已翻转 strict（RVW04 P1-3）：本用例锁定 log 模式行为，显式声明。
+    // 本用例锁定 log 模式行为，须显式声明，不随默认值（strict）漂移。
     (PlayerService as any).CAS_MODE = 'log';
     rows[0].version = 3; // 库内/活态版本已推进
     await playerService.savePlayer({ userId: 101, version: 1, hp: 77 });
@@ -206,8 +205,8 @@ describe('写模型止血回归：统一聚合键 / 逃逸回调防护 / 乐观�
     expect(rows[0].hp).toBe(100); // 库内值未被旧快照覆盖
   });
 
-  // ========== 「读一次快照 → 连写多次」的自推进误判（2026-09-10 实测根因） ==========
-  // 旧行为：每次成功写入都会推进活态 version，而调用方快照的 version 停在读取时刻，
+  // ========== 「读一次快照 → 连写多次」的自推进误判（实测根因） ==========
+  // 误判形态：每次成功写入都会推进活态 version，而调用方快照的 version 停在读取时刻，
   // 于是第 2 次起被判成旧快照、strict 下静默丢弃。实测形态为 handleDodge 连写三次
   // （成就「闪避」→ 成就「闪避熟练度」→ buffs+markers2），后两次丢失 → 冷却没写进去。
   it('同一份快照连续写多次：每次改动都必须落库，不得被判成旧快照', async () => {

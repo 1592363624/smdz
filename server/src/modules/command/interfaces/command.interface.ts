@@ -64,10 +64,6 @@ export interface CommandHandler {
   key: string;
   /** 所属模块分类（如 basic / game），用于 help 指令分组展示 */
   module: string;
-  /**
-   * 执行指令
-   * @param ctx 指令上下文
-   * @param args 解析后的参数列表
-   */
+  /** 执行指令 */
   handle(ctx: CommandContext, args: string[]): Promise<CommandResult> | CommandResult;
 }

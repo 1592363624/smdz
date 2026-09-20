@@ -1,11 +1,9 @@
 <template>
   <!--
-    家园建造四步引导卡片（圈地 → 开挖地基 → 建造地基 → 建造房子）
-    展示层组件：只负责展示与发指令，不新增任何写接口——按钮发出的文本与 QQ 端逐字一致。
-    两种形态：
-    - 默认：聊天流内嵌的小卡片；
-    - fullscreen：家园页「房子未建成」时的全屏接管引导，附带随进度逐级"长出"
-      带前院别墅的纯 CSS 施工场景动画，帮助玩家直观理解建造阶段。
+    家园建造四步引导卡片（圈地 → 开挖地基 → 建造地基 → 建造房子）。
+    展示层组件：只展示与发指令，不自建写接口——按钮发出的文本与 QQ 端逐字一致。
+    两种形态：默认 = 聊天流内嵌小卡片；fullscreen = 家园页「房子未建成」时的全屏接管，
+    附纯 CSS 施工场景（随 stage 逐级"长出"带前院的别墅）。
   -->
   <div ref="rootEl" class="hbg" :class="{ 'hbg-compact': compact, 'hbg-full': fullscreen, 'hbg-done': isDone, 'hbg-flash': flashing }">
     <!-- ========== 全屏接管：场景 + 浮层顶栏 + 底部指令面板 ========== -->
@@ -27,7 +25,7 @@
         <span v-else-if="!atHome && stage > 0" class="hbg-at-home-warn">📍 需要先回家</span>
       </div>
 
-      <!-- 院子场景 + 指令面板：整组垂直居中，宽屏不再整块贴底 -->
+      <!-- 院子场景 + 指令面板：整组垂直居中（宽屏同样居中，不贴底） -->
       <div class="hbg-stage">
         <div class="sb-lot" :class="'p' + stage" aria-hidden="true">
           <div class="sb-ground"></div>
@@ -341,15 +339,9 @@
 
 <script setup>
 /**
- * 家园建造引导卡片
- *
- * 用途：把「圈地 → 开挖地基 → 建造地基 → 建造房子」这四步做成带动画的新手引导条，
- * 同时出现在两处：
- * - 聊天流（ChatView 识别后端引导文本后渲染，附「打开家园」跳转按钮）；
- * - 家园页 HomeView（fullscreen 模式，房子未建成时整页接管）。
- *
- * 写路径约定：所有按钮只 emit('send', 指令文本)，由父组件走统一指令通道执行，
- * 组件自身不调用任何接口。
+ * 家园建造引导卡片：把「圈地 → 开挖地基 → 建造地基 → 建造房子」做成带动画的新手引导条，
+ * 两种形态：聊天流内的小卡片、家园页 fullscreen 整页接管（房子未建成时）。
+ * 写路径约定：所有按钮只 emit('send', 指令文本)，由父组件走统一指令通道执行，组件自身不调任何接口。
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { HOME_BUILD_GUIDE_CONFIG as cfg } from '../config';
@@ -486,7 +478,7 @@ const hasPending = computed(() =>
   Boolean(props.pending) && (pendingRemainMs.value > 0 || pendingFinishing.value));
 const pendingLeft = computed(() => Math.max(0, Math.ceil(pendingRemainMs.value / 1000)));
 const pendingCmd = computed(() => String(props.pending?.cmd || '').trim());
-/** 短标签优先用父组件给的 label，其次截断 cmd；建造读条补「中」与旧文案一致 */
+/** 短标签优先用父组件给的 label，其次截断 cmd；建造类读条补「中」字 */
 const pendingLabel = computed(() => {
   let label = String(props.pending?.label || pendingCmd.value || '').trim();
   if (props.pending?.kind === 'work' && label && !label.endsWith('中')) label = `${label}中`;
@@ -969,15 +961,9 @@ onBeforeUnmount(() => {
   }
 }
 
-/* ============================================================
-   fullscreen 全屏接管（家园页房子未建成时）
-   ------------------------------------------------------------
-   整页 = 施工场景 + 底部玻璃指令面板。不显示游戏顶栏 / 农田 /
-   仓库等任何家园功能——房子没建成，其它系统一律不开放。
-   房子随进度 stage 逐级"长出"：0=空地 → 1=地基坑 → 2=地基 →
-   3=墙体屋顶施工 → 4=带前院别墅落成（路径/花坛/树/灯/栅栏门依次入场）。
-   动画规范：循环与入场只动 transform / opacity，避免每帧重绘。
-   ============================================================ */
+/* ===== fullscreen 全屏接管：施工场景 + 底部玻璃指令面板（房子未建成时其它家园功能不开放）=====
+   stage 逐级"长出"：0=空地 → 1=地基坑 → 2=地基 → 3=墙体屋顶施工 → 4=带前院别墅落成。
+   动画规范：循环与入场只动 transform / opacity，避免每帧重绘。 */
 .hbg-full {
   height: 100%;
   min-height: 0;
@@ -993,7 +979,7 @@ onBeforeUnmount(() => {
   box-shadow: none;
 }
 
-/* 院子场景 + 指令面板：整组垂直居中，宽屏不再整块贴底 */
+/* 院子场景 + 指令面板：整组垂直居中（宽屏同样居中，不贴底） */
 .hbg-stage {
   position: relative;
   z-index: 1;
@@ -1782,9 +1768,7 @@ onBeforeUnmount(() => {
   animation: sb-dust 1.6s ease-out infinite;
 }
 
-/* ============================================================
-   施工工具动画（纯 CSS，按 toolAnimClass 切换）
-   ============================================================ */
+/* ===== 施工工具动画（纯 CSS，按 toolAnimClass 切换）===== */
 .sb-tools {
   position: absolute;
   inset: 0;

@@ -4,11 +4,11 @@ import { StaticDataService } from '../src/modules/game/static-data.service';
 /**
  * 经验归一化门禁回归：
  * 原版（加成计算.ecode L1781-1794）等级是每次结算由总经验推导的，
- * 「经验 ≥ 当前门槛却没升级」在原版中不可能出现。移植版曾因挤奶青龙奖励、
- * 躺下离线经验、掉落「经验」等路径直写 player.exp 绕过升级循环，
- * 导致玩家卡在 Lv.5 经验 514/30 的非法状态。
+ * 「经验 ≥ 当前门槛却没升级」在原版中不可能出现。挤奶青龙奖励、
+ * 躺下离线经验、掉落「经验」等路径若直写 player.exp 绕过升级循环，
+ * 就会造出 Lv.5 经验 514/30 这类非法状态。
  *
- * 修复后 savePlayer 在落库前无条件执行 applyLevelUps 归一化——
+ * savePlayer 在落库前无条件执行 applyLevelUps 归一化——
  * 不管哪条路径改了经验，写进库的状态必然满足不变量 exp < 当前等级门槛；
  * 升级文本进入按 userId 键控的通知队列，由指令收尾统一排水。
  */
@@ -25,7 +25,7 @@ function makePrismaWithCas(rows: any[]) {
         return row ? { ...row } : null;
       }),
       update: jest.fn(async ({ where, data }: any) => {
-        // 2026-09-11 起 persistPlayer 按 where.userId（unique）落库，mock 同步双键匹配
+        // persistPlayer 按 where.userId（unique）落库，故 mock 需双键匹配
         const rowById = rows.find((r) =>
           (where?.userId !== undefined && r.userId === where.userId)
           || (where?.id !== undefined && r.id === where.id));
@@ -114,7 +114,7 @@ describe('savePlayer 经验归一化门禁', () => {
     const service = makeService(prisma);
 
     // 模拟 task.service 等路径手工构造的定点更新快照。
-    // 2026-09-08 起 savePlayer 走 Actor：定点对象先合并进活态再整行落库，
+    // savePlayer 走 Actor：定点对象先合并进活态再整行落库，
     // 「不注入派生字段」的不变量体现为——未携带的 level/exp 以活态原值落库，
     // 归一化/升级重算不触发（exp=10 远低于 Lv.5 门槛 30）。
     await service.savePlayer({ id: 1, version: 0, markers: '{"采集":1}' } as any);

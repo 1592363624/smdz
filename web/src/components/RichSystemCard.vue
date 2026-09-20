@@ -1,27 +1,17 @@
 <!--
- * RichSystemCard.vue
- *
- * 功能：将服务端下发的「结构化纯文本」长消息（背包、属性面板、装备栏等）在公屏中
- *       渲染成更紧凑的网格卡片布局，避免竖向列表过长影响阅读体验。
- *
- * 设计约束与兼容性：
- * - 本组件仅是「展示层」增强——它读原文做结构化展示，但绝不改写原文内容。
- * - 后端与 AstrBot（QQ 等）仍走标准纯文本消息，本组件只在网页端对展示样式做优化。
- * - 当文本无法被规则识别时，自动回退为原始纯文本原样直出，保证任何场景内容完整。
+ * RichSystemCard.vue：把服务端下发的「结构化纯文本」长消息（背包 / 属性面板 / 装备栏 / 制造配方）
+ * 在公屏渲染成紧凑网格卡片，避免竖向列表过长影响阅读。
+ * 只做展示层增强：不改写也不丢弃原文，后端与 AstrBot（QQ 端）仍走标准纯文本；识别失败原样直出兜底。
  -->
 <template>
   <div class="rich-card">
     <!--
-     * 关键修复：用 <template> 把"弹层（独立 v-if）"和"主内容（v-if/v-else-if/v-else 互斥链）"分成两个独立块。
-     * 之前 rc-handbook（v-if）插在 rc-bag（v-if）和 rc-profile（v-else-if）之间，会被 Vue 视为与 rc-profile 同链，
-     * 导致 v-else（rc-raw）实际是与"图鉴弹层"配对，绕过 rc-bag 判断 → 检测到背包也仍会渲染文字版兜底。
-     * 把弹层挪到主内容互斥链之后、用独立 v-if 渲染，彻底断开链依赖。
+     * 弹层必须放在主内容的 v-if/v-else-if/v-else 互斥链之外、用独立 v-if 渲染：
+     * 插进链中会抢走 v-else 的配对目标，导致识别为背包/属性面板时仍渲染出文字版兜底。
      -->
     <template v-if="layout">
-      <!-- 背包 → 物品网格（容器统一监听离开以延迟关闭图鉴弹层，格子间移动不再触发 hide/show，杜绝闪屏）
-           大背包性能优化：物品超过 RENDER_LIMIT 时默认只渲染前 120 格，其余折叠进「展开全部」按钮。
-           几百上千件的背包若全量渲染会产生同等数量的 DOM 节点（且聊天历史里可能有多条背包消息），
-           是公屏滑动卡顿的主要来源；折叠后单卡片 DOM 恒定有上限，图鉴/点击交互对已渲染格子不受影响。 -->
+      <!-- 背包 → 物品网格：容器统一 @mouseleave 延迟关闭图鉴弹层，格子之间移动不反复 hide/show（避免闪屏）。
+           超过 RENDER_LIMIT(120) 只渲染前 120 格、其余折叠进「展开全部」：上千件全量渲染会产生同等数量 DOM，是公屏卡顿主因。 -->
       <div v-if="layout.kind === 'bag'" class="rc-bag" @mouseleave="scheduleHide">
         <div class="rc-title">{{ layout.title }}</div>
         <div class="rc-grid">
@@ -45,17 +35,15 @@
           class="rc-bag-toggle"
           @click="expanded = !expanded"
         >{{ expanded ? '收起物品列表' : `展开全部 ${layout.items.length} 件物品（当前仅显示前 ${RENDER_LIMIT} 件）` }}</button>
-        <!-- 末尾非物品行（宠物搜索「白发现了…」/功能提示等）集中展示，不再丢弃 -->
+        <!-- 末尾非物品行（宠物搜索「白发现了…」/功能提示等）：原文兜底展示，不可丢弃 -->
         <div v-if="layout.notes && layout.notes.length" class="rc-bag-notes">
           <div v-for="(n, i) in layout.notes" :key="i" class="rc-bag-note">{{ n }}</div>
         </div>
       </div>
 
-      <!-- 制造配方清单 → 配方网格（与背包同一套格子样式）：
-           点击格子发「制造 配方名」，数量缺省时服务端按原版 物品操作.ecode L399
-           展示该配方的制造需求菜单（再发「1」即可制造 1 个），与背包格「穿上 X」同一交互范式。
-           图鉴的「配方」分类是 recipes.json（生产力配方），与制造 craftings.json 是两个数据集，
-           悬浮查不到制造配方 → 菜单格子不做图鉴悬浮，只保留点击。 -->
+      <!-- 制造配方清单 → 配方网格（与背包同一套格子样式）：点击格子发「制造 配方名」，数量缺省时服务端按原版
+           物品操作.ecode L399 回该配方的制造需求菜单（再发「1」即制造 1 个）。
+           图鉴的「配方」分类是 recipes.json（生产力配方），与此处 craftings.json 是两个数据集 → 格子不做图鉴悬浮，只保留点击。 -->
       <div v-else-if="layout.kind === 'menu'" class="rc-menu">
         <div class="rc-title">{{ layout.title }}</div>
         <div class="rc-grid">
@@ -128,17 +116,14 @@
         </div>
       </div>
 
-      <!-- 识别失败 → 原样直出文本（兜底，仅：未识别为 bag/profile 时触发；与上面互斥） -->
+      <!-- 识别失败 → 原样直出文本：互斥链的兜底分支，仅当 layout.kind 不是 bag/menu/profile 时命中 -->
       <div v-else class="rc-raw" style="white-space: pre-line">{{ text }}</div>
     </template>
 
     <!--
-     * 悬浮图鉴弹层：用 <Teleport to="body"> 挂到 body 下，
-     * 完全脱离 .msg.msg-rich/.rich-card 等父级 stacking context / overflow:hidden 的影响。
-     * 体积自适应内容，但有最小宽度，避免短文本塌缩成不可见。
+     * 悬浮图鉴弹层：<Teleport to="body"> 挂到 body 下，脱离 .msg.msg-rich / .rich-card 的
+     * stacking context 与 overflow:hidden；宽度自适应内容但设最小宽度，避免短文本塌缩成不可见。
      * z-index: 99999 高于绝大多数组件内弹层。
-     * 关键改进：visible 在 mouseenter 同步段就设为 true（不再等 setTimeout），
-     * 这样即使后端慢，也能立刻看到「读取图鉴中…」的占位文本。
      -->
     <Teleport to="body">
       <div
@@ -324,13 +309,11 @@ async function onCellEnter(name, e, itemKind, itemIdx) {
     active.loading = true;
     active.visible = true;
     // 弹层查询并取回 content（axios 拦截器已剥外层，兼容两/三层嵌套）；顺带剥顶部横幅。
-    // 装备弹层用「背包 行序号」查实例自身的属性（自带属性 + 随机加成词条）——
-    // 同名装备可能有多件不同品质（品质码在服务端 Item3.data 里，显示名不带），
-    // 按基础名查只会命中背包里第一件，悬浮 S 件却显示 E 详情（2026-09-08 修复）；
-    // 行序号与后端背包列表 index+1 一致，可唯一定位实例。序号过期（背包已变动）时
-    // 回退按基础名查。其余资源/消耗品仍走「图鉴」。
-    // 行判定优先（parseLayout 已按「×数量有无」确定性区分装备/物品）；
-    // 无行判定时退回名字尾字母启发式（兼容历史调用形态）。
+    // 装备弹层用「背包 行序号」查实例自身属性（自带属性 + 随机加成词条）：同名装备可能有多件不同品质
+    // （品质码在服务端 Item3.data 里，显示名不带），按基础名查只会命中第一件，会出现悬浮 S 件却显示 E 详情；
+    // 行序号与后端背包列表 index+1 一致，可唯一定位实例，序号过期（背包已变动）时回退按基础名查。
+    // 其余资源/消耗品仍走「图鉴」。
+    // 行判定优先（parseLayout 已按「×数量有无」确定性区分装备/物品）；无行判定时才退回名字尾字母启发式。
     const isEquipName = itemKind ? itemKind === 'equip' : classifyItemKind(name) === 'equip';
     const runQuery = async (q, verb) => {
       const res = await commandApi.execute(`${verb} ${q}`);
@@ -419,10 +402,8 @@ onBeforeUnmount(() => {
 });
 
 /**
- * 装备品质码集合（2026-09-10 口径统一）：服务端装备栏下发**品质码字母**
- * （E 普通/D 良好/C 优秀/B 精良/A 史诗/S 传说/X 神迹，见 equipmentQualityLabel），
- * 与背包显示名「冰雹S」同一套码 —— 旧版此处比对中文品质名（传说/史诗…），
- * 与背包字母码两套表示并存，玩家需脑内换算，已废弃。
+ * 装备品质码集合：服务端装备栏下发**品质码字母**（E 普通/D 良好/C 优秀/B 精良/A 史诗/S 传说/X 神迹，
+ * 见 equipmentQualityLabel），与背包显示名「冰雹S」同一套码；前后端比对一律用字母码，不用中文品质名。
  */
 const QUALITY_CODES = ['E', 'D', 'C', 'B', 'A', 'S', 'X'];
 const QUALITY_SET = new Set(QUALITY_CODES);
@@ -444,11 +425,9 @@ const QUALITY_COLOR = {
 const layout = computed(() => parseLayout(props.text));
 
 /**
- * 大背包懒渲染（性能优化）：
- * 背包物品几百上千件时，全量 v-for 会产生同等数量的 DOM 节点；聊天历史里若有多条
- * 背包消息，节点数成倍增长，公屏滑动明显卡顿。默认只渲染前 RENDER_LIMIT 个格子，
- * 其余折叠进「展开全部」按钮，点击后本卡片内全量展开（每卡片独立状态，互不影响）。
- * 截取保序：格子上的 idx（后端背包列表序号）不变，「装备 N」/图鉴按序号查询不受影响。
+ * 大背包懒渲染：物品几百上千件时全量 v-for 会产生同等数量 DOM 节点（聊天历史里可能有多条背包消息），
+ * 是公屏滑动卡顿主要来源。默认只渲染前 RENDER_LIMIT 格，其余折叠进「展开全部」（每卡片独立状态）。
+ * 截取保序：格子 idx（后端背包列表序号）不变，「装备 N」/图鉴按序号查询不受影响。
  */
 const RENDER_LIMIT = 120;
 const expanded = ref(false);
@@ -465,15 +444,12 @@ const visibleItems = computed(() => {
 const isBannerLine = (s) => /^【.+】\s*$/.test(s || '');
 
 /**
- * 启发式分类背包物品（仅作兜底）：装备 vs 消耗品/资源。
- * 依据：服务端「formatEquipmentInventoryDisplay」生成的装备显示名 = 基础名 + 单字母品质码 + 可选·特效。
- * 因此名字末尾正好是大写品质码字母（[EDCBASX]）即视为装备，其他视为可使用/资源。
- * 注意：先剥掉尾部·xxx特效再判断，避免把「防弹上衣D·纯洁无瑕」误判为非装备。
- *
- * ⚠️ 2026-09-06 起主判定不再依赖本函数（详见 parseLayout 背包分支）：
- * 裸条目装备（如 GM 背包管理发放、未卷品质码的「时间主宰」）显示名无品质码尾字母，
- * 该启发式会误判为消耗品导致点击无法装备。主判定改用服务端文本格式的确定性信号：
- * 普通物品行必带「×数量」，装备行必不带（game.service handleInventory 的输出约定）。
+ * 启发式分类背包物品（仅兜底）：装备 vs 消耗品/资源。
+ * 依据：服务端 formatEquipmentInventoryDisplay 生成的装备显示名 = 基础名 + 单字母品质码 + 可选·特效，
+ * 因此末尾正好是大写品质码字母（[EDCBASX]）即视为装备；判断前先剥掉尾部·xxx特效，
+ * 避免把「防弹上衣D·纯洁无瑕」误判为非装备。
+ * ⚠️ 主判定不依赖本函数：无品质码的裸条目装备（如 GM 背包管理发放的「时间主宰」）会被误判成消耗品，
+ * 主判定改用服务端行格式的确定性信号（见 parseLayout 背包分支）。
  */
 function classifyItemKind(name) {
   const stripped = String(name || '').replace(/·[^·]+$/, '');
@@ -524,12 +500,9 @@ function parseLayout(text) {
     .filter((l) => l.trim() !== '');
 
   // ---------- 1. 背包：🎒 背包/资源背包 (N种): + "1. xxx ×N"（标题可能在行中，需扫描定位） ----------
-  // 资源背包与背包共用同一网格分支：服务端输出格式完全同构（handleResourceBag 约定）
-  // 文本契约（RVW04 P2-8）：下方三条正则与 server/src/modules/game/game.service.ts 的
-  // handleInventory / handleResourceBag 输出组装一一对应——标题行匹配服务端
-  // `🎒 背包 (N种):` / `🎒 资源背包 (N种):`，普通物品行 `${i+1}. 名字 ×数量`，
-  // 装备行（formatEquipmentInventoryDisplay 输出，无数量段）落到 /^(\d+)\.\s*(.+)$/ 分支。
-  // 服务端另由 inventory-display.spec.ts 契约测试锁定排序与行格式；改动任一侧须三处同步。
+  // 资源背包与背包服务端输出完全同构（handleResourceBag 约定），共用同一网格分支
+  // 文本契约（RVW04 P2-8）：下面三条正则与 server game.service 的 handleInventory/handleResourceBag 输出
+  // （标题行、`N. 名字 ×数量` 普通物品行、无数量段的装备行）及 server/test/inventory-display.spec.ts 锁定的格式同步
   const bagIdx = lines.findIndex((l) => /^🎒\s*(?:资源)?背包\s*\(\d+(?:种)?\)/.test(l));
   if (bagIdx >= 0) {
     const items = [];
@@ -540,9 +513,8 @@ function parseLayout(text) {
       if (isBannerLine(t)) { notes.push(t); continue; } // 【…】横幅归入备注区展示，不混入物品格
       // 序号 idx 与后端「背包」列表的 index+1、「装备 N」的解序号一致，必须原样保留供对号
       // 装备/物品判定用服务端文本格式的确定性信号（handleInventory 输出约定）：
-      //   普通物品行恒为「N. 名字 ×数量」，装备行恒无「×数量」（formatEquipmentInventoryDisplay 不带数量）。
-      // 旧的名字尾字母启发式会把无品质码的裸条目装备（GM 背包管理发放的「时间主宰」等）
-      // 误判为消耗品，导致点击无法装备（2026-09-06 修复）。
+      //   普通物品行恒为「N. 名字 ×数量」，装备行恒无「×数量」（formatEquipmentInventoryDisplay 不带数量）；
+      //   不能用名字尾字母启发式，无品质码的裸条目装备会被它误判成消耗品
       const m = t.match(/^(\d+)\.\s*(.+?)\s*×\s*([\d.]+)\s*$/);
       if (m) {
         items.push({ idx: m[1], name: m[2].trim(), count: m[3], kind: 'use' });
@@ -566,11 +538,10 @@ function parseLayout(text) {
   }
 
   // ---------- 2. 制造配方清单：X请选择要制造的Y配方: + "1、名称" ----------
-  // 文本契约：标题与行格式由 server/src/modules/game/craft-menu.util.ts buildCategoryListText
-  // 生成（「制造 资源/装备/建筑/载具」的配方清单；序号分隔符为原版的「、」，与背包的「.」不同）。
+  // 文本契约：标题与行格式由 server 的 craft-menu.util buildCategoryListText 生成
+  // （「制造 资源/装备/建筑/载具」清单；序号分隔符用原版的「、」，与背包的「.」不同）
   // 服务端文本不改（AstrBot/QQ 仍走原版纯文本），此处仅网页端结构化为网格；
-  // 标题扫描定位（前面可能拼有离线结算横幅），配方名进入格子，序号原样保留供肉眼对号
-  // （回复数字由服务端临时输入替换承接，前端不依赖序号发指令）。
+  // 标题扫描定位（前面可能拼有离线结算横幅），序号原样保留供肉眼对号（回复数字由服务端临时输入替换承接）
   const menuIdx = lines.findIndex((l) => /.+请选择要制造的\S+配方[:：]?\s*$/.test(l));
   if (menuIdx >= 0) {
     const items = [];
@@ -714,7 +685,7 @@ function parseLayout(text) {
   font-size: 12px;
   min-width: 0;
 }
-/* 背包格子改为可交互：悬浮高亮 + 点击反馈（发送装备指令） */
+/* 背包格子可交互：悬浮高亮 + 点击反馈（发送装备指令） */
   .rc-cell-item {
     cursor: pointer;
     transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
@@ -727,7 +698,7 @@ function parseLayout(text) {
     transform: scale(0.96);
   }
   /* 非装备（资源/消耗品）格子：只显示、不可点。鼠标停留仍可触发图鉴弹层（查看说明），
-     但 cursor 显示默认箭头 + 不再有 hover 高亮，避免误以为可点击。 */
+     但 cursor 为默认箭头且无 hover 高亮，避免误以为可点击。 */
   .rc-cell-item.rc-cell-use {
     cursor: default;
   }
@@ -772,8 +743,8 @@ function parseLayout(text) {
   width: max-content;
   min-width: 240px;
   max-width: 300px;
-  /* 高度自适应内容（不再写死 260px）。仅保留「不超过视口」的兜底上限，
-     防极端超长内容溢出页面；位置在内容渲染后由 fitPopup 拉回视口内 */
+  /* 高度自适应内容，只保留「不超过视口」的兜底上限防超长内容溢出；
+     位置在内容渲染后由 fitPopup 拉回视口内 */
   max-height: calc(100vh - 16px);
   display: flex;
   flex-direction: column;

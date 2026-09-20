@@ -46,19 +46,12 @@
 
 <script setup>
 /**
- * 血量预警 / 死亡状态 全屏特效层
- *
- * 数据源：playerStore 快照（hp / maxHp / buffs），由 ChatView 传入。
- * - 低血量分层预警：30~20% 暗红慢呼吸(2s) / 20~10% 正红中速(1.2s) / <10% 深血色频闪+噪点；
- *   光效集中在左/右/下三边边缘向中心渐变（顶部为导航栏不覆盖），最亮处仅边缘 ~10px。
- * - 受击联动：低血量期间 hp 再次下降 → 边缘 100ms 红闪（hp 监听驱动，覆盖所有伤害来源）。
- * - 死亡三段式：瞬时暗红帧(100ms) → 持续态(压暗+暗角+红光带+血色粒子) → 复活收束(0.5s)。
- * - 死亡判定与战斗系统同口径：hp<=0 且增益「卷土重来」未过期不算真死
- *   （原版 战斗相关.ecode L5182-5184，expireAt=0 为永久增益）。
- * - 强度档位由 ui store 的 hpVfxLevel 驱动（simple/standard/strong，localStorage 持久化）：
- *   简约档无屏幕边缘光效与受击闪，仅保留左侧血条闪烁；死亡持续态各档位均保留（状态感知优先）。
- *
- * 无障碍与性能：图层不吃点击；命中 prefers-reduced-motion 时停用全部动画只留静态光。
+ * 血量预警 / 死亡状态全屏特效层：数据源是 ChatView 传入的 playerStore 快照（hp / maxHp / buffs）。
+ * 低血量按 30/20/10% 分三档亮边缘光（只覆盖左/右/下三边，顶部留给导航栏）；低血量期间 hp 再降 → 受击快闪（由 hp 监听驱动，覆盖所有伤害来源）。
+ * 死亡三段式：瞬时暗红帧 → 持续态（压暗 + 暗角 + 红光带 + 血色粒子）→ 复活收束。
+ * 死亡判定与战斗系统同口径：hp<=0 且增益「卷土重来」未过期不算真死（原版 战斗相关.ecode L5182-5184，expireAt=0 为永久增益）。
+ * 强度档位由 ui store 的 hpVfxLevel 驱动：简约档无边缘光效与受击闪，仅左侧血条闪烁，死亡持续态各档均保留（状态感知优先）。
+ * 图层不吃点击；命中 prefers-reduced-motion 时停用全部动画只留静态光。
  */
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useUiStore } from '../stores/ui';
@@ -191,7 +184,7 @@ onBeforeUnmount(() => {
   overflow: hidden;
 }
 
-/* ===== 档位变量：mult=强度倍率，w=边缘光宽度（两轮减半：90/110/160 → 45/55/80 → 22/28/40） ===== */
+/* ===== 档位变量：mult=强度倍率，w=边缘光宽度（px） ===== */
 .hv-lv-standard {
   --hv-mult: 1;
   --hv-w: 28px;
@@ -311,7 +304,7 @@ onBeforeUnmount(() => {
   }
 }
 
-/* ===== 受击快闪：边缘径向红光 100ms 快闪后回归呼吸 ===== */
+/* ===== 受击快闪：边缘径向红光 160ms 快闪后回归呼吸（与 JS 侧 hitTimer 同步） ===== */
 .hv-hit {
   position: absolute;
   inset: 0;

@@ -19,7 +19,6 @@ export default defineConfig({
       overlay: false,
     },
     proxy: {
-      // HTTP 接口代理到后端
       '/api': {
         target: apiTarget,
         changeOrigin: true,
@@ -30,7 +29,7 @@ export default defineConfig({
         ws: true,
         changeOrigin: true,
       },
-      // 上传附件静态资源代理到后端（反馈/私聊的图片与文件）
+      // 上传附件静态资源代理到后端（反馈等的图片与文件）
       '/uploads': {
         target: apiTarget,
         changeOrigin: true,

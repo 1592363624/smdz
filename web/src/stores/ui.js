@@ -1,12 +1,8 @@
 /**
- * UI 全局状态（Pinia）
- * 集中承载「跨组件共享的临时 UI 状态」，为后续把 ChatView / AdminView 中的
- * 散落状态（连接状态、玩家信息、toast、命令面板）抽到 store 打下基础。
- *
- * 当前纳入：
- * - toasts：全局轻提示队列（成功/错误/警告/信息；悬停暂停自动关闭）
- * - paletteOpen：命令面板（Cmd/Ctrl+K）开关
- * - hpVfxLevel：血量预警特效强度档位（simple/standard/strong，localStorage 持久化）
+ * UI 全局状态（Pinia）：跨组件共享的临时 UI 状态
+ * toasts：轻提示队列（成功/错误/警告/信息，悬停暂停自动关闭）
+ * paletteOpen：命令面板（Cmd/Ctrl+K）开关
+ * hpVfxLevel：血量预警特效强度档位（simple/standard/strong，localStorage 持久化）
  */
 import { defineStore } from 'pinia';
 
@@ -14,7 +10,7 @@ import { defineStore } from 'pinia';
 const HP_VFX_LEVELS = ['simple', 'standard', 'strong'];
 const HP_VFX_LEVEL_KEY = 'smdz_hp_vfx_level';
 
-/** 默认 toast 停留时长（ms）：略长于旧版 3s，方便读完一句话 */
+/** 默认 toast 停留时长（ms） */
 const TOAST_DEFAULT_TIMEOUT = 5000;
 
 export const useUiStore = defineStore('ui', {
@@ -60,7 +56,6 @@ export const useUiStore = defineStore('ui', {
       this._armToastTimer(toast);
       return id;
     },
-    /** 关闭指定 toast */
     removeToast(id) {
       const i = this.toasts.findIndex((t) => t.id === id);
       if (i === -1) return;
@@ -92,15 +87,12 @@ export const useUiStore = defineStore('ui', {
       toast._startedAt = Date.now();
       toast._timer = setTimeout(() => this.removeToast(toast.id), toast.remaining);
     },
-    /** 打开命令面板 */
     openPalette() {
       this.paletteOpen = true;
     },
-    /** 关闭命令面板 */
     closePalette() {
       this.paletteOpen = false;
     },
-    /** 切换命令面板 */
     togglePalette() {
       this.paletteOpen = !this.paletteOpen;
     },

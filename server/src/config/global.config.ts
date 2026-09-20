@@ -65,8 +65,8 @@ export class GlobalConfig {
 
   /**
    * 「查看可领取称号」列表面板配置（机器人 / 网页共用同一段文本）。
-   * 2026-09-15：可领取项改为置顶 + 顶部点名后，点名的条数上限做成配置项，
-   * 避免一次可领几十个时头部一行刷屏（完整清单始终在「✅ 现在就能领」编号区块）。
+   * 顶部点名的条数上限做成配置项，避免一次可领几十个时头部一行刷屏
+   * （完整清单始终在「✅ 现在就能领」编号区块）。
    */
   public readonly titlesView = {
     /** 顶部汇总最多点名的可领取称号数量（默认 8，超出折算「…（共 N 个）」） */
@@ -77,8 +77,8 @@ export class GlobalConfig {
    * 家园系统写操作门禁配置。
    *
    * requireBuiltForActions：种植 / 收获 / 建造 / 拆除 / 安装 / 使用凭证 等家园操作
-   * 是否必须等房子建成（`家园进度 >= 4`）才允许。默认 true（与「家园产出 / 家园前线」
-   * 等已有门禁口径一致）；置为 false 即回退到原版「圈完地就能种」的宽松行为。
+   * 是否必须等房子建成（`家园进度 >= 4`）才允许。默认 true；置为 false 即回退到
+   * 原版「圈完地就能种」的宽松行为。
    * 环境变量：HOME_REQUIRE_BUILT=false 关闭（修改后需重启生效）。
    */
   public readonly home = {
@@ -97,24 +97,17 @@ export class GlobalConfig {
   private constructor() {
     this.port = Number(process.env.PORT || 3333);
     this.jwtSecret = process.env.JWT_SECRET || 'dev_secret_change_me';
-    // 默认 7 天（604800 秒）：登录态在 localStorage 中持久保存，延长令牌有效期以避免玩家
-    // 每日被踢回登录页。注意 jsonwebtoken 对 number 类型按「秒」解析。
     this.jwtExpiresIn = Number(process.env.JWT_EXPIRES_IN || 604800);
     this.databaseUrl =
       process.env.DATABASE_URL ||
       'mysql://root:root@localhost:3306/smdz?charset=utf8mb4'; // MySQL 数据库（本地开发回退）
     this.botAccessToken = process.env.BOT_ACCESS_TOKEN || 'astrbot_web_secret';
-    // 指令前缀/是否强制前缀 已收敛到系统配置中心(SystemConfig 表 command.prefixes / command.requirePrefix)，
-    // 不再在 .env 中冗余配置，避免双数据源不一致。
-    // 附件上传目录（相对服务根目录），由启动时自动创建；可通过环境变量覆盖
+    // 指令前缀/是否强制前缀的规范来源是系统配置中心（SystemConfig 表
+    // command.prefixes / command.requirePrefix），不在 .env 中配置，避免双数据源不一致。
     this.uploadDir = process.env.UPLOAD_DIR || 'uploads';
-    // 单个附件大小上限（字节），默认 10MB
     this.uploadMaxSize = Number(process.env.UPLOAD_MAX_SIZE || 10 * 1024 * 1024);
-    // 上传附件的 URL 前缀，用于前端拼接访问地址
     this.uploadUrlPrefix = process.env.UPLOAD_URL_PREFIX || '/uploads';
-    // 每条消息最多可携带的附件数量
     this.maxAttachments = Number(process.env.MAX_ATTACHMENTS || 5);
-    // CORS 白名单：默认允许本地开发端口与常见前端端口
     this.corsOrigins = (process.env.CORS_ORIGINS || 'http://localhost:5173,http://localhost:8080')
       .split(',')
       .map((s) => s.trim())

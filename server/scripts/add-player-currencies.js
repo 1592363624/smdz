@@ -1,4 +1,4 @@
-/* 守卫式加列：货币列化 P1（幂等） */
+/* 守卫式加列：货币列化（幂等） */
 const { PrismaClient } = require('@prisma/client');
 const p = new PrismaClient();
 

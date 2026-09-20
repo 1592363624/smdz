@@ -1,7 +1,6 @@
 /**
- * 指令处理器注册表
- * 集中登记所有 CommandHandler 的 token，key 与数据库 Command.handlerKey 对应。
- * 新增指令时：1) 在此导入并加入 handlers 与 list  2) 在数据库 Command 表插入一条记录
+ * 指令处理器注册表：集中登记所有 CommandHandler，key 与数据库 Command.handlerKey 对应。
+ * 新增指令时：1) 在此导入并加入 handlerProviders 2) 在数据库 Command 表插入对应记录
  */
 import { CommandHandler } from '../interfaces/command.interface';
 import { HelpHandler } from './help.handler';
@@ -45,7 +44,7 @@ export const handlerProviders = [
   WorldEventHandler,
 ];
 
-/// 组装 key -> 处理器实例 的映射（由 CommandService 注入 handlerProviders 后构建）
+/// 组装 key -> 处理器实例 的映射
 export function buildHandlerMap(instances: CommandHandler[]): Record<string, CommandHandler> {
   const map: Record<string, CommandHandler> = {};
   for (const instance of instances) {

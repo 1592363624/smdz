@@ -1,28 +1,10 @@
 /**
- * 战斗状态机核心层（易语言全局战斗函数的 1:1 复刻）
+ * 战斗状态机核心层：原版各 .ecode 中「全局战斗函数」的 1:1 复刻，
+ * 是 _初始化怪物（加成计算.ecode L2644）与 攻击目标（战斗相关.ecode L4021）共同依赖的基石。
+ * 逐行对照原版，保证行为与数值一字不差；各方法的原版函数行号见其自身文档。
  *
- * 本文件集中实现原版各 .ecode 中的「全局战斗函数」，作为
- * _初始化怪物（加成计算.ecode L2644）与 攻击目标（战斗相关.ecode L4021）
- * 两个子程序共同依赖的基石。逐行对照原版，保证行为与数值一字不差。
- *
- * 对应原版函数来源：
- *  - 添加成就       数据分析.ecode L678
- *  - 取成就熟练度   数据分析.ecode L719
- *  - 置成就熟练度   数据分析.ecode L850
- *  - 标记要求       数据分析.ecode L747（操作「标记2」增益数组，含过期清理）
- *  - 添加标记       数据分析.ecode L778
- *  - 增益要求       数据分析.ecode L799（操作「增益」数组，含过期清理）
- *  - 时间间隔要求   数据分析.ecode L1008
- *  - 获得增益       加成计算.ecode L1522（返回最终强度）
- *
- * 数据结构约定（对齐易语言「技能」「增益」数组的**字段语义**，键名统一英文）：
- *  - AchievementItem = { name, value }     对应原版 技能 数组成员
- *    （`name` 的值是内容语义：存于 Player.markers 字典时字典键即标记名，保持原版中文）
- *  - BuffItem        = { name, strength, expireAt, stackTime }  对应原版 增益 数组成员
- *    · expireAt 单位：毫秒时间戳（原版 #转秒=1000，时间参数单位为秒，存时 ×1000）
- *    · 字段规范见 field-contract.util.ts（SSOT）：所有持久化边界会把
- *      名称/强度/有效期至/是否叠加时间 收敛为上述英文键
- *  - MarkerItem（标记2）= 同 BuffItem 结构（标记要求/添加标记 复用）
+ * 数据结构字段语义对齐原版「技能」「增益」数组，键名统一英文（规范见 field-contract.util，SSOT）；
+ * 入参时间单位为秒，落库 expireAt 为毫秒时间戳（原版 #转秒=1000，存时 ×1000）。
  */
 
 import { Injectable } from '@nestjs/common';
@@ -34,20 +16,6 @@ import { SEQ, AMPLIFIER_SEQ_RANGE, IMPLANT_SEQ_RANGE } from './constants/special
 /** #转秒：原版易语言时间常数，1秒 = 1000 毫秒 */
 const SECOND_MS = 1000;
 
-/**
- * 增益/标记条目格式归一化（兼容层）
- *
- * 项目历史原因存在两套写入约定：
- *  - combat-state 内部约定（原版对齐）：中文 key { 名称, 强度, 有效期至 }，有效期至=毫秒
- *  - 运行时 game 逻辑层约定：英文 key { name, value, expireAt }，expireAt=秒级时间戳
- * 两套格式并存导致 buffRequire/timeIntervalRequire/markerRequire 读不到运行时写入的增益。
- *
- * 本函数将任意格式条目原地归一化为「中文 key + 毫秒」，保证两层数据互相可读，
- * 存量数据（无论哪种格式）都能被战斗状态机正确识别。幂等（中文/毫秒再归一化不变）。
- *
- * @param it 原始条目（可能含中/英 key、秒/毫秒时间）
- * @returns 归一化后的 BuffItem
- */
 /** 成就/熟练度条目（原版「技能」数组项） */
 export interface AchievementItem {
   /** 名称（如 "在线时间" / "破盾" / "火力全开"），内容语义，保持中文值 */
@@ -73,21 +41,17 @@ export class CombatStateService {
   /**
    * 增益/标记条目格式归一化（兼容层，非原版逻辑）
    *
-   * 项目历史原因存在两套写入约定：
-   *  - 早期 combat-state 内部约定：中文 key { 名称, 强度, 有效期至 }，有效期至=毫秒
-   *  - 运行时 game 逻辑层约定：英文 key { name, value, expireAt }，expireAt=秒级时间戳
-   * 两套格式并存导致 buffRequire/timeIntervalRequire/markerRequire 读不到运行时写入的增益。
-   *
-   * 现统一收敛为**英文规范键 + 毫秒**（规范名见 field-contract.util.ts）：
-   *   { name, strength, expireAt(毫秒), stackTime }，中文字段名一律丢弃。
-   * 存量数据（无论哪种格式）都能被战斗状态机正确识别。幂等（英文/毫秒再归一化不变）。
+   * 写入侧有两套约定：中文 key { 名称, 强度, 有效期至 }（有效期至=毫秒）与
+   * 英文 key { name, value, expireAt }（expireAt=秒级时间戳）；不收敛的话
+   * buffRequire / timeIntervalRequire / markerRequire 会读不到运行时写入的增益。
+   * 本函数把任意输入原地收敛为英文规范键 + 毫秒：{ name, strength, expireAt, stackTime }
+   * （规范名见 field-contract.util），幂等（已是英文键+毫秒时结果不变）。
    *
    * @param it 原始条目（可能含中/英 key、秒/毫秒时间）
-   * @returns 归一化后的 BuffItem
    */
   normalizeBuffItem(it: any): BuffItem {
     if (!it) return { name: '', expireAt: 0 };
-    // 字段别名一律交给 SSOT 契约表收敛（本处不再自建别名清单，避免两套口径）
+    // 字段别名一律走 SSOT 契约表收敛，本函数不自建别名清单（避免两套口径）
     normalizeEntryKeys(it, 'buff');
     const name = it.name ?? '';
     // 时间：<1e12 视为秒，否则毫秒
@@ -105,12 +69,10 @@ export class CombatStateService {
   /**
    * 成就容器归一化（兼容层，非原版逻辑）
    *
-   * 本框架将玩家成就熟练度统一存于 Player.markers（JSON 对象 {"成就名": 数值}），
-   * 而原版/战斗状态机内部使用「技能」数组 [{name, value}]。
-   * 调用方两种格式都可能传入，先统一识别，避免对对象/字符串做 for...of
-   * 抛出「成就 is not iterable」导致整个指令失败。
+   * 玩家成就熟练度统一存于 Player.markers（JSON 对象 {"成就名": 数值}），
+   * 原版/战斗状态机内部则用「技能」数组 [{name, value}]，调用方两种格式都可能传入。
+   * 先统一识别，否则对对象/字符串做 for...of 会抛「成就 is not iterable」使整条指令失败。
    *
-   * @param 成就 成就数组 / markers 标记对象 / JSON 字符串
    * @returns 数组形式或对象形式（二者只会有一个）
    */
   private normalizeAchievementContainer(
@@ -125,7 +87,7 @@ export class CombatStateService {
       }
     }
     if (Array.isArray(container)) {
-      // 边界收敛：历史条目 {名称,数值} → 规范 {name,value}（字典形态不受影响）
+      // 边界收敛：数组条目 {名称,数值} → 规范 {name,value}；字典形态的键是标记名，不动
       normalizeMarkers(container);
       return { array: container as AchievementItem[], record: {} };
     }
@@ -142,7 +104,6 @@ export class CombatStateService {
    *
    * 支持「技能」数组和 markers 标记对象两种容器（见 normalizeAchievementContainer）。
    *
-   * @param 名称 成就/熟练度名称
    * @param 数值 增减量
    * @param 成就 成就数组或标记对象（会被原地修改）
    */
@@ -164,7 +125,6 @@ export class CombatStateService {
       record[名称] = 数值;
       return;
     }
-    // 先遍历已有同名项累加
     for (let i = array.length - 1; i >= 0; i--) {
       if (array[i].name === 名称) {
         array[i].value = array[i].value + 数值;
@@ -177,7 +137,6 @@ export class CombatStateService {
     }
     // 未遍历到对应名称，且提供的是负数 → 直接返回（不新增负项）
     if (数值 <= 0) return;
-    // 新增成就项
     array.push({ name: 名称, value: 数值 });
   }
 
@@ -187,11 +146,7 @@ export class CombatStateService {
    *
    * 支持「技能」数组和 markers 标记对象两种容器（见 normalizeAchievementContainer）。
    *
-   * @param 成就 成就数组或 markers 标记对象
-   * @param 名称 检索名称
-   * @param 模糊匹配 是否模糊匹配
    * @param 取全部匹配 模糊匹配时是否累加全部匹配项
-   * @returns 熟练度数值
    */
   getAchievementProficiency(
     成就: AchievementItem[] | Record<string, number> | string | null | undefined,
@@ -242,7 +197,6 @@ export class CombatStateService {
    *
    * 支持「技能」数组和 markers 标记对象两种容器（见 normalizeAchievementContainer）。
    *
-   * @param 名称 名称
    * @param 成就 成就数组或 markers 标记对象（原地修改）
    * @param 熟练度 目标数值
    */
@@ -284,11 +238,9 @@ export class CombatStateService {
    *  2. 再检索同名项，命中则通过 返回剩余时间 回写剩余时间文本并返回真
    * 注意：原版会先清理过期，因此本函数也会原地修改数组（删除过期项）。
    *
-   * @param 检索名称 标记名称
    * @param 标记数组 标记2 增益数组（原地修改：清理过期）
    * @param 返回剩余时间 剩余时间显示文本（参考，回写）
    * @param 时间戳 当前毫秒时间戳
-   * @returns 是否存在该标记
    */
   markerRequire(
     检索名称: string,
@@ -296,7 +248,7 @@ export class CombatStateService {
     返回剩余时间: { value: string },
     时间戳: number,
   ): boolean {
-    // 兼容层：先归一化数组（中/英文 key、秒/毫秒时间统一为 英文key+毫秒），保证存量数据可读
+    // 兼容层：数组条目统一收敛为 英文键 + 毫秒，否则读不到运行时写入的增益
     const arr: BuffItem[] = 标记数组.map((it) => this.normalizeBuffItem(it));
     标记数组.length = 0;
     标记数组.push(...arr);
@@ -318,7 +270,7 @@ export class CombatStateService {
     for (const it of 标记数组) {
       if (it.name === 检索名称) {
         const remainMs = it.expireAt - 时间戳;
-        // 数字到时间：剩余毫秒转可读文本（简化：显示秒/分）
+        // 原版 数字到时间：剩余毫秒 → `N秒` / `M分S秒` 可读文本
         返回剩余时间.value = formatDurationText(remainMs);
         return true;
       }
@@ -331,7 +283,6 @@ export class CombatStateService {
    * 同名标记则叠加时间（有效期至 += 时间×#转秒）；否则新增。
    * 时间 == 0 不添加。
    *
-   * @param 名称 标记名称
    * @param 时间 秒
    * @param 标记 标记2 增益数组（原地修改）
    * @param 现行时间 毫秒时间戳
@@ -353,12 +304,10 @@ export class CombatStateService {
    * 操作「增益」数组：先清理过期项（有效期至 ≤ s 则删除），
    * 再检索同名项，命中则回写 强度返回值 / 剩余时间返回值 并返回真。
    *
-   * @param 名称 增益名称
    * @param 增益 增益数组（原地修改：清理过期）
    * @param 强度返回值 回写强度
    * @param s 当前毫秒时间戳
    * @param 剩余时间返回值 回写剩余秒数
-   * @returns 是否存在该增益
    */
   buffRequire(
     名称: string,
@@ -367,7 +316,7 @@ export class CombatStateService {
     s: number,
     剩余时间返回值: { value: number },
   ): boolean {
-    // 兼容层：先归一化数组（中/英文 key、秒/毫秒时间统一为 英文key+毫秒），保证存量数据可读
+    // 兼容层：数组条目统一收敛为 英文键 + 毫秒，否则读不到运行时写入的增益
     const arr: BuffItem[] = 增益.map((it) => this.normalizeBuffItem(it));
     增益.length = 0;
     增益.push(...arr);
@@ -395,13 +344,10 @@ export class CombatStateService {
    * 返回最终强度。同名增益：按是否叠加强度/时间处理；否则新增。
    *
    * @param 增益 增益数组（原地修改）
-   * @param 名称 增益名称
    * @param 时间 秒（0 表示不刷新有效期）
    * @param 是否叠加时间 是否叠加时间（而非覆盖）
    * @param s 当前毫秒时间戳
-   * @param 强度 增益强度
    * @param 是否叠加强度 是否叠加强度（否则取 max）
-   * @returns 最终强度
    */
  gainBuff(
     增益: BuffItem[],
@@ -488,7 +434,6 @@ export class CombatStateService {
    * @param 时间 毫秒时间戳
    * @param 返回文本 剩余时间文本（回写）
    * @param 原始时间戳 毫秒时间戳（默认=时间）
-   * @returns 是否在冷却中
    */
   timeIntervalRequire(
     名称: string,
@@ -513,7 +458,6 @@ export class CombatStateService {
    * 与原版一致：第一段按 specialSeq switch；第二段按名称前缀（取文本左边 N 字）判断。
    *
    * @param 套装 SetData（原地修改：累加对应计数）
-   * @param 名称 装备名称
    * @param 特殊序号 装备特殊序号（0 表示按名称判断）
    * @param 耐久 装备耐久（仅法宝资源类使用；对应原版 数据分析.ecode L922 陪睡=法宝耐久/等级）
    */
@@ -589,18 +533,15 @@ export class CombatStateService {
     }
     // 科学家（左边2字=="科学"）
     else if (w2 === '科学') 套装.scientist = (套装.scientist || 0) + 1;
-    // 白
     else if (w2 === '白') {
       if (名称 === '白色裤袜') 套装.whiteWedding = (套装.whiteWedding || 0) + 1;
       else if (名称 === '白色丝袜') 套装.scientist = (套装.scientist || 0) + 1;
     }
-    // 纯白
     else if (w1 === '纯白') {
       if (['纯白头纱', '纯白婚纱', '纯白手套'].includes(名称)) {
         套装.whiteWedding = (套装.whiteWedding || 0) + 1;
       }
     }
-    // 黑
     else if (w2 === '黑') {
       if (['黑头纱', '黑婚纱', '黑手套', '黑色裤袜'].includes(名称)) {
         套装.blackWedding = (套装.blackWedding || 0) + 1;
@@ -608,34 +549,26 @@ export class CombatStateService {
     }
     // 一拳（原版 取文本左边(名称,2)=="一拳"，"一拳套装"左边2字即"一拳"）
     else if (w2 === '一拳') 套装.onePunch = (套装.onePunch || 0) + 1;
-    // 女仆
     else if (w2 === '女仆') 套装.maid = (套装.maid || 0) + 1;
     // 生命（且名称 != "生命祝福"，原版 L1746-1749）
     else if (w2 === '生命') {
       if (名称 !== '生命祝福') 套装.lifeBless = (套装.lifeBless || 0) + 1;
     }
-    // 皇冠 / 长筒靴 / 蕾丝边腿环
     else if (名称 === '皇冠' || 名称 === '长筒靴' || 名称 === '蕾丝边腿环') {
       套装.crown = (套装.crown || 0) + 1;
     }
-    // 动力（封顶5）
     else if (w2 === '动力') {
       套装.power = (套装.power || 0) + 1;
-      if (套装.power > 5) 套装.power = 5;
+      if (套装.power > 5) 套装.power = 5; // 封顶5（原版 L1627-1629）
     }
-    // 游侠
     else if (w2 === '游侠') 套装.wanderer = (套装.wanderer || 0) + 1;
-    // 游骑
     else if (w2 === '游骑') 套装.ranger = (套装.ranger || 0) + 1;
     // 防爆（且名称 != "防爆盾"）
     else if (w2 === '防爆') {
       if (名称 !== '防爆盾') 套装.antiExplosion = (套装.antiExplosion || 0) + 1;
     }
-    // 无畏
     else if (w2 === '无畏') 套装.fearless = (套装.fearless || 0) + 1;
-    // 强袭
     else if (w2 === '强袭') 套装.assault = (套装.assault || 0) + 1;
-    // 圣诞
     else if (w2 === '圣诞') 套装.christmas = (套装.christmas || 0) + 1;
 
     // ===== 法宝（资源类装备）判定（对应原版 数据分析.ecode L907-923）=====
@@ -658,13 +591,10 @@ export class CombatStateService {
    * 装备要求（物品操作.ecode L1512）
    * 判断玩家是否装备了指定特殊序号或名称的装备（或手持对应武器）。
    *
-   * @param 装备列表 玩家已装备列表，每项 { name, specialSeq }
    * @param 武器列表 玩家武器列表，每项 { name, specialSeq }（当前武器索引 = 当前武器）
    * @param 当前武器 当前手持武器下标（0 表示拳头/无武器）
    * @param 特殊序号 检索的特殊序号（0 表示按名称）
-   * @param 名称 检索的名称
    * @param 是否武器 是否检索武器（真=检查当前手持武器；假=检查装备列表）
-   * @returns 是否装备/手持
    */
   equipRequire(
     装备列表: Array<{ name: string; specialSeq?: number }>,

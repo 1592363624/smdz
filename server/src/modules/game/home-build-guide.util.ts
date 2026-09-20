@@ -1,21 +1,12 @@
 /**
- * 家园建造流程引导（圈地 → 开挖地基 → 建造地基 → 建造房子）
- *
- * 背景：家园在「家园进度 = 4（建成）」之前会拦截家园产出结算、家园前线、
- * 屋内野战、地牢挑战等玩法，但原版只有一句纯文本提示，玩家很容易卡在中间
- * 步骤（实测出现过「房子都盖好了，页面还显示建造进度 0/4」的疑问）。
- *
- * 方案：在四条建造指令的回包**末尾追加**一段格式固定的进度文本，一份内容两端通用：
- * - QQ / AstrBot：纯文本即可读（① ② ③ ④ 进度链 + 下一步指令）；
- * - 网页端：`web/src/components/HomeBuildGuide.vue` 识别同一段文本后渲染成
- *   带动画的四步引导卡片，并提供「打开家园」「发送下一步指令」按钮。
- *
- * 约定：
- * - 只追加文本，**不改任何写入口、不新增接口**，写操作仍只有指令通道一条路径；
- * - 步骤名、材料提示、下一条指令集中在本文件，改文案不需要动业务 service；
- * - 文本以 `HOME_BUILD_GUIDE_HEADER` 开头，是网页端识别卡片的唯一依据，
- *   修改前缀时必须同步 `web/src/config.js` 的 `HOME_BUILD_GUIDE_CONFIG.headerRegex`。
+ * 家园建造四步引导（圈地 → 开挖地基 → 建造地基 → 建造房子）：在建造指令回包末尾追加一段
+ * 格式固定的进度文本，QQ 端纯文本可读，网页端 `HomeBuildGuide.vue` 识别后渲染成四步卡片。
+ * 只追加文本、不新增接口，家园写操作仍只有指令通道一条路径；步骤名/材料/下一步指令集中在本文件。
+ * 隐藏契约：文本以 `HOME_BUILD_GUIDE_HEADER` 开头是网页端识别卡片的唯一依据，
+ * 改前缀须同步 `web/src/config.js` 的 `HOME_BUILD_GUIDE_CONFIG.headerRegex`。
  */
+
+import { CARD_DIVIDER } from '../../common/utils/game-text.util';
 
 /** 单步引导定义 */
 export interface HomeBuildStepDef {
@@ -29,7 +20,6 @@ export interface HomeBuildStepDef {
   tip: string;
 }
 
-/** 引导文本头（网页端识别卡片的依据，改动需同步前端 config） */
 export const HOME_BUILD_GUIDE_HEADER = '\u{1F3D7}\u{FE0F} 家园建造进度';
 
 /** 建造总步数：进度值达到该数即视为建成 */
@@ -67,8 +57,7 @@ export const HOME_BUILD_STEPS: readonly HomeBuildStepDef[] = [
 ];
 
 /**
- * 按步渲染进度链（纯文本形态，QQ 端直接可读）：
- * 已完成 → ✅，当前步 → ⏳，未开始 → 只显示序号。
+ * 按步渲染进度链（纯文本形态，QQ 端直接可读）：已完成 ✅，当前步 ⏳，未开始只显示序号。
  *
  * @param currentStep 已完成到的步数（1-4）
  * @returns 形如 `① 圈地 ✅　② 开挖地基 ⏳　③ 建造地基　④ 建造房子`
@@ -97,7 +86,6 @@ export function renderHomeBuildGuide(step: number): string {
     `${HOME_BUILD_GUIDE_HEADER} ${step}/${HOME_BUILD_TOTAL_STEP} · ${current.name}`,
     renderHomeBuildChain(step),
   ];
-  // 最后一步没有下一条指令，只提示等待完工
   lines.push(
     current.command
       ? `👉 下一步：${current.tip} → 发送「${current.command}」`
@@ -109,7 +97,6 @@ export function renderHomeBuildGuide(step: number): string {
 /**
  * 在指令回包正文后追加家园建造引导块。
  *
- * @param text 指令原本的返回文本
  * @param step 执行完该指令后的 `家园进度` 值（1-4）
  * @returns 追加引导后的文本；step 非法或正文为空时原样返回
  */
@@ -117,5 +104,5 @@ export function appendHomeBuildGuide(text: string, step: number): string {
   if (!text) return text;
   const guide = renderHomeBuildGuide(step);
   if (!guide) return text;
-  return `${text}\n━━━━━━━━━━━━━━━\n${guide}`;
+  return `${text}\n${CARD_DIVIDER}\n${guide}`;
 }

@@ -1,19 +1,21 @@
 /**
- * 游戏文本规范化工具
- *
- * 原版易语言源码与静态数据(items/equipments/maps/vehicles 等 JSON)中，
- * 使用 "#换行" 文本标记表示换行（对应原版 #换行符 常量）。
- * 该标记若原样输出，玩家会在网页/QQ 里看到字面的 "#换行" 字样。
- * 本工具在服务端输出边界(指令结果/公屏消息/面板数据)统一将其替换为真实换行符。
+ * 游戏文本规范化工具：原版易语言源码与静态数据(items/equipments/maps/vehicles 等 JSON)用 "#换行" 标记
+ * 表示换行（对应原版 #换行符 常量），原样输出会让玩家看到字面的 "#换行" 字样，
+ * 故在服务端输出边界(指令结果/公屏消息/面板数据)统一替换为真实换行符。
  */
 
 /** 原版换行标记 */
 export const LINE_BREAK_MARKER = '#换行';
 
 /**
+ * 指令输出正文里的分隔线（15 个「━」）。前端 RichSystemCard 按这一串切分卡片段落，
+ * 改动字符数量或内容必须与展示层同步。
+ */
+export const CARD_DIVIDER = '━━━━━━━━━━━━━━━';
+
+/**
  * 将游戏文本中的 "#换行" 标记替换为真实换行符
  * @param text 任意文本（非字符串输入原样返回）
- * @returns 规范化后的文本
  */
 export function normalizeGameText<T>(text: T): T {
   if (typeof text !== 'string' || !text.includes(LINE_BREAK_MARKER)) {
@@ -23,15 +25,13 @@ export function normalizeGameText<T>(text: T): T {
 }
 
 /**
- * 玩家可见的数值显示格式化：最多保留两位小数并去除尾零；
- * 无小数的值直接显示整数（不显示 .0）。
+ * 玩家可见的数值显示格式化：最多保留两位小数并去除尾零；无小数的值直接显示整数（不显示 .0）。
  *
- * 背景：物品/资源/掉落数量在反复累加过程中会在浮点层面累出 0.05176666666666652 之类的长尾，
- * 但数值语义本身只有有限精度。展示层统一收敛到两位小数，避免把浮点误差展示给玩家。
+ * 物品/资源数量在反复累加后会在浮点层面累出 0.05176666666666652 之类的长尾，
+ * 展示层统一收敛到两位小数，避免把浮点误差展示给玩家。
  *
  * 注意：仅用于“对外展示”，严禁用于后续逻辑计算（计算请保有原始数值）。
  * @param value 任意数值（非有限数字时返回 0）
- * @returns 格式化后的展示字符串
  */
 export function formatDisplayNumber(value: unknown): string {
   const num = Number(value);
@@ -41,15 +41,11 @@ export function formatDisplayNumber(value: unknown): string {
 }
 
 /**
- * 物品/资源数量的计算收敛：四舍五入保留两位小数。
- *
- * 适用于“存储 + 计算”链路：掉落、奖励、累加、分解返还等数量在反复运算后会
- * 在浮点层面累出长尾（如 0.05176666666666652），这里统一收敛到两位小数，
- * 既保证入库数据整洁，也避免长尾继续向后续计算扩散。
+ * 物品/资源数量的计算收敛：四舍五入保留两位小数，用于“存储 + 计算”链路
+ * （掉落、奖励、累加、分解返还等），保证入库数据整洁且不向后续计算扩散长尾。
  *
  * 与 formatDisplayNumber（仅展示）不同，本函数返回 number，用于真正写入/累加数值。
  * @param value 数值（非有限数字时返回 0）
- * @returns 收敛到两位小数后的数值
  */
 export function roundItemQuantity(value: unknown): number {
   const num = Number(value);
@@ -58,25 +54,13 @@ export function roundItemQuantity(value: unknown): number {
 }
 
 /**
- * 伤害数值的统一展示口径：四舍五入取整（非有限数字按 0 处理）。
- *
- * 单一真相源：原 game.service 与 combat-system.service 各持有一份逐字符相同的
- * `displayDamage` 私有实现（重构方案 §11.3 第 3 行），下沉为本 util 后两处改引，
- * 防止双实现漂移。
- * @param value 伤害数值
- * @returns 取整后的展示字符串
+ * 伤害数值的统一展示口径：四舍五入取整（非有限数字按 0 处理）。全库伤害展示只此一处。
  */
 export function formatDamageText(value: unknown): string {
   return String(Math.round(Number(value) || 0));
 }
 
-// ============================================================
-// 等宽排版工具（原版两列菜单对齐，单一真相源）
-//
-// 原 handbook.service.ts 持有唯一的本地实现（图鉴总览两列菜单），
-// 主菜单（quest-dialogue handleGameIntro）改两列排版后同样需要对齐，
-// 下沉为本 util 防止双实现漂移。
-// ============================================================
+// ===== 等宽排版工具（原版两列菜单对齐，全库唯一实现）=====
 
 /**
  * 计算字符串的显示宽度：CJK/全角算 2，其余算 1。
@@ -97,29 +81,16 @@ export function padToWidth(s: string, width: number): string {
   return s + ' '.repeat(pad);
 }
 
-// ============================================================
-// 时长文本统一出口（P1-2 收敛）
-//
-// 全库曾扩散 7 个时长格式化辅助（game.service 6 个 + combat-system 1 个，
-// 见重构方案 §11.3 第 4 行）。收敛为本文件的两个统一函数：
-//   - 毫秒 → 文本：formatMsDurationText
-//   - 秒   → 文本：formatSecondsDurationText
-// 各历史口径以 style 参数保留（逐字节一致，零行为变化）：
-//   - 'minSec'：向下取整的「X秒 / X分Y秒」（原 millisecondsToText / msToTimeTextLocal）
-//   - 'remainingMinutes'：向上取整、最少 1 秒的「X秒 / X分钟」（原 formatMilkRemaining）
-//   - 'adaptive'：自适应省略高位零段「X天X小时X分 / X小时X分 / X分X秒 / X秒」
-//     （原 secondsToTimeText）
-//   - 'fullUnits'：始终输出全段落「X天X小时X分X秒」（原 formatVehicleTime / formatUptime）
-// ============================================================
-
-/** 毫秒时长文本口径 */
-export type MsDurationStyle = 'minSec' | 'remainingMinutes';
+// ===== 时长文本统一出口（全库唯一实现）=====
 
 /**
- * 毫秒 → 可读时长文本（单一真相源）
- * @param ms 毫秒数
- * @param style 展示口径，默认 'minSec'
+ * 毫秒时长文本口径：
+ * - 'minSec'：向下取整的「X秒 / X分Y秒」
+ * - 'remainingMinutes'：向上取整、最少 1 秒的「X秒 / X分钟」
  */
+export type MsDurationStyle = 'minSec' | 'remainingMinutes';
+
+/** 毫秒 → 可读时长文本（默认 'minSec' 口径） */
 export function formatMsDurationText(ms: number, style: MsDurationStyle = 'minSec'): string {
   if (style === 'remainingMinutes') {
     const totalSeconds = Math.max(1, Math.ceil(ms / 1000));
@@ -131,14 +102,14 @@ export function formatMsDurationText(ms: number, style: MsDurationStyle = 'minSe
   return `${Math.floor(totalSec / 60)}分${totalSec % 60}秒`;
 }
 
-/** 秒时长文本口径 */
+/**
+ * 秒时长文本口径：
+ * - 'adaptive'：自适应省略高位零段「X天X小时X分 / X小时X分 / X分X秒 / X秒」
+ * - 'fullUnits'：始终输出全段落「X天X小时X分X秒」
+ */
 export type SecondsDurationStyle = 'adaptive' | 'fullUnits';
 
-/**
- * 秒 → 可读时长文本（单一真相源）
- * @param seconds 秒数
- * @param style 展示口径，默认 'adaptive'
- */
+/** 秒 → 可读时长文本（默认 'adaptive' 口径） */
 export function formatSecondsDurationText(
   seconds: number,
   style: SecondsDurationStyle = 'adaptive',

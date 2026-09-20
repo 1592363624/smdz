@@ -1,14 +1,9 @@
 /**
- * 合成/融合/培育指令域服务（game 模块化重构 P2-3 抽出）
- *
- * 职责：锻造、融合（融合23 系列：王伤害/选定特效）、培育、炼金，
- *       以及融合词条/特效数据读写（rewriteFusionData/getFusionEffects 等）。
- * 依赖方向：依赖 Player、Map、StaticData、ItemSystem、Item、Shortcut 与支撑层
- *       （itemQuantity/deductBackpackItem 背包出口、round2Text 展示）；不依赖其他指令域子服务。
- * 单一真相源：背包扣减统一支撑层 deductBackpackItem；数量读取统一 itemQuantity；
- *       数值展示统一 game-text.util.formatDisplayNumber（round2Text）。
- * 对口原版：_主程序.ecode 融合/炼金/培育分支。
- */import { Injectable, Logger } from '@nestjs/common';
+ * 合成/融合/培育指令域服务：锻造、融合23 系列（王伤害/选定特效）、培育、炼金，及融合词条/特效数据读写。
+ * 单一真相源：背包扣减走支撑层 deductBackpackItem、数量读取走 itemQuantity、数值展示走 round2Text/formatDisplayNumber。
+ * 对应原版：_主程序.ecode 融合/炼金/培育分支。
+ */
+import { Injectable, Logger } from '@nestjs/common';
 import { asJsonValue } from '../../../common/utils/json-value.util';
 import { PlayerService } from '.././player.service';
 import { ItemService } from '.././item.service';
@@ -17,6 +12,7 @@ import { ItemSystemService } from '.././item-system.service';
 import { StaticDataService } from '.././static-data.service';
 import { ShortcutService } from '.././shortcut.service';
 import { GameSupportService } from '.././game-support.service';
+import { CARD_DIVIDER } from '../../../common/utils/game-text.util';
 
 @Injectable()
 export class FusionCraftService {
@@ -32,8 +28,8 @@ export class FusionCraftService {
     private readonly shortcutService: ShortcutService,
   ) {}
 
+  /** 锻造：无物品名时列出锻造配方，否则委托 ItemSystemService.craftItem。 */
   async handleForge(userId: number, itemName: string, count = 1): Promise<string> {
-    // 获取玩家数据
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
 
@@ -49,7 +45,7 @@ export class FusionCraftService {
         return '当前没有可用的锻造配方';
       }
 
-      const lines = ['🔨 锻造配方:', `━━━━━━━━━━━━━━━`];
+      const lines = ['🔨 锻造配方:', CARD_DIVIDER];
       for (const recipe of forgeRecipes) {
         const reqs = asJsonValue<any[]>(recipe.requirements, []);
         const outputs = asJsonValue<any[]>(recipe.outputs, []);
@@ -69,8 +65,9 @@ export class FusionCraftService {
   }
 
   /**
-   * 处理育种命令
-   * 消耗种子培育新品种（简化版：消耗种子，产出作物）
+   * 融合命令入口（原版 _主程序.ecode L8603-9001）：「融合」即融合23 体系，仅对装备生效，
+   * 参数必须是背包 1-based 编号；非数字参数按 到整数=0 处理，统一落到 L8617
+   * 「你背包里面没有这么多东西或者输入了0」报错。
    */
 
   async handleMerge(userId: number, targetName: string, fusionArgs: string[] = []): Promise<string> {
@@ -420,16 +417,14 @@ export class FusionCraftService {
   }
 
   /**
-   * 处理锻造命令
-   * 消耗材料锻造装备，从制造配方中查找锻造配方
+   * 育种命令：消耗 1 颗种子产出 2 个对应作物（消耗种子→作物的简化实现）。
    */
 
   async handleBreed(userId: number, targetName: string): Promise<string> {
-    // 获取玩家数据
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, backpack } = playerData;
 
-    // 如果没有指定目标，显示背包中的种子
+    // 无目标时列出背包中的种子
     if (!targetName) {
       const seeds = backpack.filter((item: any) =>
         item.name.includes('种子') || item.type === '种子',
@@ -437,7 +432,7 @@ export class FusionCraftService {
       if (seeds.length === 0) {
         return '背包中没有种子，无法育种\n可以尝试从商店购买或在地图上采集';
       }
-      const lines = ['🌱 可育种的种子:', `━━━━━━━━━━━━━━━`];
+      const lines = ['🌱 可育种的种子:', CARD_DIVIDER];
       for (const seed of seeds) {
         lines.push(`  ${seed.name} ×${seed.quantity || 1}`);
       }
@@ -446,14 +441,12 @@ export class FusionCraftService {
       return lines.join('\n');
     }
 
-    // 检查背包中是否有该种子
     const seedItem = backpack.find((item: any) => item.name === targetName);
     if (!seedItem) {
       return `背包中没有【${targetName}】`;
     }
 
     // 消耗种子：必须至少整颗 1；小数残余不得再育种、也不得被整条抹掉
-    // （与 plantSeed 同口径：旧逻辑 count<=1 就 splice，0.27 也会被当整颗吃掉）
     const count = Number(seedItem.quantity ?? 0);
     if (!(count >= 1)) {
       return `「${targetName}」数量不足，还剩 ${count}，育种至少需要 1`;
@@ -479,16 +472,11 @@ export class FusionCraftService {
     return `🌱 育种成功！\n消耗 1 个【${targetName}】\n获得 2 个【${productName}】`;
   }
 
-  // ========== 使魔系统命令 ==========
+  // ===== 炼丹 =====
 
-  /**
-   * 处理使魔技能命令
-   * 显示当前使魔的技能等级、特性、主动技能说明和好感度解锁效果
-   * 对应原版：_主程序.ecode L4086-L4106 + 数据显示.ecode L1770-L1846 显示使魔技能()
-   */
+  /** 炼丹：无配方名时列出炼丹配方（按名称含「丹/药/丸」筛选），否则委托 ItemSystemService.craftItem。 */
 
   async handleAlchemy(userId: number, recipeName: string, count = 1): Promise<string> {
-    // 获取玩家数据
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
 
@@ -503,7 +491,7 @@ export class FusionCraftService {
         return '当前没有可用的炼丹配方';
       }
 
-      const lines = ['🔥 炼丹配方:', `━━━━━━━━━━━━━━━`];
+      const lines = ['🔥 炼丹配方:', CARD_DIVIDER];
       for (const recipe of alchemyRecipes) {
         const reqs = asJsonValue<any[]>(recipe.requirements, []);
         const outputs = asJsonValue<any[]>(recipe.outputs, []);
@@ -522,15 +510,4 @@ export class FusionCraftService {
     // 炼丹与普通制造共用完整物品系统（配方条目数量规范键统一为 quantity）。
     return this.itemSystemService.craftItem(userId, recipeName, count);
   }
-
-  /**
-   * 处理融合命令
-   * 原版 _主程序.ecode L8603-9001：「融合」即融合23 体系，仅对装备生效，
-   * 参数必须是背包 1-based 编号；数字编号分发到 handleFusion23。
-   * 原版对非数字参数（如物品名）按 到整数=0 处理，统一落到 L8617
-   * 「你背包里面没有这么多东西或者输入了0」报错。
-   * 历史版本曾在此实现「2个同名物品→1个名称+物品」的自创融合；
-   * 该玩法不存在于原版，且带+产物在物品表中无定义（无法使用、无任何效果，
-   * 仅白白消耗材料），已按对齐原版原则移除。
-   */
 }

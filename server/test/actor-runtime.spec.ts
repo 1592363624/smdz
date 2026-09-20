@@ -5,17 +5,17 @@
  * 以及 hardening 后的正确性 / 健壮性 / 可观测性：
  *  1. 同实体写操作严格串行（单时刻一条，无 interleaving）—— 无锁无 CAS 的并发正确性基础
  *  2. 内存态单激活（并发 run 只 load 一次）
- *  3. peek 返回【深克隆只读快照】，外部改它不会污染内存态（正确性风险 #1 修复）
- *  4. writeThrough：仅当标脏（markDirty）才落库；纯只读 run 不白吞 DB 写（性能修复）
+ *  3. peek 返回【深克隆只读快照】，外部改它不会污染内存态
+ *  4. writeThrough：仅当标脏（markDirty）才落库；纯只读 run 不白吞 DB 写
  *  5. deferred + deactivate：仅标脏，停用/周期才落库
- *  6. run fn 抛错 → 内存态被丢弃、不落库（all-or-nothing，正确性风险 #3 修复）
- *  7. LRU 驱逐 + 周期空闲回收（干净空闲 cell 也回收，健壮性缺口修复）
- *  8. 邮箱背压：积压超限抛 ActorMailboxOverflowError（并发健壮性修复）
- *  9. deactivate 经邮箱排队，不与在途 run 竞争（正确性风险 #4 修复）
+ *  6. run fn 抛错 → 内存态被丢弃、不落库（all-or-nothing）
+ *  7. LRU 驱逐 + 周期空闲回收（干净空闲 cell 也回收）
+ *  8. 邮箱背压：积压超限抛 ActorMailboxOverflowError
+ *  9. deactivate 经邮箱排队，不与在途 run 竞争
  * 10. stats() 可观测性计数
  *
- * 说明（RVW04 P1-4）：跨实体协调者 coordinate/coordinateMany 已随悬空注册一并删除
- * （业务零调用），其专项测试同步移除；等真实跨实体原子需求出现时再按需加回。
+ * 跨实体协调者 coordinate/coordinateMany 不提供（业务零调用）；
+ * 等真实跨实体原子需求出现时再按需加回。
  *
  * 不依赖 Nest DI：直接 new ActorRuntime（构造仅接收配置，无需容器）。
  */

@@ -40,7 +40,6 @@ function fromWhere(where: any): { id?: number; userId?: number; mapId?: number }
 /**
  * 解析一次写操作涉及的实体归属。
  * @param model Prisma 模型名（如 'Player' / 'GameMonster'）
- * @param operation Prisma 操作动词
  * @param args 操作参数（where/data/create 等）
  * @returns 归属信息；无法定位时 null
  */

@@ -1,12 +1,6 @@
 /**
- * 公屏聊天网关 (Socket.IO)
- * 实现"群聊式"公屏的实时双向通信：
- * - 每个频道一个 Socket.IO 房间
- * - 用户在网页聊天框发消息 → 收到 "chat:message" → 判断是否指令 → 分发到指令引擎 → 广播结果到房间
- *
- * 对应原版易语言的：
- * - 处理群() / 处理私聊() → 这里的 handleIncomingMessage
- * - 发送群消息() 广播 → 这里的 io.to(room).emit('chat:message')
+ * 公屏聊天网关 (Socket.IO)：每频道一个房间，网页聊天框 → 指令判定 → 指令引擎 → 广播回房间。
+ * 对应原版易语言：处理群() / 处理私聊() → handleIncomingMessage；发送群消息() → io.to(room).emit('chat:message')。
  */
 
 import {
@@ -89,16 +83,14 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
         return;
       }
 
-      // 从连接握手参数中取 token
       const token = client.handshake.auth?.token || client.handshake.headers?.authorization?.replace('Bearer ', '');
       if (!token) {
         throw new UnauthorizedException('缺少认证令牌');
       }
-      // 校验 JWT
       const payload = this.jwtService.verify(token, {
         secret: GlobalConfig.getInstance().jwtSecret,
       });
-      // 从数据库查询最新角色（管理员/封禁即时生效）
+      // 从数据库查询最新角色（管理员/封禁即时生效，不信任握手里的旧 payload）
       const dbUser = await this.prisma.user.findUnique({
         where: { id: payload.userId },
         select: { role: true, status: true },
@@ -106,7 +98,6 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
       if (!dbUser || dbUser.status === 'BANNED') {
         throw new UnauthorizedException('账号不存在或已被封禁');
       }
-      // 确保默认频道存在，并获取其 ID
       const channel = await this.chatService.ensureDefaultChannel();
 
       const user: SocketUser = {
@@ -119,27 +110,26 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
 
       // 加入频道房间（房间名用频道名）
       await client.join(channel.name);
-      // 加入个人专属房间，供服务端定向推送（如移动到达后刷新地图面板、私聊/反馈消息）
+      // 个人专属房间：供服务端定向推送（移动到达后刷新地图面板、私聊/反馈消息）
       await client.join(`user:${payload.userId}`);
-      // 管理员额外加入 admin 房间，用于接收反馈新消息等通知
+      // admin 房间：接收反馈新消息等管理员通知
       if (['ADMIN', 'SUPER_ADMIN'].includes(dbUser.role)) {
         await client.join('admin');
       }
-      // 记录在线状态。重连检测需在计数前采样：此前无任何连接（0→1）即「回来」，
+      // 重连检测必须在计数前采样：本次连接前无任何连接（0→1）才算「回来」，
       // 断开期间的离开计时以此刻为终点（见下方 settleTimeElapsedOnReconnect）
       const wasOffline = !this.statsService.isOnline(user.userId);
       this.statsService.userOnline(user.userId);
-      // 在线人数变化 → 实时广播服务器统计，所有网页左下角在线数即时刷新；
-      // 只有「从无连接变为有连接」才算真的上线（同一账号重开标签页不重复提示）
+      // 在线人数变化 → 广播服务器统计（网页左下角即时刷新）。
+      // 只有「从无连接变为有连接」才算上线，同一账号重开标签页不重复提示
       this.refreshStatsBroadcast(wasOffline ? { type: 'online', userId: user.userId } : null);
       this.logger.log(`用户 ${payload.username}(id=${payload.userId}) 已连接并加入频道「${channel.name}」`);
 
-      // 通知客户端连接成功
       client.emit('chat:connected', { channel: channel.name, channelId: channel.id });
 
       // 「WS 连上 = 回来」：结算断开期间的离线补偿（离开时长 = 上次断开时刻 → 此刻，
-      // 由 handleDisconnect 的强制结算保证计时起点精度），提示定向推送给本人。
-      // 只发个人房间不广播世界频道：刷新页面即重连，广播会刷屏。
+      // 计时起点精度由 handleDisconnect 的强制结算保证），提示只发个人房间不广播世界频道
+      // （刷新页面即重连，广播会刷屏）。
       if (wasOffline) {
         try {
           const awayText = await this.gameService.settleTimeElapsedOnReconnect(user.userId);
@@ -173,22 +163,18 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     this.highlightService.setServer(server);
   }
 
-  /**
-   * 连接断开清理
-   */
+  /** 连接断开清理 */
   handleDisconnect(client: Socket) {
     const user = client.data?.user as SocketUser | undefined;
     if (user) {
       this.statsService.userOffline(user.userId);
       // 引用计数归零才算真正离线（多标签页只关一个既不提示、也不改在线数）
       const trulyOffline = !this.statsService.isOnline(user.userId);
-      // 在线人数变化 → 实时广播服务器统计，所有网页左下角在线数即时刷新
       this.refreshStatsBroadcast(trulyOffline ? { type: 'offline', userId: user.userId } : null);
       this.logger.log(`用户 ${user.username}(id=${user.userId}) 断开连接`);
-      // 「WS 断开 = 离开」：仅当最后一个连接关闭（多标签页引用计数归零）时
-      // 强制结算一次，把 lastOpTime 推进到断开时刻，使离开时长从断开这一刻
-      // 精确起算（重连时由 handleConnection 结算并定向推送提示）。
-      // 内部自捕获，fire-and-forget。
+      // 「WS 断开 = 离开」：仅最后一个连接关闭（引用计数归零）时强制结算一次，
+      // 把 lastOpTime 推进到断开时刻，使离开时长从断开这一刻精确起算
+      //（重连时由 handleConnection 结算并定向推送提示）。内部自捕获，fire-and-forget。
       if (trulyOffline) {
         void this.gameService.settleTimeElapsedOnDisconnect(user.userId);
       }
@@ -198,11 +184,9 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
   }
 
   /**
-   * 重新统计并广播"服务器统计"（总玩家数/在线人数/在线玩家名单）到所有客户端
-   * 在用户上线/离线时调用，让网页左下角统计即时变化，无需手动刷新。
-   *
-   * 同时把「谁上线 / 谁离线」作为 presence 事件一并下发：客户端据此在状态栏
-   * 在线数字后面展示 1 分钟的提示（保留时长由前端配置控制）。
+   * 重新统计并广播「服务器统计」（总玩家数/在线人数/在线玩家名单）到所有客户端。
+   * 同时下发 presence 事件，客户端据此在状态栏在线数后面展示 1 分钟上下线提示
+   * （保留时长由前端配置控制）。
    *
    * @param presence 本次触发的上下线玩家；无实际在线状态变化（如同一账号开新标签页）传 null
    */
@@ -229,9 +213,8 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
   }
 
   /**
-   * 接收用户发来的消息（聊天 或 指令）
-   * 前端聊天框发送的内容统一走这里。
-   * 支持多行输入：每行作为一个独立指令/聊天消息，按顺序逐行执行。
+   * 接收用户发来的消息（聊天 或 指令），前端聊天框统一走这里。
+   * 支持多行输入：每行作为独立指令/聊天消息，按顺序逐行执行。
    *
    * source='floating'（右下角世界聊天悬浮窗发出）：该入口定位为纯聊天频道，
    * 内容一律作为聊天广播，不进快捷替换/指令系统——"在哪个窗口发就归哪个窗口"，
@@ -260,23 +243,21 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
       return;
     }
 
-    // 多行输入：按换行符拆分，逐行顺序执行（行间同样受发送间隔约束，避免后端处理压力）
+    // 多行输入：按换行拆分逐行顺序执行（行间同样受发送间隔约束，避免后端处理压力）
     const lines = content.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
     if (lines.length > 1) {
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         await this.processSingleLine(client, user, line, source);
-        // 最后一行不等待，其余行之间按配置间隔等待
         if (i < lines.length - 1) {
           await new Promise(resolve => setTimeout(resolve, Math.max(intervalMs, 100)));
-          // 行间也刷新冷却起点，避免一次多行粘贴绕过间隔限制
+          // 行间刷新冷却起点，避免一次多行粘贴绕过间隔限制
           this.lastUserMessageAt.set(user.userId, Date.now());
         }
       }
       return;
     }
 
-    // 单行输入：保持原有逻辑
     await this.processSingleLine(client, user, content, source);
   }
 
@@ -311,8 +292,7 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
   }
 
   /**
-   * 处理单行消息（指令 或 聊天）
-   * 抽离为独立方法，供单行和多行输入复用
+   * 处理单行消息（指令 或 聊天），单行与多行输入共用。
    * @param source 消息来源：'floating'=世界聊天悬浮窗（纯聊天，不进指令系统）；'main'=主输入框（指令判定优先）
    */
   private async processSingleLine(
@@ -358,7 +338,6 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
    * @param selfId 当前用户ID（排除自己）
    */
   private async resolveTargetUser(to: string | number, selfId: number): Promise<any | null> {
-    // 数字ID 直接查询
     if (typeof to === 'number' || /^\d+$/.test(String(to))) {
       return this.prisma.user.findUnique({ where: { id: Number(to) } });
     }
@@ -372,10 +351,8 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
   }
 
   /**
-   * 解析公屏消息中的 @提及，定向推送给被提及的玩家
-   * 被提及玩家在线时收到 chat:at 通知（含提及者信息与原文），可据此跳转回复
-   * @param sender 发送者
-   * @param content 消息内容
+   * 解析公屏消息中的 @提及，定向推送给被提及的玩家：
+   * 在线时收到 chat:at 通知（含提及者信息与原文），可据此跳转回复。
    */
   private async notifyMentions(sender: SocketUser, content: string) {
     const mentions = this.chatService.parseMentions(content);
@@ -396,29 +373,24 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
   }
 
   /**
-   * 判断输入是否应作为指令处理
-   * 规则（可配置，从系统配置中心读取）：
+   * 判断输入是否应作为指令处理（前缀与开关均从系统配置中心读取，管理员可在线改）：
    * - 命中任一配置的前缀 → 是指令
    * - 若 command.requirePrefix=false：无前缀时，若输入命中已注册的指令名/别名 → 是指令；
    *   若输入与当前地图的采集指令(gatherCmd)匹配 → 也是指令（对齐原版运行时匹配，无需预注册）
    * - 否则视为普通聊天
-   * @param content 消息内容
    * @param userId 发送者用户ID（用于判定当前地图采集指令）
    */
   private async isCommandInput(content: string, userId: number): Promise<boolean> {
-    // 从系统配置中心读取(管理员可在界面在线修改)
     const prefixes = await this.systemConfigService.getCommandPrefixes();
     const requirePrefix = await this.systemConfigService.getCommandRequirePrefix();
-    // 命中任一配置的前缀
     if (prefixes.some((p) => p && content.startsWith(p))) {
       return true;
     }
-    // 无需强制前缀：先匹配已注册指令名/别名
     if (!requirePrefix) {
       if (await this.commandService.matchCommandName(content)) {
         return true;
       }
-      // 其次匹配当前地图的采集指令（对齐原版：采集指令运行时按地图资源匹配）
+      // 采集指令按当前地图资源运行时匹配（对齐原版），不要求预注册
       const cmdName = content.trim().replace(/^[\/！!]+/, '').split(/\s+/)[0];
       if (cmdName && (await this.gameService.hasGatherCmd(userId, cmdName))) {
         return true;
@@ -427,9 +399,7 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     return false;
   }
 
-  /**
-   * 处理指令：调用指令引擎，结果按需广播或仅回传给发送者
-   */
+  /** 处理指令：调用指令引擎，结果按需广播或仅回传给发送者 */
   private async handleCommand(_client: Socket, user: SocketUser, content: string) {
     const ctx: CommandContext = {
       userId: user.userId,
@@ -440,10 +410,9 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
       source: CommandSource.WEB,
     };
 
-    // 将指令原文作为一条公屏消息广播，让所有人（含发送者）都能看到"谁发了什么指令"
-    // 对齐原版群聊：玩家发出的指令在公屏可见，其后才是系统回复结果。
-    // 必须在 dispatch 之前广播：攻击/采集/移动等指令内部有大量数据库读写与结算，
-    // 若等执行完再广播，发送者会迟迟看不到自己刚发的文字（体感卡顿的主要来源）。
+    // 指令原文先作为公屏消息广播，让所有人（含发送者）看到"谁发了什么指令"，
+    // 其后才是系统回复（对齐原版群聊）。必须在 dispatch 之前广播：攻击/采集/移动等
+    // 指令内部有大量数据库读写与结算，等执行完再广播会让发送者迟迟看不到自己刚发的文字。
     const cmdMsg = await this.chatService.saveMessage({
       channelId: user.channelId,
       senderId: user.userId,
@@ -454,14 +423,11 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
 
     const result = await this.commandService.dispatch(ctx);
 
-    // 指令结果统一落库 + 广播到世界频道（2026-09-04）：
-    // 本游戏定位"公屏聊天"，背包/属性等查询结果不属于私密信息，一律公开展示。
-    // 此前 broadcast=false 的回包只 client.emit 给发送者、不落库，导致刷新后
-    // 历史接口（getMessages 走 ChatMessage 表）查不到该回包 → RichSystemCard 消失。
-    // 统一落库后实时与历史行为一致：实时看到的，刷新后仍能看到。
-    //
-    // 私密结果（visibility='private'，如探测雷达，2026-09-13）：
-    // 真实内容仅定向回传发送者本人，其他玩家只收到占位提示，防止他人白嫖探测结果。
+    // 指令结果统一落库 + 广播到世界频道：本游戏定位"公屏聊天"，背包/属性等查询结果
+    // 不属于私密信息，一律公开展示；不落库的回包在刷新后会从历史接口（ChatMessage 表）
+    // 消失，导致前端卡片丢失，因此实时与历史必须一致。
+    // 私密结果（visibility='private'，如探测雷达）：真实内容仅定向回传发送者本人，
+    // 其他玩家只收到占位提示，防止他人白嫖探测结果。
     const isPrivate = result.visibility === 'private';
     try {
       // 私密结果：占位文本随消息落库，供历史加载脱敏时使用（规则配置的占位优先）

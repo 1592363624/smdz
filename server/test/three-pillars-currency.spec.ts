@@ -25,7 +25,7 @@ function makePrisma(row: any) {
     player: {
       findUnique: jest.fn(async () => cloneRow()),
       update: jest.fn(async ({ where, data }: any) => {
-        // 2026-09-11 起 persistPlayer 按 where.userId（unique）落库，mock 同步双键校验
+        // persistPlayer 按 where.userId（unique）落库，mock 同步双键校验
         if (where?.id !== undefined && where.id !== row.id) throw new Error('player id 不匹配');
         if (where?.userId !== undefined && where.userId !== row.userId) throw new Error('player userId 不匹配');
         Object.assign(row, data);
@@ -112,8 +112,8 @@ function makeFixture(): { row: any; prisma: any; playerService: PlayerService; f
 }
 
 describe('支柱一：兑换→立刻召唤的新鲜度（7516 正式库事故复现）', () => {
-  // 默认值已翻转 strict（RVW04 P1-3）：本 describe 的 prisma 桩 updateMany 以
-  // where.id_version（复合键）做 CAS 匹配，而真实 CAS 调用是平铺 {id, version}
+  // 本 describe 的 prisma 桩 updateMany 以 where.id_version（复合键）做 CAS 匹配，
+  // 而真实 CAS 调用是平铺 {id, version}
   // ——桩从未命中、恒返回 count:0，用例实际依赖 log 模式「CAS 未命中→留痕强制写」
   // 路径完成落库。验证目标是货币新鲜度语义（与 CAS 模式无关），故显式声明 log，
   // 不随默认值漂移（改前保存原值、改后还原）。
@@ -129,12 +129,12 @@ describe('支柱一：兑换→立刻召唤的新鲜度（7516 正式库事故�
   it('兑换召唤券52 后立即召唤使魔73 必须成功且按新余额扣减（修复前报「只有21.012」）', async () => {
     const { row, familiarSystem } = makeFixture();
 
-    // 用户 16:26:13 的原话：兑换召唤券52（1040 钻 → +52 券 → 73.012）
+    // 兑换召唤券52（1040 钻 → +52 券 → 73.012）
     await expect(familiarSystem.exchange(42, '召唤券', 52))
       .resolves.toContain('兑换了召唤券x52');
 
-    // 用户 16:26:26 的原话：召唤使魔73。修复前同 cell 活态里 .count 仍是 21.012，
-    // 会返回「你的召唤券只有21.012，无法召唤73次」；修复后读到 73.012 并正常扣减。
+    // 召唤使魔73：若读到同 cell 活态里的旧 .count=21.012，
+    // 会返回「你的召唤券只有21.012，无法召唤73次」；必须读到 73.012 并正常扣减。
     await expect(familiarSystem.summonFamiliar(42, 73))
       .resolves.toContain('使用了73张召唤券');
 
@@ -142,7 +142,7 @@ describe('支柱一：兑换→立刻召唤的新鲜度（7516 正式库事故�
     expect(row.tickets).toBeCloseTo(0.01, 6);
     expect(row.diamonds).toBeCloseTo(10.6, 6);
 
-    // 方案B：召唤成功写入「召唤冷却」标记并声明 summon-cd 类型（面板据此显示「召唤冷却中」）
+    // 召唤成功写入「召唤冷却」标记并声明 summon-cd 类型（面板据此显示「召唤冷却中」）
     const markers2 = typeof row.markers2 === 'string' ? JSON.parse(row.markers2) : row.markers2;
     expect(markers2).toContainEqual(expect.objectContaining({ name: '召唤冷却', kind: 'summon-cd' }));
   });
@@ -151,8 +151,8 @@ describe('支柱一：兑换→立刻召唤的新鲜度（7516 正式库事故�
     const { row, familiarSystem } = makeFixture();
 
     await familiarSystem.exchange(42, '召唤券', 52); // 21.012 → 73.012
-    // 修复前：同 cell 读 .count=21.012 → 扣 1 写 20.012 → 73.012 的列被旧值扣减覆盖
-    // （52 券凭空消失）。修复后按 73.012 扣减。
+    // 失效形态：同 cell 读 .count=21.012 → 扣 1 写 20.012 → 73.012 的列被旧值扣减覆盖
+    // （52 券凭空消失）；扣减必须基于 73.012。
     await expect(familiarSystem.summonFamiliar(42, 1))
       .resolves.toContain('使用了1张召唤券');
 
@@ -194,7 +194,7 @@ describe('支柱一：统一货币读写入口语义', () => {
     const entry = player.backpack.find((i: any) => i.name === '召唤券');
     // 写侧过 roundItemQuantity 两位小数闸（防 73.012 型长尾入库的既定纪律）
     expect(entry.quantity).toBeCloseTo(73.01, 6);
-    expect(entry.count).toBeUndefined(); // count 双字段镜像已删除，不再写第二份
+    expect(entry.count).toBeUndefined(); // 货币条目不写 count 双字段镜像
 
     playerService.setCurrencyAmount(player, '召唤券', 0.012000000000000455);
     const entry2 = player.backpack.find((i: any) => i.name === '召唤券');

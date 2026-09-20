@@ -3,11 +3,11 @@
  *
  * 目标：在「真起 App + 真库」下验证 hardening 后的关键不变量：
  *  1. 经 enqueueUserWrite（= actor.runtime.run）改背包，落库后 DB 背包 JSON 含改动
- *     —— 验证「只落 player 子对象会丢背包」(风险 #2) 已修复：新路径持久化整份 PlayerData。
+ *     —— 验证新路径持久化整份 PlayerData（只落 player 子对象会丢背包）。
  *  2. 串行不变量：50 个并发 enqueueUserWrite 各自 push 一个物品，最终背包恰好 +50
  *     （无 interleaving、无快照覆盖）。
- *  3. all-or-nothing：fn 中途抛错，DB 背包不变（风险 #3）。
- *  4. 只读 getPlayerData 返回克隆，外部改它不污染 DB（风险 #1，真库侧佐证）。
+ *  3. all-or-nothing：fn 中途抛错，DB 背包不变。
+ *  4. 只读 getPlayerData 返回克隆，外部改它不污染 DB（真库侧佐证）。
  *
  * 测试创建独立的 User + Player（player.userId 是 User 外键），afterAll 级联删除，
  * 完全不污染真实玩家数据。

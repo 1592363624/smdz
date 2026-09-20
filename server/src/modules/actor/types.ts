@@ -1,13 +1,8 @@
 /**
- * Actor 运行时类型定义
- *
- * 设计目标：把「每实体一个串行邮箱 + 内存态 + 单激活 + 异步落库」做成与具体实体无关的
- * 通用原语。任何有状态实体都只是「注册进来的一种实体类型」，提供
- * load（从存储载入内存态）与 save（落库）即可成为 Actor。
- *
- * 这对应「理想 Actor 模型」的单进程形态：
- * - 每实体独立 Actor（type:id 唯一键）
- * - 私有内存态 + 串行邮箱（同实体写操作严格排队、单时刻一条）
+ * Actor 运行时类型定义：把「每实体一个串行邮箱 + 内存态 + 单激活 + 异步落库」做成与具体
+ * 实体无关的通用原语，实体只需提供 load（载入内存态）与 save（落库）即可成为 Actor。
+ * 对应「理想 Actor 模型」的单进程形态：
+ * - 每实体独立 Actor（type:id 唯一键），私有内存态 + 串行邮箱（同实体写操作严格排队、单时刻一条）
  * - 状态只由该 Actor 自己改（外部通过 run/tell 发消息，不直接碰状态）
  * - 单进程内天然单线程、无竞态、无锁、无 CAS（串行化靠 Promise 链，非 Mutex）
  */
@@ -23,7 +18,7 @@ export function actorKey(type: EntityType, id: EntityId): string {
   return `${type}:${id}`;
 }
 
-/** 持久化策略：writeThrough = 每次写后落库（行为等价于原 savePlayer，最安全）；
+/** 持久化策略：writeThrough = 每次写后落库（最安全）；
  *  deferred = 仅标脏，由定时器/停用统一落库（真正的异步批量，性能最优） */
 export type PersistPolicy = 'writeThrough' | 'deferred';
 

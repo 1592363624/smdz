@@ -1,15 +1,8 @@
 /**
- * 家园/建造指令域服务（game 模块化重构 P3-2 抽出）
- *
- * 职责：家园入口、建造房屋/地基、圈地、安装（部件/燃料/全部）、拆卸（部件/全部）、
- * 家园产出/作物/建筑/家园查看、信号枪、货舱召唤延时结算（completeCargoSummon/
- * applyCargoSummon）、updateMapBuildings 地图建筑写口。
- * 依赖方向：依赖 Player、Map、FamiliarSystemService、Prisma、StaticData、
- * DelayedTaskService、HomeService、Task、CombatState 与支撑层；跨域直接注入
- * 兄弟子服务 ShopTrade、MovementVehicle（互调边，forwardRef 断环）、GatherPanel。
- * 单一真相源：地图建筑写入统一 updateMapBuildings（mapService.updateDynamicFields 闭环）；
- * 背包合并统一支撑层 addItemToCollection/mergeBackpackItem。
- * 对口原版：_主程序.ecode 家园/建造/货舱召唤分支。
+ * 家园/建造指令域服务：家园入口、建造房屋/地基与圈地、部件/燃料安装与拆卸、
+ * 家园产出与查看、信号枪、货舱召唤延时结算。
+ * 单一真相源：地图建筑写入走 updateMapBuildings（mapService.updateDynamicFields 闭环）；
+ * 背包合并走支撑层 addItemToCollection/mergeBackpackItem。对口原版 _主程序.ecode 家园/建造/货舱召唤分支。
  */import { forwardRef, Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { asJsonValue } from '../../../common/utils/json-value.util';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -26,6 +19,7 @@ import { homeBuiltGateText } from '.././home-gate.util';
 import { ShopTradeService } from './shop-trade.service';
 import { GatherPanelService } from './gather-panel.service';
 import { MovementVehicleService } from './movement-vehicle.service';
+import { CARD_DIVIDER } from '../../../common/utils/game-text.util';
 
 @Injectable()
 export class HomeBuildService {
@@ -42,7 +36,7 @@ export class HomeBuildService {
     private readonly staticData: StaticDataService,
     private readonly taskService: TaskService,
     private readonly combatState: CombatStateService,
-    // 跨域兄弟直连（P4 清理：原过渡期经门面引用）。home↔movement 互调边用 forwardRef 断环；
+    // 跨域兄弟直连：home↔movement 互调边用 forwardRef 断环；
     // panel 处于模块循环导入 SCC（gather↔movement↔home↔rescue）内，同样必须 forwardRef。
     @Inject(forwardRef(() => MovementVehicleService))
     private readonly movement: MovementVehicleService,
@@ -57,71 +51,45 @@ export class HomeBuildService {
       return this.familiarSystemService.handleHome(userId, '');
     }
 
-    // 旧的 HomeHandler 会把“命名 新名称”作为一个字符串传入；按原版命令
-    // 的首个词识别子命令，其余文本作为参数交给家园系统。
+    // 子命令可能整串传入（如「命名 新名称」）：按空白切分，首词作子命令，其余并回参数
     const parts = normalized.split(/\s+/);
     const command = parts.shift() || '';
     return this.familiarSystemService.handleHome(userId, command, ...parts, ...args);
   }
 
-  /**
-   * 探测当前地图
-   * 显示当前地图的资源、怪物、可交互物品等详细信息
-   */
+  /** 家园查看：委托 FamiliarSystemService.handleHome('查看')。 */
 
   async handleFamiliarHome(userId: number): Promise<string> {
-    // 委托到 FamiliarSystemService 的家园查看操作
     return this.familiarSystemService.handleHome(userId, '查看');
   }
 
-  /**
-   * 处理建造房子命令
-   * 在家园中建造房子，委托到 FamiliarSystemService 的家园建造房子操作
-   * 对应原版：建造房子 命令
-   */
+  /** 建造房子（对应原版 建造房子 命令）：委托家园子系统，材料见 home-build-guide.util。 */
 
   async handleBuildHouse(userId: number): Promise<string> {
-    // 委托到 FamiliarSystemService 的家园建造房子操作
     return this.familiarSystemService.handleHome(userId, '建造房子');
   }
 
-  /**
-   * 处理开挖地基命令
-   * 开挖家园地基，委托到 FamiliarSystemService 的家园开挖地基操作
-   * 对应原版：开挖地基 命令
-   */
+  /** 开挖地基（对应原版 开挖地基 命令）：委托家园子系统。 */
 
   async handleDigFoundation(userId: number): Promise<string> {
-    // 委托到 FamiliarSystemService 的家园开挖地基操作
     return this.familiarSystemService.handleHome(userId, '开挖地基');
   }
 
-  /**
-   * 处理建造地基命令
-   * 建造家园地基，委托到 FamiliarSystemService 的家园建造地基操作
-   * 对应原版：建造地基 命令
-   */
+  /** 建造地基（对应原版 建造地基 命令）：委托家园子系统。 */
 
   async handleBuildFoundation(userId: number): Promise<string> {
-    // 委托到 FamiliarSystemService 的家园建造地基操作
     return this.familiarSystemService.handleHome(userId, '建造地基');
   }
 
-  /**
-   * 处理圈地命令
-   * 圈地扩充家园范围，委托到 FamiliarSystemService 的家园圈地操作
-   * 对应原版：圈地 命令
-   */
+  /** 圈地（对应原版 圈地 命令）：委托家园子系统。 */
 
   async handleClaimLand(userId: number): Promise<string> {
-    // 委托到 FamiliarSystemService 的家园圈地操作
     return this.familiarSystemService.handleHome(userId, '圈地');
   }
 
   /**
-   * 处理生产命令
-   * 在家园中生产资源，委托到 FamiliarSystemService 的家园产出操作
-   * 对应原版：产出 命令
+   * 「安装」指令：按名称分流——燃料→放进院子地面；命中建筑定义→安装建筑
+   * （生产类只能在院子、功能类在屋内或载具）；否则按载具部件安装。
    */
 
   async handleInstall(userId: number, rawName: string): Promise<string> {
@@ -181,7 +149,7 @@ export class HomeBuildService {
     }
 
     const materials = asJsonValue<any[]>(building.materials, []);
-    // 注：materials 来自静态 buildings.json，条目数量只读规范键 quantity（同义旧键 count 已废弃）
+    // materials 来自静态 buildings.json，条目数量只读规范键 quantity
     const isProductionBuilding = materials.some((item: any) =>
       Number(item?.quantity ?? 0) !== 0,
     );
@@ -260,7 +228,7 @@ export class HomeBuildService {
     const parts = asJsonValue<any[]>(vehicle.parts, []);
     const existing = parts.find((part: any) => part.name === buildingName);
     if (existing) {
-      // 数量只写规范键 quantity（count 等历史别名已由字段规范闸口收敛删除）
+      // 数量只写规范键 quantity（不兜底 count 等旧别名）
       existing.quantity = Number(existing.quantity ?? 0) + assembled;
     } else {
       parts.push({ name: buildingName, type: '资源', quantity: assembled, partType: -1 });
@@ -273,19 +241,16 @@ export class HomeBuildService {
   }
 
   /**
-   * 安装载具部件
-   * 将背包中的部件安装到当前驾驶的载具上
-   * @param userId 用户ID
-   * @param partName 部件名称
+   * 安装载具部件：把背包里的部件装进当前驾驶载具的对应插槽，
+   * 实际安装数 = min(请求数, 背包持有数, 插槽剩余)。
    */
 
   async handleInstallPart(userId: number, partName: string, count = 1): Promise<string> {
     const requestedCount = Math.max(1, Math.floor(Number(count) || 1));
-    // 1. 获取玩家数据
     const playerData = await this.playerService.getPlayerData(userId);
     const { player, backpack } = playerData;
 
-    // 2. 检查玩家是否有载具（player.vehicle 字段存储载具ID）
+    // player.vehicle 存的是载具 ID
     if (!player.vehicle) {
       return '你还没有驾驶载具，无法安装部件';
     }
@@ -294,7 +259,6 @@ export class HomeBuildService {
       return '载具数据异常';
     }
 
-    // 从数据库查询载具定义
     const vehicle = await this.prisma.gameVehicle.findUnique({
       where: { id: vehicleId },
     });
@@ -302,26 +266,23 @@ export class HomeBuildService {
       return '载具数据不存在';
     }
 
-    // 3. 从背包中查找部件
     const backpackItem = backpack.find((item: any) => item.name === partName);
     if (!backpackItem) {
       return `背包中没有【${partName}】`;
     }
 
-    // 4. 通过载具部件配置验证是否为有效部件（静态配置 JSON 单一来源）
+    // 部件有效性以静态配置 JSON 为单一来源
     const partDef = this.staticData.getVehiclePartByName(partName);
     if (!partDef) {
       return `【${partName}】不是有效的载具部件`;
     }
 
-    // 5. 检查部件类型和插槽限制
     const parts = asJsonValue<any[]>(vehicle.parts, []);
     const partType = partDef.partType; // 0核心 1防御 2行走 3武器 4功能
 
     // 统计已安装的同类型部件数量，并按背包数量和插槽上限计算实际安装数。
     const typeCount = parts.filter((p: any) => Number(p.partType) === partType).length;
 
-    // 获取插槽限制
     const slotLimit = this.movement.getSlotLimit(vehicle, partType);
 
     const available = Math.max(0, Math.floor(this.support.itemQuantity(backpackItem)));
@@ -330,22 +291,18 @@ export class HomeBuildService {
       return `背包中没有【${partName}】`;
     }
 
-    // 检查是否达到硬上限
     if (installCount <= 0) {
       return `【${slotLimit.name}】插槽已达上限（${typeCount}/${slotLimit.max}），无法安装更多【${slotLimit.name}】部件`;
     }
 
-    // 如果超过建议插槽数但未达上限，给出提示
+    // 超过建议插槽数但未达硬上限：只提示不阻止
     const overSuggested = typeCount + installCount > slotLimit.slots && slotLimit.slots < slotLimit.max;
 
-    // 6. 从背包移除部件
     const removed = await this.playerService.removeFromBackpack(userId, partName, installCount);
     if (!removed) {
       return '从背包移除部件失败';
     }
 
-    // 7. 将部件添加到载具的 parts 字段
-    // 解析部件加成属性
     const partBonus = asJsonValue<any>(partDef.bonus, {});
     const newPart = {
       name: partName,
@@ -355,13 +312,11 @@ export class HomeBuildService {
     };
     for (let i = 0; i < installCount; i++) parts.push({ ...newPart });
 
-    // 8. 更新载具加成（重新计算总加成）
     const totalBonus = this.movement.calcVehicleTotalBonus({
       ...vehicle,
       parts, // calcVehicleTotalBonus 内部用 asJsonValue 读取，直接传数组
     });
 
-    // 9. 保存载具数据
     await this.prisma.gameVehicle.update({
       where: { id: vehicleId },
       data: {
@@ -381,21 +336,15 @@ export class HomeBuildService {
     return result;
   }
 
-  /**
-   * 拆卸载具部件
-   * 从载具上拆卸部件放回背包
-   * @param userId 用户ID
-   * @param partName 部件名称
-   */
+  /** 拆卸载具部件：从当前载具的 parts 中移除并放回背包。 */
 
   async handleUninstallPart(userId: number, partName: string, count = 1): Promise<string> {
     const requestedCount = Math.max(1, Math.floor(Number(count) || 1));
-    // 1. 获取玩家数据
     const playerData = await this.playerService.getPlayerData(userId);
     const { player } = playerData;
 
-    // 原版“拆卸”先按当前地图处理家园建筑，再按载具部件处理。
-    // 保留同一个公开入口，避免家园菜单快捷指令被误判成载具操作。
+    // 原版「拆卸」先按当前地图处理家园建筑，再按载具部件处理：同一个公开入口
+    // 必须先判家园，否则家园菜单快捷指令会被误判成载具操作。
     const currentMap = await this.mapService.getMapById(player.mapId);
     const homeBuildingResult = await this.tryUninstallHomeBuilding(
       userId,
@@ -406,7 +355,6 @@ export class HomeBuildService {
     );
     if (homeBuildingResult !== null) return homeBuildingResult;
 
-    // 2. 检查玩家是否有载具
     if (!player.vehicle) {
       return '你还没有驾驶载具，无法拆卸部件';
     }
@@ -415,7 +363,6 @@ export class HomeBuildService {
       return '载具数据异常';
     }
 
-    // 查询载具定义
     const vehicle = await this.prisma.gameVehicle.findUnique({
       where: { id: vehicleId },
     });
@@ -423,7 +370,7 @@ export class HomeBuildService {
       return '载具数据不存在';
     }
 
-    // 3. 从载具的 parts 字段查找部件；普通部件按条目存储，建筑/资源部件可能带数量。
+    // 普通部件按条目存储，建筑/资源部件按 quantity 带数量
     const parts = asJsonValue<any[]>(vehicle.parts, []);
     const matching = parts.filter((part: any) => part.name === partName);
     if (matching.length === 0) {
@@ -438,7 +385,7 @@ export class HomeBuildService {
     const removeCount = Math.min(requestedCount, available);
     const removedPart = matching[0];
 
-    // 4. 从载具移除实际数量
+    // 按条目逐个扣减数量，不足整条时拆出剩余条
     let remaining = removeCount;
     const remainingParts: any[] = [];
     for (const part of parts) {
@@ -457,19 +404,16 @@ export class HomeBuildService {
       }
     }
 
-    // 5. 将部件放回背包
     const added = await this.playerService.addToBackpack(userId, partName, removeCount);
     if (!added) {
       return '将部件放回背包失败';
     }
 
-    // 6. 更新载具加成（重新计算总加成）
     const totalBonus = this.movement.calcVehicleTotalBonus({
       ...vehicle,
       parts: remainingParts, // calcVehicleTotalBonus 内部用 asJsonValue 读取，直接传数组
     });
 
-    // 更新载具数据
     await this.prisma.gameVehicle.update({
       where: { id: vehicleId },
       data: {
@@ -528,7 +472,7 @@ export class HomeBuildService {
     if (removeCount >= available) {
       collection.splice(index, 1);
     } else {
-      // 数量只写规范键 quantity（count 等历史别名已由字段规范闸口收敛删除）
+      // 数量只写规范键 quantity（不兜底 count 等旧别名）
       source.quantity = available - removeCount;
     }
 
@@ -549,9 +493,8 @@ export class HomeBuildService {
   }
 
   /**
-   * 查看载具状态
-   * 显示当前驾驶的载具信息
-   * @param userId 用户ID
+   * 「安装全部」：把背包里不占建筑位置的资源类建筑一次性放入自家院子。
+   * 硅基核心与需要占位的建筑不在处理范围内。
    */
 
   async handleInstallAll(userId: number): Promise<string> {
@@ -636,10 +579,7 @@ export class HomeBuildService {
     return `${player.name || '冒险者'}把${map.name}的${this.shopTradeService.formatMerchantItems(packed)}拆卸装箱了`;
   }
 
-  /**
-   * 背包操作说明
-   * 对应原版：背包操作 命令
-   */
+  /** 查看当前地图的作物列表（只列有产出的），并生成「查看 名称」编号菜单。 */
 
   async handleViewCrops(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -654,7 +594,7 @@ export class HomeBuildService {
       return prod2.length > 0;
     });
 
-    const lines: string[] = [`🌾 【${map.name}】的作物:`, `━━━━━━━━━━━━━━━`];
+    const lines: string[] = [`🌾 【${map.name}】的作物:`, CARD_DIVIDER];
     const options: { label: string; cmd: string }[] = [];
 
     if (crops.length === 0) {
@@ -669,7 +609,7 @@ export class HomeBuildService {
     }
 
     if (options.length > 0) {
-      lines.push(`━━━━━━━━━━━━━━━`);
+      lines.push(CARD_DIVIDER);
       const menu = await this.support.buildNumberedMenu(userId, options, '💡 发送编号数字即可查看详情');
       lines.push(...menu);
     }
@@ -688,7 +628,7 @@ export class HomeBuildService {
     if (!map) return '你不在任何地图上！';
 
     const buildings = asJsonValue<any[]>(map.buildings, []);
-    const lines: string[] = [`🏠 【${map.name}】的建筑:`, `━━━━━━━━━━━━━━━`];
+    const lines: string[] = [`🏠 【${map.name}】的建筑:`, CARD_DIVIDER];
 
     if (buildings.length === 0) {
       lines.push('  (当前地图没有建筑)');
@@ -698,8 +638,7 @@ export class HomeBuildService {
       });
     }
 
-    // 对应原版：提示安装/拆卸建筑相关指令
-    lines.push(`━━━━━━━━━━━━━━━`);
+    lines.push(CARD_DIVIDER);
     lines.push(`💡 使用「安装 燃料」安装建筑或放入燃料`);
     lines.push(`💡 使用「拆卸」或「拆卸全部」收起建筑`);
     lines.push(`💡 使用「安装全部」安装全部不占用建筑位置的建筑`);
@@ -727,7 +666,7 @@ export class HomeBuildService {
       return isFrontier && mapNames.has(String(c?.name || '').trim());
     });
 
-    const lines: string[] = [`🏡 附近的玩家家园:`, `━━━━━━━━━━━━━━━`];
+    const lines: string[] = [`🏡 附近的玩家家园:`, CARD_DIVIDER];
     const options: { label: string; cmd: string }[] = [];
 
     if (frontiers.length === 0) {
@@ -741,17 +680,17 @@ export class HomeBuildService {
     }
 
     if (options.length > 0) {
-      lines.push(`━━━━━━━━━━━━━━━`);
+      lines.push(CARD_DIVIDER);
       const menu = await this.support.buildNumberedMenu(userId, options, '💡 发送编号数字即可前往该家园');
       lines.push(...menu);
     }
     return lines.join('\n');
   }
 
-  /**
-   * 处理查看成就命令（对应原版 _主程序.ecode L5551）
-   * 复用 achievementService.getAchievementsDisplay 输出成就列表。
-   */
+   /**
+    * 「查看使魔」：输出使魔基础数据，末尾追加「1、更多」编号菜单。
+    * 处理查看成就命令（对应原版 _主程序.ecode L5551）
+    */
 
   async handleViewFamiliar(userId: number): Promise<string> {
     const base = await this.familiarSystemService.viewFamiliarData(userId, false);
@@ -798,8 +737,9 @@ export class HomeBuildService {
   }
 
   /**
+   * 「信号枪」：需背包持有信号枪且过 10 秒「信号枪」冷却；扣费与投货舱由 6 秒后的
+   * 延时任务 completeCargoSummon 完成（成就「召唤货舱」/活跃度即时 +1）。
    * 处理查看技能命令（对应原版 _主程序.ecode L5549）
-   * 生成技能导航编号菜单：通用技能/使魔技能/查看成就/查看标记/查看标记2。
    */
 
   async handleSignalGun(userId: number, countArg = ''): Promise<string> {
@@ -879,13 +819,13 @@ export class HomeBuildService {
 
     const map = await this.mapService.getMapById(player.mapId);
     if (!map) return;
-    // 货舱落入地图资源（原版写 资源2；新版数据已合并进 resources 字段）
+    // 货舱写入地图 resources 字段（原版写的是 资源2）
     await this.mapService.mutateMapFields(map.id, ['resources'], (f) => {
       const resources = f.resources as any[];
       if (!Array.isArray(resources)) return false;
       const existing = resources.find((r: any) => String(r?.name ?? '') === '货舱');
       if (existing) {
-        // 次数只写规范键 times（次数等历史别名已由字段规范闸口收敛删除）
+        // 次数只写规范键 times（不兜底旧别名）
         existing.times = Number(existing.times ?? 0) + 3 * removed;
         return true;
       }
@@ -900,12 +840,11 @@ export class HomeBuildService {
     this.logger.log(`玩家 ${userId} 货舱延时结算：投下 ${3 * removed} 个货舱（${name}）`);
   }
 
-  // ========== 家园命令 ==========
+  // ===== 地图建筑写入 =====
 
   /**
-   * 处理使魔家园命令
-   * 进入家园系统，委托到 FamiliarSystemService 的家园子系统
-   * 对应原版：家园 命令
+   * 地图建筑写入唯一出口：整包写 buildings，必要时一并写 resources2
+   * （落库统一走 mapService.updateDynamicFields，避免各处自行 update）。
    */
 
   async updateMapBuildings(mapId: number, buildingsJson: string, resources2Json?: string): Promise<void> {

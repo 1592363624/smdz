@@ -1,12 +1,8 @@
 /**
  * QQ OAuth2 认证服务
- * 处理 QQ 互联 OAuth2 登录流程：
- * 1. 生成授权 URL，跳转 QQ 登录页
- * 2. 接收回调，用 code 换取 access_token
- * 3. 获取用户 openid 和 QQ 昵称/头像
- * 4. 创建或绑定本地账号，签发 JWT
+ * 处理 QQ 互联 OAuth2 登录流程（授权 URL → 回调换 token → openid/用户信息 → 建档并签发 JWT）。
  *
- * 配置项（通过 .env 或系统配置）：
+ * 配置项（.env）：
  * - QQ_APP_ID: QQ 互联应用 ID
  * - QQ_APP_KEY: QQ 互联应用密钥
  * - QQ_CALLBACK_URL: 授权回调地址（需与 QQ 互联后台配置一致）
@@ -42,10 +38,7 @@ export class QQAuthService {
     private readonly jwtService: JwtService,
   ) {}
 
-  /**
-   * 获取 QQ OAuth 配置
-   * 优先读取系统配置中心，否则回退到 .env 环境变量
-   */
+  /** 从 .env 读取 QQ 互联配置（AppID / AppKey / 回调地址） */
   private async getConfig(): Promise<QQOAuthConfig> {
     const cfg = GlobalConfig.getInstance();
     return {
@@ -151,15 +144,15 @@ export class QQAuthService {
     }
 
     // 第四步：查找或创建用户
-    // 身份标识：优先用 externalId（新逻辑，QQ互联 openid 存于此字段）；
-    // 若查不到，兼容存量用户（早期版本把 openid 直接写入了 qqNumber 字段）。
-    // 存量用户保持 qqNumber=openid 不动，仅补录 externalId，便于后续换绑真实QQ号。
+    // 身份标识以 externalId（QQ 互联 openid）为准；查不到时兼容存量账号——它们的
+    // openid 存在 qqNumber 上。存量用户保持 qqNumber=openid 不动，仅补录 externalId，
+    // 便于后续换绑真实QQ号。
     // isNewUser 标记是否为本次首次注册（前端据此引导设置游戏昵称）。
     let isNewUser = false;
     let user = await this.prisma.user.findUnique({ where: { externalId: openid } });
 
     if (!user) {
-      // 兼容存量：旧版本把 openid 存到了 qqNumber，查 qqNumber 找到则补录 externalId
+      // 兼容存量：openid 落在 qqNumber 上的账号，查到后补录 externalId
       const legacyUser = await this.prisma.user.findUnique({ where: { qqNumber: openid } });
       if (legacyUser) {
         user = await this.prisma.user.update({
@@ -171,7 +164,7 @@ export class QQAuthService {
     }
 
     if (!user) {
-      // 创建新用户（新逻辑：openid 存 externalId，qqNumber 留空待玩家绑定真实QQ号）
+      // 创建新用户：openid 存 externalId，qqNumber 留空待玩家绑定真实QQ号
       // username 使用完整 QQ 互联 OpenID（32位hex），保证全局唯一，避免只取前几位导致他人注册冲突。
       // 仍保留查重回退：极端情况下若已存在同 username，追加随机后缀兜底（理论上不会发生）。
       isNewUser = true;

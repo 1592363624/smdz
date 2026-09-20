@@ -1,8 +1,7 @@
 /**
  * 一次性数据修复：把 GameMap.markers2 中误存为对象('{}')的存量数据归一化为数组('[]')。
- * 背景：seed-data.ts 历史版本创建地图时 markers2 误初始化为 '{}'，
- * 而框架约定（对齐原版 标记2）为数组元素 {name, expireAt}，导致采集/刷新/战斗等
- * 按数组解析的链路崩溃（表现为"捡垃圾"等指令报"未找到指令"）。
+ * markers2 的约定是数组（元素 {name, expireAt}，对齐原版 标记2）；对象形态会让
+ * 采集/刷新/战斗等按数组解析的链路崩溃（表现为"捡垃圾"等指令报"未找到指令"）。
  * 运行：npx ts-node prisma/fix-map-markers2.ts
  */
 import { PrismaClient } from '@prisma/client';

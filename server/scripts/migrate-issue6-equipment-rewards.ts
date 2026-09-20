@@ -1,17 +1,13 @@
 /**
- * Issue #6 一次性迁移：修复存量「任务奖励装备被误发放为堆叠资源」的背包条目。
+ * 一次性迁移：清理背包里「装备奖励被误发放为堆叠资源」的坏条目并补发真装备。
  *
- * 背景：task.service.isEquipmentReward 此前只认显式 type='装备'，tasks.json 中
- * 未标注类型的装备奖励（麻醉枪/隐形披风/次元之刃/次元破碎）被写成
- * { name, count:100, quantity:100, type:'资源' } 堆叠条目，无法装备。
- * 已在 task.service.ts / player.service.ts / item.service.ts 落实运行时修复。
- *
- * 本脚本做数据层收尾（对齐 Issue 回复承诺「清理并补发」）：
+ * 处理逻辑：
  *   1) 扫描 Player.backpack：命中装备表名字、且 type 不是 装备/武器 的条目为坏条目；
  *   2) 移除同名坏条目，每人每个装备名补发 1 件真装备（数量语义为 100% 概率出 1 件，
  *      对齐原版几率判断），品质/词条走运行时 generateRewardEquipment 随机生成，
- *      与修复后任务结算的发放口径完全一致；
+ *      与任务结算的发放口径一致；
  *   3) 写入前打印逐玩家摘要，最后复查确认零残留。
+ *   补发后条目类型即为 装备，重复执行不会二次命中。
  *
  * ⚠️ 建议 AGENT/游戏服务停服窗口运行：脚本绕过 enqueueUserWrite 串行锁与
  * Player.version 乐观锁（updateMany 不动 version，不会引发服务端 CAS 误拒，

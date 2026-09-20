@@ -1,13 +1,7 @@
 /**
- * 签到奖励服务
- *
- * 职责：把「签到奖励规则」从指令逻辑中抽离为可配置项，并提供统一的发放出口。
- * - 规则（基础经验、连续加成、三张奖励表）全部读自系统配置中心 SystemConfig 表，
- *   管理员在后台「系统配置中心 → 游戏数据」改完立即生效，无需重启；
- * - 奖励发放走唯一出口，支持三种奖励类型：背包物品 / 经验 / 活力；
- * - 所有解析都做容错：配置被改成非法 JSON 或字段缺失时回落到内置默认规则，
- *   保证签到功能不会因为配置写错而整体不可用。
- *
+ * 签到奖励服务：签到规则（基础经验、连续加成、三张奖励表）全部读自系统配置中心 SystemConfig，
+ * 管理员后台改完立即生效、无需重启；发放走本服务唯一出口，支持背包物品 / 经验 / 活力三类。
+ * 所有解析均容错：配置被改成非法 JSON 或字段缺失时回落内置默认规则，签到不会整体不可用。
  * 依赖方向：SystemConfig（全局）+ PlayerService；不依赖任何指令域服务。
  */
 
@@ -37,7 +31,6 @@ export interface CheckinConfig {
   consecutiveExpPerDay: number;
   /** 连续加成封顶天数（0 = 不封顶） */
   consecutiveExpMaxDays: number;
-  /** 奖励表 */
   rewards: CheckinRewardsConfig;
 }
 
@@ -72,7 +65,6 @@ export class CheckinRewardService {
   /**
    * 计算本次签到的经验奖励：基础经验 + min(连续天数, 封顶天数) × 每天加成。
    * 封顶天数为 0（或负数）时表示不封顶。
-   * @param cfg 签到配置
    * @param consecutiveDays 本次签到后的连续天数
    * @param expFactor 全服经验加成系数（默认 1；世界事件 checkinExp buff 达成时传入 1+百分比/100）
    */
@@ -89,7 +81,6 @@ export class CheckinRewardService {
    * 匹配「每日奖励」：按连续签到第 N 天取。
    * 循环周期 > 0 时按周期取模轮转（如 7 天一轮：第 8 天拿第 1 天的奖励）；
    * 周期 = 0 时不循环，只有精确命中表里天数才发。
-   * @param cfg 签到配置
    * @param consecutiveDays 本次签到后的连续天数
    * @returns 命中的奖励条目（可能来自同一天的多组配置，保持配置顺序）
    */
@@ -120,9 +111,6 @@ export class CheckinRewardService {
    * - item：走背包唯一出口 addToBackpack（按名合并、类型以静态数据为准）；
    * - exp：走 addExp（内部处理升级）；
    * - vitality：直接累加到传入的 player 对象上，由调用方统一落库，避免多写覆盖。
-   * @param userId 玩家 ID
-   * @param entries 奖励条目
-   * @param ctx 发放上下文（活力类需要 player 对象）
    */
   async grantRewards(
     userId: number,
@@ -133,7 +121,7 @@ export class CheckinRewardService {
     if (!Array.isArray(entries) || entries.length === 0) return texts;
 
     for (const entry of entries) {
-      // 数量只读规范键 quantity（旧键 count 已在 normalizeRewards 边界归一化）
+      // 数量只读规范键 quantity（normalizeRewards 出口已洗成标准结构）
       const quantity = Number(entry?.quantity);
       // 数量非正数视为无效配置，静默跳过（配置写错不该让签到整体失败）
       if (!Number.isFinite(quantity) || quantity <= 0) continue;
@@ -207,7 +195,7 @@ export class CheckinRewardService {
   /**
    * 规范化奖励表：把数据库里可能被手改坏的结构洗成标准结构。
    * 兼容 item/exp/vitality 三种类型，未知类型按物品处理（name 为空会被发放时跳过）。
-   * 数量只认规范键 quantity（历史 count 已由 system-config 幂等升级收敛，业务侧不再兜底旧键）。
+   * 数量只认规范键 quantity，业务侧不兜底旧键 count。
    */
   private normalizeRewards(raw: any): CheckinRewardsConfig {
     const source = typeof raw === 'string' ? this.safeJsonParse(raw) : raw;

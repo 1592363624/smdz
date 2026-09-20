@@ -1,7 +1,6 @@
 /**
- * 物品/装备管理服务
+ * 物品/装备管理服务：装备、物品与载具的解析、生成与结算。
  * 对应原版易语言：物品操作.ecode
- * 负责装备、物品和载具的管理
  */
 
 import { Inject, Injectable, Logger, Optional, forwardRef } from '@nestjs/common';
@@ -19,7 +18,7 @@ import { COMBAT_SYSTEM_SERVICE } from './service-tokens';
  * 而非把 0.03334 原样拼进结果文本。
  */
 function formatLootQuantity(value: number): string {
-  // 数量收敛统一走 roundItemQuantity，展示统一走 formatDisplayNumber（2026-09-10 口径收敛）
+  // 数量收敛与展示统一走 roundItemQuantity / formatDisplayNumber，勿在此处另写取整规则
   const rounded = roundItemQuantity(value);
   if (rounded < 1) return '';
   return formatDisplayNumber(rounded);
@@ -43,7 +42,7 @@ export interface Item3 {
   name: string;
   type: string;       // 装备 / 资源 / 消耗品
   quantity: number;
-  /** 同义旧键 count（已废弃）：仅货币镜像与存量存档过渡期可能出现，规范键为 quantity。 */
+  /** 同义旧键：规范键为 quantity，新代码只写 quantity；count 仅存量存档/货币镜像可能读到。 */
   count?: number;
   durability: number;  // 耐久，0=未锁定，1=已锁定
   data: string;       // 装备数据编码字符串（品质前缀 + 加成序列 + 特效）
@@ -94,8 +93,7 @@ export enum QualityLevel {
 }
 
 // 品质码 ↔ 品质名的映射唯一实现在 equipment-ref.util（QUALITY_CODE_BY_NAME /
-// QUALITY_NAME_BY_CODE，及其派生的 equipmentQualityName / equipmentQualityLabel）。
-// 此处原有的 QUALITY_PREFIX_MAP（第二份定义）已于 2026-09-10 删除，避免改一处漏一处。
+// QUALITY_NAME_BY_CODE，及其派生的 equipmentQualityName / equipmentQualityLabel），禁另立第二份表。
 
 /**
  * 品质等级对应的评分价值
@@ -167,9 +165,7 @@ export const BONUS_CODE_MAP: Record<string, string> = {
   by: '魅力',
 };
 
-/**
- * 植入体属性名称列表（用于强化时判断）
- */
+/** 植入体可强化属性名（14 项，强化指令据此校验输入） */
 export const IMPLANT_STATS = [
   '生命', '装甲', '护盾', '攻击', '速度', '闪避', '命中',
   '生命恢复', '装甲修复', '护盾回复', '电攻', '火攻', '物攻', '冰攻',
@@ -266,20 +262,13 @@ export class ItemService {
     private readonly combatSystem?: { buildAttackerBonus: (player: any, playerData: any, map?: any) => any },
   ) {}
 
-  /**
-   * 背包写入统一入口：走 item-normalize 规范化合并（type 以静态定义为唯一真源，
-   * 非装备按名合并并自愈历史脏 type，Issue #11）。
-   */
+  /** 背包写入统一入口：走 item-normalize 规范化合并（type 以静态定义为唯一真源，非装备按名合并） */
   private addItemToBackpack(backpack: any[], item: any): void {
     mergeBackpackItem(backpack, item, lookupFromStaticData(this.staticData));
   }
 
   /**
-   * 计算物品价值
-   * 对应原版：计算价值()
-   * 遍历物品数组，根据物品类型（装备/资源）和品质计算总价值
-   * @param items 物品数组
-   * @returns 总价值
+   * 计算物品总价值：遍历物品数组，按类型（装备/资源）与品质累加。对应原版：计算价值()
    */
   async calculateValue(items: Item3[]): Promise<number> {
     let totalValue = 0;
@@ -290,7 +279,6 @@ export class ItemService {
     for (const item of items) {
       let foundInList = false;
 
-      // 在物品列表中查找匹配项
       for (const gi of gameItems) {
         if (gi.name === item.name) {
           totalValue += gi.value * item.quantity;
@@ -329,12 +317,8 @@ export class ItemService {
   }
 
   /**
-   * 解析装备数据
-   * 将物品数据中的装备信息解析为装备对象
+   * 解析装备数据：从 Item3.data 编码串提取品质前缀、加成属性和特效编号，装备对象以静态定义打底。
    * 对应原版：解析装备()
-   * 从 Item3.data 编码串中提取品质前缀、加成属性和特效编号
-   * @param item 物品数据
-   * @returns 解析后的装备对象
    */
   parseEquipment(item: Item3): Equipment {
     const equipment: Equipment = {
@@ -362,10 +346,9 @@ export class ItemService {
 
     // 先从静态装备表恢复原版“装备”结构；数据串只覆盖动态词条/特效/制造者。
     // 原版 解析装备() L1262-1511：先复制装备列表项，再解析数据串覆盖加成。
-    // ⚠️ 静态表 hydrate 不以 data 非空为前提（2026-09-06「时间主宰」事件根因）：
-    // 裸条目（无品质码 data 串，GM 背包管理发放/历史数据）此前在此被提前 return，
-    // type 恒为 '' —— 穿上时同槽位替换匹配不到旧装备（装备栏无限堆叠同槽装备、
-    // buildAttackerBonus 逐条累加导致重复计属性）、左侧装备面板也无法正确显示新装备。
+    // ⚠️ 静态表 hydrate 不能以 data 非空为前提：裸条目（无品质码 data 串，如 GM 背包管理发放）
+    // 若在此提前 return，type 恒为 '' —— 穿上时同槽位替换匹配不到旧装备（装备栏无限堆叠同槽装备、
+    // buildAttackerBonus 逐条累加导致重复计属性），左侧装备面板也无法正确显示新装备。
     const definition = typeof (this.staticData as any).getEquipmentByName === 'function'
       ? (this.staticData as any).getEquipmentByName(item.name)
       : undefined;
@@ -391,8 +374,8 @@ export class ItemService {
       }
     };
     if (definition) {
-      // definition 来自静态 equipments.json（已是英文规范键，中文别名由持久化边界
-      // 收敛，见 field-contract.util.ts），此处不再保留中文兜底。
+      // definition 来自静态 equipments.json，已是英文规范键；中文↔英文别名口径见 field-contract.util.ts，
+      // 此处不做中文键兜底。
       equipment.type = String(definition.equipType ?? definition.type ?? '');
       equipment.specialSeq = Number(definition.specialSeq ?? 0) || 0;
       equipment.damageType = String(definition.damageType ?? equipment.damageType);
@@ -425,12 +408,10 @@ export class ItemService {
     const parts = item.data.split('!');
     if (parts.length === 0) return equipment;
 
-    // 第一部分是品质前缀
+    // 第一部分是品质前缀（重建 data 时需原样保留）
     const qualityPrefix = parts[0];
-    // 品质前缀 -> 品质等级，用于data重建时保留
 
-    // 从数据库加载装备定义
-    // 这里简化处理：遍历parts解析各编码段
+    // 逐段解析：2 字符前缀 + 数值，前缀含义见 BONUS_CODE_MAP 与上方的 data 格式说明
     for (let i = 1; i < parts.length; i++) {
       const segment = parts[i];
       if (!segment || segment.length < 2) continue;
@@ -439,13 +420,10 @@ export class ItemService {
       const valueStr = segment.substring(2);
 
       if (code === 'bx') {
-        // 特效编号
         equipment.specialEffect = parseInt(valueStr, 10) || 0;
       } else if (code === '@@') {
-        // 制造者标记
         equipment.maker = segment.substring(2) || '';
       } else if (BONUS_CODE_MAP[code]) {
-        // 加成属性
         const bonusKey = BONUS_CODE_MAP[code];
         const val = parseFloat(valueStr) || 0;
         equipment.bonus[bonusKey] = val;
@@ -496,17 +474,11 @@ export class ItemService {
   }
 
   /**
-   * 获取装备品质
-   * 根据装备数据字符串的第一个字符判断品质等级
-   * 品质等级: 普通、良好、优秀、精良、史诗、传说、神迹
-   * 对应原版：显示品质() 取品质部分
-   * @param equipment 装备对象
-   * @returns 品质等级文本
+   * 装备品质中文名（普通/良好/优秀/精良/史诗/传说/神迹）。对应原版：显示品质() 取品质部分
    */
   getEquipmentQuality(equipment: Equipment): string {
     // 统一口径（equipment-ref.util.equipmentQualityName）：非法/缺失品质码返回**空串**，
-    // 不再回落「普通」或「神迹」——「装备必有品质码」是入包唯一出口保证的不变量。
-    // 旧实现取首字符未转小写，大写品质码会错误回落到「神迹」（已消除）。
+    // 不回落「普通」或「神迹」——「装备必有品质码」是入包唯一出口保证的不变量。
     return equipmentQualityName(equipment?.data);
   }
 
@@ -554,12 +526,8 @@ export class ItemService {
   }
 
   /**
-   * 获取装备的显示文本
-   * 对应原版：显示品质()
-   * 返回品质文本，如果装备有特效则附加特效名称
-   * @param equipment 装备对象
-   * @param showStats 是否显示详细属性（预留）
-   * @returns 格式化后的品质显示文本
+   * 装备品质显示文本；有特效时附加特效名。对应原版：显示品质()
+   * @param showStats 是否显示详细属性（预留，当前仅影响特效后缀是否输出）
    */
   formatEquipmentDisplay(equipment: Equipment, showStats: boolean): string {
     const quality = this.getEquipmentQuality(equipment);
@@ -573,15 +541,13 @@ export class ItemService {
   }
 
   /**
-   * 在用户邮箱内基于【活态】执行读改写（2026-09-04「捡垃圾钻石消失」事故的根治封装）。
-   * 旧反模式：锁外 prisma 裸读 → 邮箱内把旧背包/装备整包 Object.assign 回活态——
-   * 并发写者（如采集结算）落在裸读之后、邮箱提交之前的产出会被旧快照整包抹掉
-   * （无任何报错、难以复现）。本封装保证读取、计算、写回全部在同一邮箱 run 内
-   * 基于活态完成，从根上消除「锁外裸读→整包覆盖」这一丢失更新类别。
+   * 在用户邮箱内基于【活态】执行读改写：读取、计算、写回全部在同一邮箱 run 内完成。
+   * 若在锁外裸读再把旧背包/装备整包 Object.assign 回活态，并发写者（如采集结算）落在
+   * 裸读之后、提交之前的产出会被旧快照静默抹掉——本封装用于消除这类丢失更新。
    */
   private withLivePlayer<T>(userId: number, fn: (player: any) => Promise<T>): Promise<T> {
     // 测试桩（手工 new PlayerService 的 mock）可能未实现邮箱方法：退化为直接读改写，
-    // 语义与旧实现等价（生产路径永远走邮箱分支）。
+    // 生产路径永远走邮箱分支。
     if (typeof (this.playerService as any).enqueueUserWrite !== 'function') {
       return this.playerService.getPlayerData(userId).then((pd) => fn(pd.player));
     }
@@ -590,172 +556,12 @@ export class ItemService {
       return fn(pd.player);
     });
   }
-
-  /**
-   * 强化植入体
-   * 对应原版：强化植入体()
-   * 消耗材料强化植入体属性，支持随机强化和指定属性强化
-   * @param userId 玩家ID
-   * @param target 强化目标：空字符串=随机，属性名=指定属性
-   * @param count 强化次数
-   * @returns 操作结果文本
-   */
-  async upgradeImplant(userId: number, target: string, count: number): Promise<string> {
-    // 读改写整体进用户邮箱、基于活态执行（见 withLivePlayer 注释）
-    return this.withLivePlayer(userId, async (player) => {
-    if (!player) return `玩家不存在`;
-
-    // 解析玩家装备
-    const equipmentList: Item3[] = asJsonValue<Item3[]>(player.equipment, []);
-    const backpack: Item3[] = asJsonValue<Item3[]>(player.backpack, []);
-
-    // 查找植入体装备
-    let implantIndex = -1;
-    let implantItem: Item3 | null = null;
-    for (let i = 0; i < equipmentList.length; i++) {
-      if (equipmentList[i].name.includes('植入体')) {
-        implantIndex = i;
-        implantItem = equipmentList[i];
-        break;
-      }
-    }
-
-    if (!implantItem) {
-      return `${player.name}你身上未装备植入体`;
-    }
-
-    if (count <= 0) {
-      return `${player.name} 输入"强化植入体${3}"来随机强化3次，"强化植入体攻击3"来消耗史诗强化券来强化3次攻击`;
-    }
-
-    // 解析植入体装备
-    const implant = this.parseEquipment(implantItem);
-
-    // 检查目标属性是否有效
-    const isValidTarget = target === '' || IMPLANT_STATS.includes(target);
-    if (!isValidTarget) {
-      return `${player.name},${target}不是可以强化的植入体属性`;
-    }
-
-    // 解析标记数据（DB Json 字段容错读取）
-    const markers = asJsonValue<Record<string, any>>(player.markers, {});
-
-    // 获取植入体等级（从成就熟练度）
-    let implantLevel = 0;
-    if (markers['植入体等级']) {
-      implantLevel = typeof markers['植入体等级'] === 'number'
-        ? markers['植入体等级']
-        : markers['植入体等级'].level || 0;
-    }
-
-    // 计算已有材料数量
-    let crystalCount = 0; // 水晶
-    let couponCount = 0;  // 史诗强化券
-    for (const item of backpack) {
-      if (item.name === '水晶') crystalCount += item.quantity;
-      if (item.name === '史诗强化券') couponCount += item.quantity;
-    }
-
-    let usedMaterial = 0;
-    let upgradedCount = 0;
-    const resultItems: Item3[] = [];
-
-    // 执行强化循环
-    for (let i = 0; i < count; i++) {
-      if (crystalCount <= implantLevel) {
-        break; // 水晶不足
-      }
-
-      usedMaterial += implantLevel;
-      crystalCount -= implantLevel;
-      upgradedCount++;
-      implantLevel++;
-
-      if (target === '') {
-        // 随机强化：从有效属性中随机选一个
-        const randomStat = IMPLANT_STATS[Math.floor(Math.random() * IMPLANT_STATS.length)];
-        const statKey = IMPLANT_STAT_MAP[randomStat];
-        if (statKey) {
-          implant.bonus[statKey] = (implant.bonus[statKey] || 0) + 1;
-          resultItems.push({ name: randomStat, type: '资源', quantity: 1, durability: 0, data: '' });
-        }
-      } else {
-        // 指定属性强化
-        if (couponCount < 1) {
-          break; // 史诗强化券不足
-        }
-        couponCount--;
-        const statKey = IMPLANT_STAT_MAP[target];
-        if (statKey) {
-          implant.bonus[statKey] = (implant.bonus[statKey] || 0) + 1;
-          resultItems.push({ name: target, type: '资源', quantity: 1, durability: 0, data: '' });
-        }
-      }
-    }
-
-    if (usedMaterial === 0) {
-      return `${player.name} 材料不足，无法强化植入体`;
-    }
-
-    // 消耗水晶
-    // 更新背包：减少水晶和史诗强化券
-    for (const item of backpack) {
-      if (item.name === '水晶') {
-        item.quantity -= usedMaterial;
-      }
-      if (item.name === '史诗强化券' && target !== '') {
-        item.quantity -= upgradedCount;
-      }
-    }
-
-    // 更新植入体装备数据
-    const dataPrefix = implantItem.data ? implantItem.data.charAt(0) : 'e';
-    implantItem.data = dataPrefix + this.bonusToDataString(implant.bonus);
-    if (implant.specialEffect !== 0) {
-      implantItem.data += `!bx${implant.specialEffect}`;
-    }
-    if (implant.maker) {
-      implantItem.data += `!@@${implant.maker}`;
-    }
-    equipmentList[implantIndex] = implantItem;
-
-    // 更新标记成就
-    if (!markers['植入体等级']) markers['植入体等级'] = 0;
-    markers['植入体等级'] = implantLevel;
-    // 简化：更新成就
-    if (!markers['强化植入体']) markers['强化植入体'] = 0;
-    markers['强化植入体'] = (markers['强化植入体'] || 0) + upgradedCount;
-
-    // 保存到数据库
-    await this.playerService.enqueueUserWrite(userId, async () => {
-      const _pd = await this.playerService.getPlayerData(userId);
-      Object.assign(_pd.player, {
-        equipment: equipmentList,
-        backpack: backpack,
-        markers: markers,
-      });
-      await this.playerService.savePlayer(_pd.player);
-    });
-
-    // 构建返回文本
-    const resultText = resultItems.map(r => r.name).join('、');
-    if (target === '') {
-      return `${player.name}使用${usedMaterial}块水晶强化了${upgradedCount}次植入体：\n${resultText}`;
-    } else {
-      return `${player.name}使用${usedMaterial}块水晶和${upgradedCount}张史诗强化券强化了${upgradedCount}次植入体：\n${resultText}`;
-    }
-    });
-  }
-
   /**
    * 使用物品（打开箱子）
    * 1:1 复刻 物品操作.ecode L2220-2458：
    * 开箱防重入锁(L2251-2255) → 特殊物品分支(L2284-2377) → 使用可得出货走战利品品质链路(L2379-2415) →
    * 成就与消耗(L2449-2457) → 文本格式对齐原版(L2434-2448)。
-   * @param userId 玩家ID
-   * @param itemName 物品名称
    * @param count 使用数量，默认1；-1 表示使用全部（原版 使用数量<0 分支）
-   * @returns 使用结果文本
    */
   async useItem(
     userId: number,
@@ -867,8 +673,7 @@ export class ItemService {
     /** 三池回复：按 属性.护盾(上限值)×比例×数量 加到当前生命/护盾/装甲（原版 L2289-2298 字面）。
      * 基数必须是「计算后属性.护盾」（含装备/增益加成，即面板分母）：
      * 原版 属性.护盾 由 _计算玩家 现场算出；复刻版对应 buildAttackerBonus。
-     * 此前误用基础字段 maxShield（纯等级成长、不含装备），有装备加成时
-     * 回复量远低于面板上限，喝再多奶也"回不满"（实证：剑圣 22 奶后 生命 691/818）。
+     * 用基础字段 maxShield（纯等级成长、不含装备）会让有装备加成时回复量远低于面板上限。
      * 回复后按计算上限封顶（对齐原版 _计算玩家 L2465 当前>上限 收敛语义）。 */
     const restorePools = (ratio: number): void => {
       let base = Number(player.maxShield ?? player.shield ?? 0);
@@ -894,7 +699,7 @@ export class ItemService {
       player.armor = capPoolValue(Number(player.armor ?? 0) + gain, capArmor);
     };
 
-    /** 数字到时间（秒→分秒文本），格式沿用本框架 msToTimeText 约定 */
+    /** 秒 → 「X秒 / X分Y秒」文本；需要天/小时段落时改用 game-text.util.formatSecondsDurationText */
     const secondsToTimeText = (sec: number): string => {
       const totalSec = Math.max(0, Math.floor(sec));
       if (totalSec < 60) return `${totalSec}秒`;
@@ -1043,8 +848,8 @@ export class ItemService {
       let token = String(raw || '').trim();
       if (!token) return null;
 
-      // 兼容旧版转换器曾生成的“名称 x0”格式；原始配置里的数量仍由
-      // 名称末尾数字解析，例如“椰树种子1”应得到数量1。
+      // 先剥离存量存档里的“名称 x0”写法，再按名称末尾数字解析数量：
+      // 例如“椰树种子1”应得到数量1。
       const legacyCount = token.match(/^(.*?)\s+x(-?\d+(?:\.\d+)?)$/i);
       if (legacyCount) token = legacyCount[1].trim();
       const match = token.match(/^(.+?)(-?\d+(?:\.\d+)?)$/);
@@ -1093,14 +898,10 @@ export class ItemService {
       equipmentCount = newEquipmentItems.length;
 
       // distributeLoot 内部的 addAchievement 已把好感/采集等成就计数增量写入 player.markers，
-      // 本地 markers 还是使用开始时的旧快照：直接回写会把这些增量覆盖掉
-      // （生产实证：使用巧克力×20 后 使用巧克力=20 但 花园猫好感 不变；
-      //  正式库 7960 剑圣：剑圣好感键被抹掉后每次使用重建的新键都被整包回写丢弃，好感恒为 0）。
-      //
-      // 合并规则（2026-09-08 修订：以最新活态为基准，再重放本地相对快照的改动）：
+      // 本地 markers 还是使用开始时的旧快照，直接整包回写会把这些增量覆盖掉（好感恒为 0）。
+      // 合并规则（以最新活态为基准，再重放本地相对快照的改动）：
       //  1. 基线 = 出货段结束后的最新 player.markers：distributeLoot 新建的键（好感/{使魔}好感）
-      //     与被 addAchievement 删除的键（计数归零）都以此为准——旧写法只回填快照里已有的键，
-      //     新键会被 line 1182 的整包回写抹掉，形成「键一旦丢失就永远建不回来」的死锁。
+      //     与被 addAchievement 删除的键（计数归零）都以此为准，否则「键一旦丢失就永远建不回来」。
       //  2. 本地相对快照新增的键（凭证/使用计数/useMarkers）保留。
       //  3. 本地相对快照改过的键（如 凭证+1、nydg+N）以**增量**重放到最新值上，
       //     既不会被活态旧值反向覆盖，也不会覆盖掉活态自身对同一键的增量。
@@ -1245,8 +1046,6 @@ export class ItemService {
    * 倒序遍历背包，把名字包含关键词、数量≥1 且不是种子的物品逐一使用全部数量。
    * 与原文差异：装备数量少时展开具体名称（同「使用」），且各箱结果独立成行展示，
    * 不采用原版「#错误 覆盖已累计文本」的丢公告写法。
-   * 原版更新日志：「使用全部xx」现在会屏蔽种子（数据分析.ecode 是否种子）。
-   * @param userId 玩家ID
    * @param keyword 名称包含的关键词，如“箱”“补给箱”“资源箱”
    * @returns 使用结果文本（每箱类型一行）
    */
@@ -1286,8 +1085,7 @@ export class ItemService {
       // L4528：打开箱子(名称, -1, …) → 使用该物品全部数量（原版 L2246 取整）
       const part = await this.useItem(userId, name, -1);
       if (!part) continue;
-      // 优化：每箱结果独立成行保留。原版「#错误 赋值覆盖」会把之前成功箱的公告覆盖掉，
-      // 改成不覆盖，让所有成功/错误分行展示，操作与消耗结果不变，只是观感更完整。
+      // 与原版「#错误 赋值覆盖」不同：每箱结果独立成行，不覆盖前面箱子的公告。
       const clean = part.replace(/^\n+/, '').replace(/\n+$/, '');
       if (clean) lines.push(clean);
     }
@@ -1320,191 +1118,15 @@ export class ItemService {
     const resources = (this.staticData as any).getAllResources?.() ?? [];
     return (resources as any[]).some((r) => String(r?.name ?? '') === resourceKey);
   }
-
-  /**
-   * 制造物品
-   * 检查材料是否足够，消耗材料并产出物品
-   * 对应原版：制造()
-   * @param userId 玩家ID
-   * @param recipeName 配方名称
-   * @param count 制造数量，默认1
-   * @returns 制造结果文本
-   */
-  async craftItem(userId: number, recipeName: string, count: number = 1): Promise<string> {
-    // 读改写整体进用户邮箱、基于活态执行（见 withLivePlayer 注释）
-    return this.withLivePlayer(userId, async (player) => {
-    if (!player) return `玩家不存在`;
-
-    const backpack: Item3[] = asJsonValue<Item3[]>(player.backpack, []);
-
-    // 从静态配置加载制造配方（JSON 单一来源）
-    const recipes = this.staticData.getAllCraftings();
-    let recipeIndex = -1;
-    // 查找目标配方
-
-    for (let i = 0; i < recipes.length; i++) {
-      if (recipes[i].name === recipeName) {
-        recipeIndex = i;
-        break;
-      }
-    }
-
-    if (recipeIndex === -1) {
-      return `${player.name},【${recipeName}】在制造列表不存在`;
-    }
-
-    const recipe = recipes[recipeIndex];
-
-    if (recipe.noCraft) {
-      return `你输入了正确的名称，但是【${recipeName}】不是可以制造的项目`;
-    }
-
-    const requirements = asJsonValue<Item3[]>(recipe.requirements, []);
-    const outputs = asJsonValue<Item3[]>(recipe.outputs, []);
-
-    if (outputs.length === 0) {
-      return `警告：制造项目${recipe.name}的制造产出为空`;
-    }
-
-    if (count < 1) {
-      // 显示制造公式
-      let info = `${player.name},${recipeName}(等级需求${recipe.level})\n制造需求:\n`;
-      for (const req of requirements) {
-        info += `${req.name}x${formatDisplayNumber(req.quantity)} `;
-      }
-      info += `\n产出:\n`;
-      for (const out of outputs) {
-        info += `${out.name}x${formatDisplayNumber(out.quantity)} `;
-      }
-      return info;
-    }
-
-    // 检查等级
-    if (player.level < recipe.level) {
-      return `需要等级${recipe.level}`;
-    }
-
-    // 限制制造数量
-    const maxCount = Math.min(count, 1000000);
-
-    // 检查材料是否足够
-    const insufficientMaterials: string[] = [];
-    for (const req of requirements) {
-      let hasQuantity = 0;
-      for (const bp of backpack) {
-        if (bp.name === req.name) {
-          hasQuantity += bp.quantity;
-          break;
-        }
-      }
-      if (hasQuantity < req.quantity * maxCount) {
-        insufficientMaterials.push(
-          `需要${req.name}x${formatDisplayNumber(req.quantity * maxCount)}，你只有${formatDisplayNumber(hasQuantity)}`,
-        );
-      }
-    }
-
-    if (insufficientMaterials.length > 0) {
-      return insufficientMaterials.join('\n');
-    }
-
-    // 消耗材料
-    const consumedItems: Item3[] = [];
-    for (const req of requirements) {
-      const needed = req.quantity * maxCount;
-      let remaining = needed;
-      for (const bp of backpack) {
-        if (bp.name === req.name && remaining > 0) {
-          const consume = Math.min(bp.quantity, remaining);
-          bp.quantity = roundItemQuantity(bp.quantity - consume);
-          remaining -= consume;
-          consumedItems.push({ ...req, quantity: consume });
-          if (bp.quantity <= 0) {
-            // 移除数量为0的物品项
-          }
-        }
-      }
-    }
-    // 清理背包中数量为0的物品
-    const cleanedBackpack = backpack.filter(bp => bp.quantity > 0 || bp.type === '装备');
-
-    // 产出物品
-    const producedItems: Item3[] = [];
-    for (const out of outputs) {
-      const produced: Item3 = {
-        name: out.name,
-        type: out.type,
-        quantity: out.quantity * maxCount,
-        durability: 0,
-        data: '',
-      };
-
-      // 如果是装备，需要生成装备数据
-      if (out.type === '装备') {
-        // 简化处理：生成基础装备
-        produced.data = 'e';
-        produced.quantity = 1 * maxCount;
-      }
-
-      // 加入背包
-      let existing = false;
-      for (const bp of cleanedBackpack) {
-        if (bp.name === produced.name && bp.type !== '装备') {
-          bp.quantity += produced.quantity;
-          existing = true;
-          break;
-        }
-      }
-      if (!existing) {
-        cleanedBackpack.push(produced);
-      }
-      producedItems.push(produced);
-    }
-
-    // 更新成就
-    const markers = asJsonValue<Record<string, any>>(player.markers, {});
-    if (!markers['制造']) markers['制造'] = 0;
-    markers['制造'] += maxCount;
-    if (!markers['制造' + recipeName]) markers['制造' + recipeName] = 0;
-    markers['制造' + recipeName] += maxCount;
-
-    // 标记获得
-    const gainMarkers = asJsonValue<string[]>(recipe.gainMarkers, []);
-    for (const gm of gainMarkers) {
-      if (gm) {
-        if (!markers[gm]) markers[gm] = 0;
-        markers[gm] += maxCount;
-      }
-    }
-
-    // 保存到数据库
-    await this.playerService.enqueueUserWrite(userId, async () => {
-      const _pd = await this.playerService.getPlayerData(userId);
-      Object.assign(_pd.player, {
-        backpack: cleanedBackpack,
-        markers: markers,
-      });
-      await this.playerService.savePlayer(_pd.player);
-    });
-
-    const consumedText = consumedItems.map(c => `${c.name}x${formatDisplayNumber(c.quantity)}`).join('、');
-    const producedText = producedItems.map(p => `${p.name}x${formatDisplayNumber(p.quantity)}`).join('、');
-
-    return `${player.name}用${consumedText}制造了${maxCount}个${recipeName}，得到了${producedText}`;
-    });
-  }
-
   /**
    * 装备物品
    * 将背包中的装备穿到对应部位
    * 对应原版：背包操作() 中的装备逻辑
-   * @param userId 玩家ID
-   * @param backpackIndex 背包中的物品索引
-   * @returns 操作结果文本
+   * @param backpackIndex 背包序号（1-based，越界返回提示文本）
    */
   async equipItem(userId: number, backpackIndex: number): Promise<string> {
-    // 读改写整体进用户邮箱、基于活态执行（见 withLivePlayer 注释）。
-    // 2026-09-04 实测：锁外裸读 → 邮箱内整包覆盖，采集刚写入的钻石被「穿上」旧快照抹掉。
+    // 读改写整体进用户邮箱、基于活态执行（见 withLivePlayer 注释）：
+    // 锁外裸读再整包覆盖，会把并发写入（如采集结算的钻石）用旧快照抹掉。
     return this.withLivePlayer(userId, async (player) => {
     if (!player) return `玩家不存在`;
 
@@ -1522,20 +1144,16 @@ export class ItemService {
       return `${item.name}不是装备，无法穿戴`;
     }
 
-    // 解析装备数据
     const equip = this.parseEquipment(item);
 
-    // 判断是否为武器
     const isWeapon = this.isWeapon(equip.specialSeq, equip.type);
 
-    // 从背包移除
     backpack.splice(backpackIndex - 1, 1);
 
     if (isWeapon) {
-      // 同名武器唯一化（2026-09-09 设计变更，替代原版"背上允许重复"行为）：
-      // 原版允许背上多把同名武器，但按名字切换只命中第一把、且攻击冷却按「武器名」写
-      // markers2 同名共用——多把同名武器没有战术价值，只有背包噪音与认知负担。
-      // 改为：装备同名武器时直接顶替背上那把的位置，旧武器放回背包并提示哪件被替换
+      // 同名武器唯一化（与原版"背上允许重复"不同）：原版按名字切换只命中第一把、
+      // 攻击冷却按「武器名」写 markers2 同名共用，多把同名武器没有战术价值，只有背包噪音与认知负担。
+      // 装备同名武器时直接顶替背上那把的位置，旧武器放回背包并提示哪件被替换
       //（基础名相同、品质码不同，文案必须带品质中括号才能区分具体是哪件）。
       const dupIndex = weapons.findIndex((w: Item3) => String(w?.name ?? '') === item.name);
       let replaced: Item3 | undefined;
@@ -1625,14 +1243,12 @@ export class ItemService {
   }
 
   /**
-   * 已装备列表（卸下编号口径的单一实现，2026-09-09）
+   * 已装备列表（卸下编号口径的单一实现）
    *
    * 按「信息」面板装备栏的行序（12 部位 → 手持武器 → 植入 → 增幅 → 背上备用武器）
    * 返回**已装备**的物品（空槽位不入列，序号不跳跃分配给玩家可见的每一件）。
-   * 三处消费方必须同源锚定本方法，禁各自重算：
-   *  1. unequipItem 纯数字分支：「卸下 N」按序号精确卸下（同名武器按索引卸，不再只命中第一把）；
-   *  2. handleInfo 文本面板：已装备行渲染「N.」前缀，与指令序号对号；
-   *  3. buildEquipmentSnapshot 网页快照：每格带 no 字段，前端卸下按钮直接发「卸下 no」。
+   * 「卸下 N」的编号口径以本方法为单源，消费方（卸下指令 / 信息面板 / 网页装备快照按钮）
+   * 必须锚定这里的序号，禁各自重算。
    * @returns 每项含展示槽位名、物品引用、类别、以及在其原数组中的 0-based 索引
    *         （equipIndex/weaponIndex 供卸下时精确定位，不依赖对象引用相等）
    */
@@ -1690,13 +1306,11 @@ export class ItemService {
    * 卸下装备
    * 从指定部位卸下装备放回背包
    *
-   * 参数口径（2026-09-09 起支持编号）：
+   * 参数口径：
    *  - 纯数字 → 按「信息」面板已装备列表序号精确卸下（口径单源 buildEquippedList，
-   *    同名武器按数组索引卸，不再受「按名字只命中第一把」限制）；
-   *  - 其它   → 按部位名/装备名匹配（原行为，含 includes 模糊匹配）。
-   * @param userId 玩家ID
+   *    同名武器按数组索引卸，不受「按名字只命中第一把」限制）；
+   *  - 其它   → 按部位名/装备名匹配（含 includes 模糊匹配）。
    * @param slot 装备部位名、装备名，或已装备列表序号（1-based）
-   * @returns 操作结果文本
    */
   async unequipItem(userId: number, slot: string): Promise<string> {
     // 读改写整体进用户邮箱、基于活态执行（见 withLivePlayer 注释）
@@ -1757,7 +1371,7 @@ export class ItemService {
       return `${player.name}卸下了编号${no}的${entry.item.name}${this.qualityBracket(this.qualityPrefix(String(entry.item.data || '')))}（${entry.slot}）`;
     }
 
-    // ---------- 名称分支（原行为） ----------
+    // ---------- 名称分支（按部位名/装备名匹配）----------
     // 先在装备中查找
     for (let i = 0; i < equipment.length; i++) {
       if (equipment[i].name === slot || equipment[i].name.includes(slot)) {
@@ -1823,18 +1437,16 @@ export class ItemService {
   /**
    * 品质前缀（对齐原版 显示品质 L1591-1639）
    * 从装备数据串首字符还原品质文本
-   * @param data 装备数据串（首字符为品质前缀 e/d/c/b/a/s）
+   * @param data 装备数据串（首字符为品质前缀 e/d/c/b/a/s/x）
    * @returns 品质文本（普通/良好/优秀/精良/史诗/传说/神迹）
    */
   qualityPrefix(data: string): string {
-    // 唯一实现见 equipment-ref.util.equipmentQualityName（保留方法名以兼容既有调用点）；
-    // 非法/缺失品质码返回空串，不再回落「神迹」。
+    // 唯一实现见 equipment-ref.util.equipmentQualityName；非法/缺失品质码返回空串（不回落任何档位）
     return equipmentQualityName(data);
   }
 
   /**
    * 品质中括号（对齐原版 加中括号）：品质为"普通"时不加括号，其余返回 [品质]
-   * @param quality 品质文本
    * @returns 形如 [优秀] 的字符串，普通品质返回空串
    */
   qualityBracket(quality: string): string {
@@ -1843,13 +1455,7 @@ export class ItemService {
     return `[${quality}]`;
   }
 
-  /**
-   * 判断是否为武器
-   * 根据特殊序号和装备类型判断
-   * @param specialSeq 特殊序号
-   * @param equipType 装备类型
-   * @returns 是否为武器
-   */
+  /** 判断是否为武器 */
   private isWeapon(specialSeq: number, equipType: string): boolean {
     // 对齐原版 数据分析.ecode 规则（同 staticData.isWeapon）：
     // 特殊序号非 0 时，负数是武器、正数是普通装备；只有特殊序号为 0 时才按类型判断
@@ -1863,8 +1469,6 @@ export class ItemService {
    * 原版 _计算玩家 每次构建属性时遍历"玩家.装备"+本体特殊序号逐件 套装判断 累加写入 玩家.套装；
    * 本框架将结果持久化到 player.sets 字段（buildAttackerBonus 读取），
    * 故在任意装备/武器/植入体/增幅器/预设 变更后调用本方法重算写入。
-   * @param equipment 已装备列表（Item3[]）
-   * @param weapons 已装备武器列表（Item3[]）
    * @param treasures 法宝资源列表（Item3[]，对应原版 装备预设[2] 的"资源"类型装备）
    * @returns SetData 对象（直接作为 Player.sets Json 字段落库，避免双重编码）
    */
@@ -1889,8 +1493,7 @@ export class ItemService {
   /**
    * 从玩家装备预设中提取"资源"类法宝（对应原版 装备预设[2] 的"资源"类型装备）
    * 原版 数据分析.ecode L907 扫描 玩家.装备预设[2].装备[a].类型=="资源"，本框架取预设数组中索引2（即第3个）。
-   * @param player 玩家对象（含 equipmentPresets 字段）
-   * @returns 法宝资源列表
+   * @param player 玩家对象（读 equipmentPresets 字段）
    */
   private getTreasuresFromPresets(player: any): Item3[] {
     try {
@@ -1909,8 +1512,6 @@ export class ItemService {
    * 将加成数据编码为字符串
    * 对应原版：加成转数据()
    * 将加成对象序列化为 "!aa值!ab值..." 格式
-   * @param bonus 加成属性对象
-   * @returns 编码后的字符串
    */
   bonusToDataString(bonus: Record<string, number>): string {
     // 反向映射：加成属性名 -> 编码前缀

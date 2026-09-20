@@ -102,7 +102,7 @@ describe('家园动态地图与前线攻势（真实数据库端到端）', () =
     // 家园进度置 4（可挖地基建屋内/前线）。经 Actor 漏斗改写，避免陈旧 cell
     // 回写覆盖（见 actor-write.util.ts）——裸 prisma.player.update 只改 DB 不改活态，
     // 后续 handleHome('家园前线') 复用陈旧 cell（家园进度=1）会把它回写，导致
-    // handleStartBattle 误判「房屋未建成」（此前 前线等级0 用失败根因）。
+    // handleStartBattle 误判「房屋未建成」。
     const markers = { '家园进度': 4, 前线: 0 };
     await mutatePlayerState(playerService, userId, (player) => { player.markers = markers; });
     const homePlayer = await prisma.player.findUnique({ where: { userId } });

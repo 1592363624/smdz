@@ -1,14 +1,8 @@
 /**
- * 游戏高光时刻（Game Highlight）
- *
- * 作用：把「任务达成 / 领取新任务 / 获得称号 / 等级提升」这类里程碑
+ * 游戏高光时刻：把「任务达成 / 领取新任务 / 获得称号 / 等级提升」这类里程碑
  * 从纯文本公屏流里拎出来，交给 GameHighlight.vue 播放屏幕级动画。
- *
- * 数据来源有两条，前端二者并用、互为兜底：
- *   1. 结构化事件 —— 后端 GameHighlightService 定向推送 game:highlight
- *      （task.service / achievement.service / player.service 已埋点）
- *   2. 文本兜底  —— 解析公屏文本（本文件 parseHighlights），覆盖尚未埋点
- *      的历史路径与 AstrBot 等非 Socket 渠道回传的内容
+ * 数据来源两条并用、互为兜底：后端 GameHighlightService 定向推送的结构化事件，
+ * 以及本文件 parseHighlights 对公屏文本的解析（覆盖未埋点路径与 AstrBot 等非 Socket 渠道）。
  */
 
 /** Socket 事件名（与后端 GAME_HIGHLIGHT_EVENT 保持一致） */

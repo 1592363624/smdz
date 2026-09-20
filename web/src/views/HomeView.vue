@@ -1,9 +1,7 @@
 <template>
-  <!-- 建造期（已拉到数据且进度 < 4）：整页接管为全屏建造引导。
-       不显示游戏顶栏 / 农田 / 仓库等任何家园功能——房子没建成，
-       其它家园系统操作一律不开放（后端 home-gate.util 同口径拦截）。
-       圈地 / 开挖 / 建基 / 建房按钮就地发送与 QQ 端相同的指令，
-       施工场景随进度逐级"长出"房子。 -->
+  <!-- 建造期（已拉到数据且进度 < 4）：整页交给全屏建造引导，不显示顶栏 / 农田 / 仓库等家园功能
+       ——房子未建成时其它家园系统一律不开放（后端 home-gate.util 同口径拦截）。
+       圈地 / 开挖 / 建基 / 建房按钮就地发送与 QQ 端逐字相同的指令。 -->
   <div v-if="buildingPhase" class="yd-page yd-page-building">
     <HomeBuildGuide
       class="yd-guide-full"
@@ -26,7 +24,7 @@
     <!-- 顶栏：家园名 / 关键指标 / 状态与刷新 -->
     <header class="yd-top">
       <button class="yd-back" title="返回聊天" @click="router.push('/chat')">←</button>
-      <!-- 家园系统内面板切换：院子 ↔ 前线互相跳转（前线入口已从聊天侧栏移到这里） -->
+      <!-- 家园系统内面板切换：院子 ↔ 前线互相跳转 -->
       <div class="yd-switch">
         <span class="yd-switch-btn on">🏡 家园</span>
         <button class="yd-switch-btn" title="打开家园前线防守面板" @click="router.push('/frontline')">🛡️ 前线</button>
@@ -51,7 +49,7 @@
 
     <div v-if="loading && !data" class="yd-hint">家园数据加载中...</div>
     <div v-else-if="error && !data" class="yd-hint err">{{ error }}</div>
-    <!-- 异常空态（档案不存在 / 地图丢失等）：正常页内居中提示，不再与全屏引导叠加 -->
+    <!-- 异常空态（档案不存在 / 地图丢失等）：在正常页内居中提示，不与全屏建造引导叠加 -->
     <div v-else-if="blocked" class="yd-full-cta">
       <div class="yd-cta-card">
         <div class="yd-cta-icon">🏡</div>
@@ -392,27 +390,17 @@
 
 <script setup>
 /**
- * 家园院子（QQ 农场式格子视图）独立页面。
- *
- * 数据来源：GET /api/game/home/yard（只读，不结算、不领取）。
- * 写操作约定：种植/收获/安装/拆除/领取一律通过 commandApi.execute 发送与 QQ 端
- * 逐字相同的文本指令，与聊天输入框、AstrBot 完全同一条路径——没有第二条写路径，
- * 结算口径不会双轨，操作结果也照常进聊天流。
- *
- * 批量与拖拽（QQ 农场式）：
- * - 「批量」按钮开启刷选模式后，在地块上按住拖动即可刷选多块（只收同状态地块），
- *   松手后在底部批量条一次性种下 / 收获 / 拆除；Shift+点击 可反选微调。
- * - 批量指令沿用原版「名称+数量」写法（parseCountedAction），超出单条上限自动拆多条；
- *   种子名若以数字结尾导致批量解析失败，会自动退化为逐颗种植。
- * - 「一键收获」= 对田里每种作物各发一条「收获 名称」（该指令本就收走同名全部）。
+ * 家园院子（QQ 农场式格子视图）独立页面，数据来自 GET /api/game/home/yard（只读，不结算、不领取）。
+ * 写操作约定：种植/收获/安装/拆除/领取一律用 commandApi.execute 发送与 QQ 端逐字相同的文本指令，
+ * 与聊天输入框、AstrBot 同一条路径——不存在第二条写路径，结算口径不会双轨。
+ * 批量：刷选模式按住拖动选同状态地块，指令沿用原版「名称+数量」写法（parseCountedAction），超单条上限自动拆多条。
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { io } from 'socket.io-client';
 import { commandApi, gameApi, homeApi } from '../api';
-// playerInfo 用于跳过后立刻同步 pendingActions
 import { HOME_YARD_CONFIG as C, HOME_BUILD_GUIDE_CONFIG as G, WS_URL } from '../config';
-// 家园建造四步引导卡片（顶部进度条，就地发指令）
+// 家园建造四步引导卡片（就地发指令）
 import HomeBuildGuide from '../components/HomeBuildGuide.vue';
 import { useUiStore } from '../stores/ui';
 import { usePlayerStore } from '../stores/player';
@@ -955,7 +943,7 @@ function iconOf(plot) {
 function stockIcon(stock) {
   return matchIcon(stock.target || stock.name, stock.kind === 'seed' ? 'crop' : 'building');
 }
-/** 展示口径：大数取整、一般两位小数、极小值四位（与 HomePanel 保持一致） */
+/** 展示口径：大数取整、一般两位小数、极小值四位 */
 function fmtQty(v) {
   const n = Number(v) || 0;
   const abs = Math.abs(n);
@@ -1097,14 +1085,9 @@ function endBatch() {
 }
 
 /**
- * 顺序执行多条指令（批量操作统一出口）。
- * @param {string[]} cmds 与 QQ 端一致的指令文本列表
- * @param {{requireHome?: boolean}} opts
- */
-/**
  * 家园写操作门禁：房子建成（进度 >= 4）前不允许种植 / 收获 / 安装 / 拆除 / 凭证开垦。
  * 与后端 home-gate.util 同一口径（后端也会拦截，这里只是提前给提示、少一次无效请求）。
- * @returns {boolean} true = 已被拦截
+ * @returns true = 已被拦截
  */
 function homeBuiltGuard() {
   if (progress.value >= G.total) return false;
@@ -1112,6 +1095,7 @@ function homeBuiltGuard() {
   return true;
 }
 
+// 顺序执行多条指令（批量操作统一出口）；opts.requireHome=false 允许不在院子时执行
 async function runMany(cmds, opts = {}) {
   const requireHome = opts.requireHome !== false;
   if (running.value || pendingOp.value || !cmds?.length) return;
@@ -1187,8 +1171,7 @@ async function plantMany(seedName, count) {
 
 /**
  * 执行一条游戏指令（唯一的写路径）。
- * @param {string} cmd 与 QQ 端一致的指令文本
- * @param {{requireHome?: boolean}} opts requireHome=false 用于「产出」等无需在院子的操作
+ * @param opts.requireHome false 用于「产出」等无需在院子的操作
  */
 async function run(cmd, opts = {}) {
   const requireHome = opts.requireHome !== false;

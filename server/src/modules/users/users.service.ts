@@ -137,9 +137,8 @@ export class UsersService {
    *
    * 统一建档口径：委托 PlayerService.getOrCreatePlayer（完整初始化：新手装备
    * 走生成装备路径卷词条、初始「新手教程」任务、出生地图与刷怪、基础标记/称号）。
-   * 此前这里自建只有 userId 的裸档（其余字段全靠 DB 默认值），会抢占
-   * getOrCreatePlayer 的完整初始化——裸档先存在，后续 getOrCreatePlayer 检测到
-   * 行已存在直接返回，新玩家永远拿不到新手装备与初始任务（双创建路径事故）。
+   * 不得在此自建只有 userId 的裸档：裸档一旦先落库，getOrCreatePlayer 检测到行
+   * 已存在会直接返回，新玩家就永远拿不到新手装备与初始任务。
    */
   async ensurePlayer(userId: number) {
     return this.playerService.getOrCreatePlayer(userId);
@@ -238,11 +237,7 @@ export class UsersService {
     return result;
   }
 
-  /**
-   * 获取当前用户的常用指令列表（已归一化为 {cmd,label}，去重保序）
-   * @param userId 用户ID
-   * @returns FavoriteCommand 数组
-   */
+  /** 获取当前用户的常用指令列表（已归一化为 {cmd,label}，去重保序） */
   async getFavoriteCommands(userId: number): Promise<FavoriteCommand[]> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -256,7 +251,6 @@ export class UsersService {
    * 设置（全量覆盖）当前用户的常用指令列表
    * - 元素可为字符串（视为 cmd=label）或 {cmd,label} 对象（兼容前端两种传法）
    * - 去重（按 cmd）、去空白（不限制数量）
-   * @param userId 用户ID
    * @param commands 常用指令数组（字符串或对象混合）
    */
   async setFavoriteCommands(userId: number, commands: unknown[]): Promise<FavoriteCommand[]> {

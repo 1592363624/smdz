@@ -1,6 +1,4 @@
-/** 游戏服务模块
- * 组织游戏引擎所需服务的依赖注入，供 CommandModule / WebSocket gateway 消费。
- */
+/** 游戏服务模块：组织游戏引擎所需服务的 DI，供 CommandModule / WebSocket gateway 消费。 */
 import { Module, Global, Optional, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { GameService } from './game.service';

@@ -1,11 +1,7 @@
 /**
- * 指令引擎服务 - 核心分发器
- * 对应原版易语言"处理群/处理私聊"函数，但做成了统一、可配置、多来源的引擎。
- *
- * 设计要点：
- * - 指令注册表存数据库(Command表)，新增/修改指令不用改代码重编译
- * - 每个具体逻辑通过 CommandHandler 注册，key 与数据库 handlerKey 对应
- * - 支持多种来源(网页/AstrBot/API)统一进入 dispatch
+ * 指令引擎服务 - 核心分发器，对应原版易语言"处理群/处理私聊"，做成统一、可配置、多来源引擎。
+ * - 指令注册表存数据库(Command表)，新增/修改指令不用改代码重编译；
+ *   具体逻辑通过 CommandHandler 注册，key 与数据库 handlerKey 对应，网页/AstrBot/API 统一进 dispatch。
  * - 冷却采用"原版 per-action 模式"：引擎层不做任何指令级统一冷却，
  *   所有冷却由具体动作逻辑(战斗/闪避/传送等)写入玩家 markers2 持久化标记控制。
  */
@@ -25,7 +21,7 @@ import {
 } from './interfaces/command.interface';
 import { COMMAND_HANDLER_MAP } from './command-handler-map.provider';
 import { CommandSourceRegistry } from './command-source.registry';
-import { normalizeGameText } from '../../common/utils/game-text.util';
+import { CARD_DIVIDER, normalizeGameText } from '../../common/utils/game-text.util';
 import { buildTutorialClaimBlock } from '../game/familiar-menu.util';
 import { SystemConfigService } from '../system-config/system-config.service';
 
@@ -50,22 +46,21 @@ export class CommandService {
     private readonly playerService: PlayerService,
     @Optional() private readonly taskService?: TaskService,
     // 玩家状态收口入口（Actor 式写入口）：把整条指令（含其下所有服务的读改写）
-    // 在锁内复用唯一快照、统一落库。@Optional 兼容手工构造的测试桩（未注入时
-    // 退化为指令直接执行，走各服务自身的 enqueueUserWrite 旧路径，行为不变）。
+    // 在锁内复用唯一快照、统一落库。@Optional 兼容测试桩：未注入时指令直接执行，
+    // 走各服务自身的 enqueueUserWrite 路径。
     @Optional() private readonly playerMutate?: PlayerMutateService,
     // 指令来源登记器：dispatch 入口统一记录「用户最后指令渠道」，供
-    // ChatService.broadcastSystem 判定延时结果是否回推 QQ。@Optional 兼容测试桩
-    // （未注入时不登记，bot:push 过滤端随之回落为不推，宁可漏推不错推）。
+    // ChatService.broadcastSystem 判定延时结果是否回推 QQ。未注入时不登记，
+    // bot:push 过滤端随之回落为不推（宁可漏推不错推）。
     @Optional() private readonly sourceRegistry?: CommandSourceRegistry,
     // 系统配置中心：读取「私密指令名单/占位文本」，给探测雷达等情报类指令结果打私密标记。
-    // @Optional 兼容手工构造的测试桩（未注入时不做私密判定，行为与改造前一致）。
+    // 未注入时不做私密判定（结果一律公开）。
     @Optional() private readonly systemConfigService?: SystemConfigService,
-    // 成就系统：指令收尾写「发送指令」成就（称号「肝帝」系列条件）。
-    // @Optional 兼容手工构造的测试桩（未注入时跳过成就写入，任务推进行为不变）。
+    // 成就系统：指令收尾写「发送指令」成就（称号「肝帝」系列条件）。未注入时跳过成就写入。
     @Optional() private readonly achievementService?: AchievementService,
   ) {
-    // P2 管道注入自检：@Optional 注入失效（模块装配遗漏/循环依赖截断）会静默
-    // 回落旧路径，生产极难察觉——正式库 CurrencyLog 空表事故的直接教训。
+    // 管道注入自检：@Optional 注入失效（模块装配遗漏/循环依赖截断）会静默回落旧路径，
+    // 生产极难察觉——正式库 CurrencyLog 空表事故就是这么来的。
     this.logger.log(
       `指令层 mutate 管道注入自检: ${this.playerMutate?.mutate ? '已激活' : '未注入（写入口收口失效，回落旧路径！）'}`,
     );
@@ -81,8 +76,7 @@ export class CommandService {
 
   /**
    * 已启用指令全量行（带 TTL 缓存）。
-   * dispatch 的 name 精确/alias 精确/前缀回退三级匹配全部改为在内存中完成，
-   * 不再每次打库。
+   * dispatch 的 name 精确 / alias 精确 / 前缀回退三级匹配全部在内存中完成，不每次打库。
    */
   private async getEnabledCommands(): Promise<Array<Record<string, any>>> {
     const now = Date.now();
@@ -101,16 +95,16 @@ export class CommandService {
    * 避免玩家在网页/QQ 看到字面标记。
    */
   async dispatch(ctx: CommandContext): Promise<CommandResult> {
-    // 登记该用户最后指令渠道（QQ/网页/API 覆盖写）：延时结算消息是否回推 QQ
-    // 以此为准——用户最后用哪个渠道玩，延时结果就回推到哪个渠道（2026-09-08 约定）。
+    // 登记该用户最后指令渠道（QQ/网页/API 覆盖写）：延时结算消息是否回推 QQ 以此为准
+    // ——用户最后用哪个渠道玩，延时结果就回推到哪个渠道。
     if (ctx.userId && this.sourceRegistry) {
       this.sourceRegistry.mark(ctx.userId, ctx.source);
     }
     // 原版每条指令都经过 _计算玩家：累计「在线时间」成就（加成计算.ecode L1588-1605）
     // 并记录曾经最高战斗力（L2474-2477），供 使魔排行 各子榜读取。
-    // typeof 仅为运行时兜底：recordRankingStats 是 GameService 正式方法（类型上必存），
+    // typeof 只是运行时兜底：recordRankingStats 是 GameService 正式方法（类型上必存），
     // 但测试桩以 plain object 手工构造（如 pet-search-inventory-display.spec）可能缺该方法；
-    // try/catch 保证排行统计异常不影响指令本身（RVW04 P2-10：去除 as any，保留运行时防御）。
+    // try/catch 保证排行统计异常不影响指令本身。
     if (ctx.userId && typeof this.gameService.recordRankingStats === 'function') {
       try {
         await this.gameService.recordRankingStats(ctx.userId);
@@ -196,8 +190,8 @@ export class CommandService {
       //     打开箱子处理期间「开箱」标记未过期 → 拦截一切其他指令。
       //     原版语义：开箱是同步动作、锁只是防重复提交，正常情况下玩家感知不到；
       //     只有处理卡顿/并发连发时才会看到“正在开箱子，或者等待X”。
-      //     typeof 仅为运行时兜底：getOpenBoxLockText 是 GameService 正式方法（类型上必存），
-      //     部分测试/轻量环境的 GameService 桩未实现该方法（RVW04 P2-10：去除 as any）。
+      //     typeof 只是运行时兜底：getOpenBoxLockText 是 GameService 正式方法（类型上必存），
+      //     部分测试/轻量环境的 GameService 桩未实现该方法。
       if (ctx.userId && typeof this.gameService.getOpenBoxLockText === 'function') {
         const openBoxLock = await this.gameService.getOpenBoxLockText(ctx.userId);
         if (openBoxLock) {
@@ -217,13 +211,11 @@ export class CommandService {
       const uid = ctx.userId;
       if (uid && this.taskService) {
         try {
-          // 写入口收口：ensureTutorialTasks 只经 markPlayerDirty 透传脏信号，自身不落库。
-          // 本调用点位于 mutate 管道之外（下方 5 段才把 handler 包进 mutate），若不包
-          // mutate，脏信号两路（ActorRuntime / mutateContext）均无人消费 → 领取永远
-          // 不落库 → 每条指令重复输出「领取了新手教程」（测试库实证：剑圣 markers
-          // 无“教程”键、tasks 无新手教程，其余标记全部正常持久化）。
-          // 另两处调用点（selectFamiliar / handleInfo）本就运行在 handler 的 mutate
-          // 内，markPlayerDirty 能命中 mutateContext，无此问题。
+          // 写入口收口：ensureTutorialTasks 只经 markPlayerDirty 透传脏信号、自身不落库，
+          // 而本调用点在主 mutate 之外（下方 5 段才把 handler 包进 mutate）。若不包 mutate，
+          // 脏信号两路（ActorRuntime / mutateContext）都无人消费 → 领取永不落库 →
+          // 每条指令重复输出「领取了新手教程」。selectFamiliar / handleInfo 两处调用点
+          // 运行在 handler 的 mutate 内，markPlayerDirty 能命中 mutateContext，无需额外包裹。
           const taskService = this.taskService;
           const claim = () => taskService.ensureTutorialTasks(uid);
           const added = this.playerMutate
@@ -356,15 +348,11 @@ export class CommandService {
         };
       }
 
-      // 3. 校验权限（当前先简化，管理员指令需 ADMIN 以上）
-      if (cmdDef.minRole !== 'USER' && ctx.source === CommandSource.WEB) {
-        // TODO: 接入用户角色判断，此处预留
-      }
+      // 3. 权限：指令引擎不按 cmdDef.minRole 拦截——minRole 只用于「帮助」列表筛选
+      //    （help.handler 只列 minRole='USER' 的指令）；管理员能力由 @Roles + RolesGuard
+      //    在控制器层把关（见 modules/admin/admin.controller.ts）。
 
-      // 4. 冷却检查（严格对齐原版 per-action 模式）：
-      //    引擎层不做任何"指令级统一冷却"。所有冷却由具体动作逻辑（战斗/闪避/传送等）
-      //    各自写入玩家 markers2 持久化标记控制。此处直接分发。
-      //    （历史遗留的内存 Map 冷却已移除，避免与"原版绑定玩家标记"冲突。）
+      // 4. 冷却检查：引擎层不做指令级统一冷却（per-action 模式，见文件头），此处直接分发。
 
       // 5. 找到对应的处理器并执行
       const handler: CommandHandler | undefined = this.handlerMap[cmdDef.handlerKey];
@@ -417,10 +405,10 @@ export class CommandService {
         }
       }
 
-      // 单玩家写入口收口：整条指令（含 GameService / 战斗 / 使魔 / 兑换等所有
-      // 服务的读改写）在 Actor 式 mutate 内串行执行、复用唯一快照。这从基础设施层
-      // 彻底消除"旧快照整包覆盖 / CAS 并发冲突（玩家数据并发冲突，请重试）"类事故——
-      // 历史上反复的快照覆盖 bug 根因就是子流程自行重读档并落库，令外层快照过期。
+      // 单玩家写入口收口：整条指令（含 GameService / 战斗 / 使魔 / 兑换等所有服务的读改写）
+      // 在 Actor 式 mutate 内串行执行、复用唯一快照，从基础设施层消除"旧快照整包覆盖 /
+      // CAS 并发冲突（玩家数据并发冲突，请重试）"类事故——根因是子流程自行重读档并落库，
+      // 令外层快照过期。
       let result: CommandResult;
       if (ctx.userId && this.playerMutate) {
         result = await this.playerMutate.mutate(ctx.userId, async (mutCtx) => {
@@ -447,7 +435,7 @@ export class CommandService {
         const uid = ctx.userId;
         try {
           // 写入口收口：指令收尾的自动技能与主指令共用同一 mutate 管道
-          // （此段运行在主 mutate 之外，历史上是管道外写入点之一）。
+          //（此段运行在主 mutate 之外，是容易漏掉的管道外写入点）。
           const autoSkillText = this.playerMutate
             ? await this.playerMutate.mutate(uid, () => this.gameService.triggerAutoFamiliarSkill(uid))
             : await this.gameService.triggerAutoFamiliarSkill(uid);
@@ -463,7 +451,7 @@ export class CommandService {
 
       // 5.2 若离线有回复，拼在指令结果之前（如 "生命回复 +12\n<指令结果>"）
       if (offlineRegen && result.content) {
-        result.content = `${offlineRegen}\n━━━━━━━━━━━━━━━\n${result.content}`;
+        result.content = `${offlineRegen}\n${CARD_DIVIDER}\n${result.content}`;
       }
 
       // 5.25 每日登录结算 + 教程领取提示（原版 _主程序.ecode L11686-11821 每条消息
@@ -507,18 +495,15 @@ export class CommandService {
         }
       }
 
-      // 任务结算必须与指令主链路共用同一份权威态。
-      //
-      // 此前 finishCommandTasks 在 mutate 之外执行，taskService.advance 会走
-      // prisma.findUnique 重新读档：一旦本条指令内已有其它落库点（典型如开箱链路上
-      // distributeLoot → addAchievement 触发的成就写入），库内就会先出现一个「加锁后、
-      // 装备入包前」的中间态，advance 随后用这份旧档发奖，再经 saveTaskState 把
-      // backpack 整列回写（白名单含 'backpack'），把指令后半段的产出（装备入包、
-      // 数量扣减、使用计数、开箱锁解除）整体抹掉——表现为「回复说得到了装备，背包里
-      // 却没有、数量也没扣」。该故障只在「同一条指令同时完成任务」时出现，故间歇复发。
-      //
-      // 包进同一个 mutate 后：advance 直接复用 ctx.player（权威态）读改写，且因
-      // ctx 存在而跳过 saveTaskState 的整列回写，最终由 mutate 统一落库最终态。
+      // 任务结算必须与指令主链路共用同一份权威态，因此包进同一个 mutate。
+      // 若在 mutate 外调 taskService.advance，它会重新 findUnique 读档：一旦本条指令内
+      // 已有其它落库点（典型：开箱链路 distributeLoot → addAchievement 写成就），库里就
+      // 存在「加锁后、装备入包前」的中间态；advance 用这份旧档发奖，再经 saveTaskState
+      // 整列回写 backpack（白名单含 'backpack'），把指令后半段产出（装备入包、数量扣减、
+      // 使用计数、开箱锁解除）整体抹掉——表现为「回复说得到了装备，背包里却没有、数量
+      // 也没扣」，且只在同一条指令同时完成任务时复发。
+      // 包进同一 mutate 后：advance 直接复用 ctx.player（权威态）读改写，且因 ctx 存在而
+      // 跳过 saveTaskState 的整列回写，最终态由 mutate 统一落库。
       if (ctx.userId && this.playerMutate) {
         await this.playerMutate.mutate(ctx.userId, async () => {
           await this.finishCommandTasks(ctx, sentText, result);
@@ -599,10 +584,9 @@ export class CommandService {
   }
 
   /**
-   * 指令执行成功后，向该用户前端做一次全量状态推送
+   * 指令执行成功后，向该用户前端做一次全量状态推送：
    * 同时刷新玩家面板(player:update) 和 地图面板+附近玩家(map:update)，
    * 使打怪/采集/移动等产生的数值变化立即体现在网页上，无需手动刷新。
-   * @param userId 用户ID
    */
   private async pushState(userId?: number): Promise<void> {
     if (!userId) return;
@@ -615,16 +599,12 @@ export class CommandService {
   }
 
   /**
-   * 记录指令执行日志
-   * 超长回包（批量召唤等）先截断再入库，避免 CommandLog.result 被极端长度撑爆
-   */
-  /**
    * 合并玩家「额外文本」到本次指令回包（原版 _主程序.ecode L12033-12034：
    * `w = w + 玩家.额外文本` 后清空）。
    *
-   * `Player.额外文本` 不是数据库列，是原版「玩家」数据类型里的临时缓冲：战斗/死亡复活
-   * 等流程把提示写进去，由指令收尾统一拼接输出。此前全仓只写不读 → 复活提示（森罗万象/
-   * 死亡行者/石中剑）等被静默吞掉；此处补上唯一消费点，与 mutate 同一快照、零额外读档。
+   * `Player.额外文本` 不是数据库列，而是原版「玩家」数据类型里的临时缓冲：战斗/死亡复活
+   * 等流程把提示写进去（森罗万象/死亡行者/石中剑等），本方法是唯一消费点，
+   * 与 mutate 同一快照、零额外读档。
    */
   private mergePlayerExtraText(mutCtx: MutateContext, result: CommandResult): void {
     const raw = mutCtx?.player?.额外文本;
@@ -639,6 +619,7 @@ export class CommandService {
     result.content = result.content ? `${result.content}\n${extra}` : extra;
   }
 
+  /** 记录指令执行日志：超长回包（批量召唤等）先截断再入库，避免 CommandLog.result 被极端长度撑爆 */
   private async recordLog(ctx: CommandContext, command: string, result: CommandResult) {
     const MAX_LOG_RESULT_CHARS = 80_000;
     const raw = result.content ?? '';
@@ -662,9 +643,7 @@ export class CommandService {
     }
   }
 
-  /**
-   * 获取所有已注册的可执行指令列表（用于"帮助"指令）
-   */
+  /** 获取所有已注册的可执行指令列表（用于"帮助"指令） */
   async listCommands() {
     const rows = await this.getEnabledCommands();
     return rows
@@ -685,7 +664,6 @@ export class CommandService {
   async matchCommandName(text: string): Promise<boolean> {
     const clean = text.trim().replace(/^[\/！!]+/, '');
     if (!clean) return false;
-    // 取第一个单词
     const name = clean.split(/\s+/)[0];
     if (!name) return false;
     const allCmds = await this.getEnabledCommands();

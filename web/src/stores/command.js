@@ -1,7 +1,6 @@
 /**
- * 指令列表状态（Pinia）
- * 接管原本散落在 ChatView 的 commands（全量指令列表：名称/描述/别名/参数 schema）。
- * 提供统一加载动作，供命令面板、自动补全、消息高亮、参数校验等共享，避免各视图各自拉取。
+ * 指令列表状态（Pinia）：全量指令（名称/描述/别名/参数 schema）
+ * 供命令面板、自动补全、消息高亮、参数校验共享，避免各视图各自拉取。
  */
 import { defineStore } from 'pinia';
 import { commandApi } from '../api';

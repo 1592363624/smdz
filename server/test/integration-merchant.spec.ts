@@ -175,7 +175,7 @@ describe('行商迁移（真实数据库端到端）', () => {
       const merchant = await merchantFromMap();
       expect(parseJson(merchant.backpack, [])).toHaveLength(24);
       const after = await prisma.player.findUnique({ where: { userId } });
-      // Issue#11 物品身份规范化：发带为 items.json 材料类，读档自愈把历史脏 type
+      // 物品身份规范化：发带为 items.json 材料类，读档自愈把历史脏 type
       // 资源 收敛为规范 type=物品（继承原版物品表）
       expect(parseJson(after!.backpack, [])).toEqual([
         { name: '发带', type: '物品', quantity: 1 },
@@ -293,7 +293,7 @@ describe('行商迁移（真实数据库端到端）', () => {
   });
 
   it('兑换按活跃度、钻石、数据核心顺序匹配', async () => {
-    // P1 货币列化：货币真相源是列（读取时物化回背包）
+    // 货币列化：货币真相源是列（读取时物化回背包）
     await setPlayer({
       markers: JSON.stringify({ 活跃度: 0 }),
       diamonds: 20,

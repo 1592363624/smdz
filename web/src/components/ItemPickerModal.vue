@@ -1,9 +1,7 @@
 <!--
-  通用物品选择弹窗（ItemPickerModal）
-  从游戏物品目录（items.json 物品 + equipments.json 装备，接口 GET /admin/gm/catalog）
-  中搜索并选择一个物品。设计为公共组件：任何需要「从全部游戏道具中选择」的场景
-  （签到奖励、GM 发放、商店/掉落配置等）都可直接挂载，选择结果通过 select 事件抛出，
-  组件自身不持有业务状态，也不关心选中后用来做什么。
+  通用物品选择弹窗：从游戏物品目录（items.json 物品 + equipments.json 装备，接口 GET /admin/gm/catalog）
+  搜索并选中一件物品，结果通过 select 事件抛出。组件自身不持有业务状态，任何「从全部游戏道具中选择」的
+  场景（签到奖励、GM 发放、商店/掉落配置）都可直接挂载。
 
   用法：
     <ItemPickerModal v-model:visible="pickerVisible" title="选择奖励物品" @select="onPicked" />

@@ -42,7 +42,7 @@ const staticDataMock = {
 } as unknown as StaticDataService;
 
 // ItemService 真实实例（bonusToDataString 为纯方法，无需 DB 依赖）
-// 第三个参数 combatState 用于 recomputeSets 套装重算；此处给空桩即可（本文件早期用例不触发套装）
+// 第三个参数 combatState 用于 recomputeSets 套装重算；此处给空桩即可（本套用例不触发套装）
 const itemServiceReal = new ItemService({} as PrismaService, {} as StaticDataService, {} as any, {} as any, {} as any);
 
 const itemSystem = new ItemSystemService(
@@ -63,7 +63,7 @@ describe('生成装备 (物品操作.ecode L1128-1261)', () => {
 
   it('修复点：中文 bonus 键(攻击)被映射为英文并编码进 data（含 !ai 攻击编码）', async () => {
     // 模板 bonus 含中文"攻击"，AFFIX_TO_BONUS["攻击"]="attack"，BONUS_CODE_MAP 反查 ai=attack
-    // 旧版会丢失（中文键查不到），新版应生成 !ai<数值>
+    // 中文键查不到编码就会丢失加成，应生成 !ai<数值>
     const item = await itemSystem['generateEquipment']('测试铠甲', 'a', 0);
     expect(item.data).toMatch(/!ai\d+/); // 攻击加成被编码
   });

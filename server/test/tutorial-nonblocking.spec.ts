@@ -1,14 +1,14 @@
 /**
- * 新手指引「只追加、不拦截」回归（2026-09-13）
+ * 新手指引「只追加、不拦截」回归
  *
- * 背景：2026-09-12 用户实测「首次穿上 麻醉枪A」只看到引导（且文案写死石制工具）、装备未生效——
+ * 背景：用户实测「首次穿上 麻醉枪A」只看到引导（且文案写死石制工具）、装备未生效——
  * 根因是引导在动作执行前拦截 return。统一口径：指令正文照常执行，引导追加在正文之后
  * （对齐原版 物品操作.ecode L811 查看背包、_主程序.ecode L4262/L4289 装备引导）。
  *
- * 本套件覆盖「背包 / 地图 / 信息 / 查看使魔 / 对话」五条指令（背包、地图、信息的引导实现
- * 已从 game 处理器死分支迁移到各自的 InventoryHandler / MapHandler / InfoHandler；
- * 对话的 talk 引导此前只消费不展示，现追加到正文末尾），以及引导消费入口
- * TutorialService.consumeTutorial 的「每类只提示一次 + 标记落库」语义。
+ * 本套件覆盖「背包 / 地图 / 信息 / 查看使魔 / 对话」五条指令（背包、地图、信息的引导
+ * 实现在各自的 InventoryHandler / MapHandler / InfoHandler；对话的 talk 引导追加到正文
+ * 末尾），以及引导消费入口 TutorialService.consumeTutorial 的「每类只提示一次 +
+ * 标记落库」语义。
  */
 
 import { InventoryHandler } from '../src/modules/command/handlers/inventory.handler';

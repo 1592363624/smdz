@@ -1,20 +1,19 @@
 /**
- * 共享支撑层服务（game 模块化重构 P1-3 抽出）
+ * 共享支撑层服务
  *
  * 职责：被多个指令域共用、无业务语义的底层辅助——数值/时长/序号格式化、
  *       Json 与标记（markers/markers2）读写、随机数、地图/玩家只读快照、
  *       跨域任务推进适配、玩家写模型收口薄封装（mutatePlayer）。
- * 依赖方向：只依赖基础设施与纵向系统服务（Prisma / Player / PlayerMutate /
- *       Map / StaticData / Task / CombatState）；**禁止注入任何指令域子服务
- *       （game/commands/*.service）**——支撑层零回边（门禁 G7 断言出度边=0）。
- * 单一真相源：数值展示统一 game-text.util.formatDisplayNumber（round2Text /
- *       formatGatherNumber 均为薄委托）；时长文本统一 formatMsDurationText /
- *       formatSecondsDurationText（millisecondsToText / secondsToTimeText /
- *       formatUptime 均为薄委托）。
+ * 依赖方向：**禁止注入任何指令域子服务（game/commands/*.service）**——支撑层
+ *       零回边（门禁 G7 断言出度边=0）。
+ * 统一出口：数值展示走 game-text.util.formatDisplayNumber、时长文本走
+ *       formatMsDurationText / formatSecondsDurationText；本服务的
+ *       round2Text / formatGatherNumber / millisecondsToText / secondsToTimeText /
+ *       formatUptime 均为薄委托。
  * 对口原版：散落于 _主程序.ecode 的 通用 取随机数/数字到时间/显示数字 等子程序。
  *
  * 方法可见性：全部 public——它们经 GameService 门面被各指令域与测试桩调用
- *（重构方案 §10.2：跨子服务调用的方法一律放弃 private 语义）。
+ *（跨子服务调用的方法一律放弃 private 语义）。
  */
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -45,8 +44,7 @@ export class GameSupportService {
     private readonly taskService: TaskService,
     private readonly combatState: CombatStateService,
     private readonly shortcutService: ShortcutService,
-    // PlayerMutateService 可选：与原 GameService.mutatePlayer 相同的降级回退
-    //（测试桩未注入时走 enqueueUserWrite 等价路径，行为不变）。
+    // PlayerMutateService 可选：测试桩未注入时退化为 enqueueUserWrite 等价路径。
     @Optional() private readonly playerMutate?: PlayerMutateService,
   ) {}
 
@@ -55,7 +53,7 @@ export class GameSupportService {
    *
    * 生产环境由 Nest 注入真实的 PlayerMutateService（Actor 式：锁内单一快照、
    * 统一落库、货币审计、嵌套复用）。测试桩若不提供该依赖，则退化为等价的
-   * 「enqueueUserWrite + getPlayerData + fn + savePlayer」路径，保持旧行为不变，
+   * 「enqueueUserWrite + getPlayerData + fn + savePlayer」路径，
    * 避免逐个测试桩补依赖。
    */
   mutatePlayer<T>(userId: number, fn: (ctx: any) => Promise<T> | T): Promise<T> {
@@ -90,7 +88,6 @@ export class GameSupportService {
 
   /**
    * 判断玩家是否装备指定名称的装备（对应原版 装备要求）
-   * @param player 玩家对象
    * @param name 装备名称
    */
   hasEquip(player: any, name: string): boolean {
@@ -129,9 +126,6 @@ export class GameSupportService {
     return String(item?.type ?? '');
   }
 
-  /**
-   * 获取玩家名称的辅助方法
-   */
   async getPlayerName(userId: number): Promise<string> {
     try {
       // 走 getPlayerData：Actor 邮箱内读内存活态，改名后无需等待落库即可生效
@@ -143,9 +137,7 @@ export class GameSupportService {
   }
 
   /**
-   * 获取玩家当前所在的地图对象
-   * @param userId 用户ID
-   * @returns 地图对象
+   * 获取玩家当前所在的地图对象（玩家档案不存在时抛错）
    */
   async getCurrentMap(userId: number): Promise<any> {
     const player = await this.prisma.player.findUnique({ where: { userId } });
@@ -205,10 +197,9 @@ export class GameSupportService {
   /**
    * 解析资源的采集指令：条目自带 gatherCmd 优先，缺失时回退到全局资源列表的同名定义。
    *
-   * 事故背景（2026-09-06）：定时任务掉落货舱/能量元素时只写入了 {name,type,amount}
-   * 字面量，缺 gatherCmd；观察附近照样给它编了号，但 cmd 为空 → 编号不注册 →
-   * 玩家发送编号后完全没有反应（连"未知指令"提示都没有）。
-   * 这里做兜底：只要资源名能在全局资源表里找到，编号就一定点得动。
+   * 这里做兜底：定时任务掉落的货舱/能量元素只写入了 {name,type,amount} 字面量、
+   * 缺 gatherCmd；若不给它编号，玩家发送编号后完全没有反应（连"未知指令"提示都没有）。
+   * 只要资源名能在全局资源表里找到，编号就一定点得动。
    */
   resolveGatherCmd(resource: any): string {
     const own = String(resource?.gatherCmd ?? '').trim();
@@ -315,11 +306,6 @@ export class GameSupportService {
   }
 
   /**
-   * 排行榜输出（原版 L9733-9745）：按数值降序取前30，格式「N、名称(数值)」。
-   * 在线时间子榜（原版 L9737-9741）数值用 数字到时间 格式，通过 valueText 定制。
-   */
-
-  /**
    * 编号 → 临时输入的注册（唯一入口）。
    * items 的 index 由调用方显式给出——buildNumberedMenu 用 i+1，原版明细菜单用游戏内编号
    * （如羁绊技能的 0=未指定 / 1..N=技能 id），从而保证「展示的编号」与「可发送的编号」同源。
@@ -381,17 +367,10 @@ export class GameSupportService {
     return lines;
   }
 
-  /**
-   * 查看地图单位详情（原版 对话菜单 1、查看 → 查看X，_主程序.ecode L1519-1520）。
-   * 支持 NPC/召唤物/怪物；找不到返回空串（由调用方回退到查看自己）。
-   */
-
   itemQuantity(item: any): number {
     if (item == null) return 0;
     return Number(item.quantity ?? 1) || 0;
   }
-
-  /** 任务推进的服务层适配点，避免任务服务不可用时影响核心玩法动作。 */
 
   deductBackpackItem(backpack: any[], name: string, quantity: number): void {
     const item = backpack.find((i: any) => i?.name === name);
@@ -401,18 +380,15 @@ export class GameSupportService {
       const idx = backpack.indexOf(item);
       if (idx !== -1) backpack.splice(idx, 1);
     } else {
-      // 数量只写规范键 quantity（count 镜像已由持久化边界收敛，不再回写）
+      // 数量只写规范键 quantity：count 镜像会造成同一条目两个数量互相打架
       item.quantity = current - quantity;
     }
   }
 
-  /**
-   * 刷新怪物（管理员）（原版 _主程序.ecode L6829-6851）。
-   * 管理权限 → 怪物列表按名称查找（未找到→“怪物列表未找到X”）→ _初始化怪物
-   * （等级成长/三层池公式，复用 map.service.buildMonsterSpawnData）→ 加入当前地图怪物2
-   * → “在X刷新了一只Y”。非管理员原版静默无输出，新版明确提示权限（与设置位置同口径）。
-   */
-
+   /**
+    * 装备条目是否带指定特殊序号（对应原版 装备要求）
+    * 刷新怪物（管理员）（原版 _主程序.ecode L6829-6851）。
+    */
   hasEquippedSpecial(
     playerData: any,
     equipmentName: string,

@@ -17,6 +17,5 @@ export const ITEM_SYSTEM_SERVICE = 'ITEM_SYSTEM_SERVICE';
  * 直接 import CombatSystemService，会翻转 item.service → combat-system → familiar-skills
  * 的 CommonJS 模块初始化顺序，familiar-skills 顶部 `ItemSystemService.AFFIX_TO_BONUS`
  * 静态初始化会读到半初始化模块（test/item-primitives.spec.ts 实证崩溃）。
- * 故同 ITEM_SYSTEM_SERVICE 惯例：字符串 token + GameModule useExisting 别名解耦。
  */
 export const COMBAT_SYSTEM_SERVICE = 'COMBAT_SYSTEM_SERVICE';

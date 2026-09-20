@@ -1,7 +1,7 @@
 import { FamiliarSkillsService } from '../src/modules/game/familiar-skills.service';
 
 /**
- * Issue #9 反馈③回归：时间主宰「掌控时间」对齐原版（使魔技能.ecode L2090-2099）
+ * 回归：时间主宰「掌控时间」对齐原版（使魔技能.ecode L2090-2099）
  *
  * 原版行为：装备时间主宰 → 获得增益(标记2, 类型+"技能冷却", -60, 叠加时间=真)
  * → 当前使魔类型的技能冷却剩余时间直接减 60 秒（减完即清空），自身冷却 360 秒（6分钟），

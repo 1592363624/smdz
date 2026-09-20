@@ -106,7 +106,7 @@ function makeService(options: {
       scheduled.push({ userId, mapId, name, seconds });
     }),
   });
-  // P3-6a：movement/vehicle 域已迁出，跨簇调用经门面引用——桩自挂门面
+  // movement/vehicle 域的跨簇调用经门面引用——桩自挂门面
   // scheduleArrival 的 spy 需落在子服务实例上（实体已迁出）
   (service as any).movementVehicleService.scheduleArrival = (service as any).scheduleArrival;
   return { service, player, currentMap, targetMap, saved, scheduled, playerService, mapService: service.mapService };

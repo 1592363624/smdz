@@ -1,11 +1,6 @@
 /**
- * 救援/白天使指令域服务（game 模块化重构 P3-5 抽出）
- *
- * 职责：救助/扶起/复活使魔、自救、救援标记（创建/领取/过期/善后）、绑定载具维修、
- * 白天使全家桶（召唤物落位/好感同步/复活传送/重生图解析/白的对话任务池与羁绊联动）。
- * 依赖方向：依赖 Player、Map、Task、Prisma、Chat、DelayedTaskService、CombatSystem、
- * 支撑层（firstPositiveNumber/mutatePlayer 等）；跨域直接注入兄弟子服务
- * MovementVehicle（movement↔rescue 互调边，forwardRef 断环）。
+ * 救援/白天使指令域服务：救助/扶起/复活使魔、自救、救援标记（创建/领取/过期/善后）、
+ * 绑定载具维修、白天使全家桶（召唤物落位/好感同步/复活传送/重生图解析/白的对话任务池与羁绊联动）。
  * 单一真相源：救援标记秒口径统一 rescueExpireAtSeconds；地面单位出入统一
  * mutateSummons 锁内闭环（mapService）。
  * 对口原版：_主程序.ecode 救助/复活/白 召唤分支。
@@ -34,7 +29,7 @@ export class RescueWhiteService {
     private readonly mapService: MapService,
     private readonly chatService: ChatService,
     private readonly taskService: TaskService,
-    // 跨域兄弟直连（P4 清理：原过渡期经门面引用）。movement↔rescue 互调边用 forwardRef 断环。
+    // 跨域兄弟直连：movement↔rescue 互调边用 forwardRef 断环。
     @Inject(forwardRef(() => MovementVehicleService))
     private readonly movement: MovementVehicleService,
     @Optional() private readonly delayedTaskService?: DelayedTaskService,
@@ -111,9 +106,7 @@ export class RescueWhiteService {
   }
 
   /**
-   * 处理对话命令
-   * 与地图上的NPC对话，根据NPC类型显示不同对话文本，支持触发任务
-   * 对应原版：对话 命令
+   * 「扶」：把同地图处于「卷土重来」状态的倒地玩家扶起（5 秒延时结算）。
    */
 
   async handleHelpUp(userId: number): Promise<string> {
@@ -161,7 +154,9 @@ export class RescueWhiteService {
     return `${playerName}正在救助玩家，大概需要5秒`;
   }
 
-  /** 解析救援相关 JSON，兼容对象、数组和旧版中英文字段。 */
+  /**
+   * 「复活使魔」：仅当自己已倒地时可用，走 30 秒延时自救（与「救助」自救分支同一条链路）。
+   */
 
   async handleReviveFamiliar(userId: number): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -190,11 +185,7 @@ export class RescueWhiteService {
     return `${player.name || '冒险者'}正在抢救中，需要30秒`;
   }
 
-  /**
-   * 处理安乐天使命令
-   * 装备技能：创造护盾保护自己
-   * 委托到 FamiliarSkillsService.executeSkill 执行安乐天使技能
-   */
+  /** 解析救援相关 JSON，兼容对象、数组和中英文字段名。 */
 
   parseRescueArray(value: any): any[] {
     if (Array.isArray(value)) return value;
@@ -401,10 +392,9 @@ export class RescueWhiteService {
 
   /**
    * 原子认领救援标记：从 markers2 移除指定 token 并持久化，返回是否认领成功。
-   * 进程内延时定时器与每5秒的兜底扫描是两个并发结算入口，且结算链路
-   * （白传送/地图读写/任务推进）耗时可超过兜底间隔；旧实现"先结算最后才删标记"
-   * 会让重入方在窗口内再次通过 token 校验，导致"感觉好一点了吗？"等结算文本
-   * 被重复广播刷屏。改为结算前先按 CAS（条件更新）抢删标记：
+   * 进程内延时定时器与每 5 秒的兜底扫描是两个并发结算入口，且结算链路（白传送/地图读写/
+   * 任务推进）耗时可超过兜底间隔：若「先结算最后才删标记」，重入方会在窗口内再次通过 token
+   * 校验，导致「感觉好一点了吗？」等结算文本被重复广播刷屏。因此结算前必须先按 CAS 抢删标记：
    * 只有认领成功的调用继续结算+广播，失败方立即放弃，保证恰好一次。
    */
 
@@ -418,11 +408,10 @@ export class RescueWhiteService {
     // 回滚快照保留原引用（数组或字符串均可，setter/asJsonValue 双态兼容）
     const prevMarkers2 = player.markers2;
     // 认领必须走整包 savePlayer（中央乐观锁按 (id,version) CAS），理由同采集结算：
-    // 不带 version 的定点条件写会被乐观锁拦截器注入 version+1，调用方内存快照
-    // 版本失步，后续整包保存必然并发冲突失败；且定点写不使其它旧快照失效，
-    // 持旧 markers2 的并发写者仍能把已认领的救援标记原样写回复活（重复广播）。
-    // 整包 CAS 失败（P2025 并发冲突）说明另一入口已在结算，本调用立即放弃，
-    // 标记仍留库中由下一轮兜底重试，不会丢结算。
+    // 不带 version 的定点条件写会被乐观锁拦截器注入 version+1，调用方内存快照版本失步，
+    // 后续整包保存必然并发冲突失败；且定点写不使其它旧快照失效，持旧 markers2 的并发写者
+    // 仍能把已认领的救援标记原样写回复活（重复广播）。整包 CAS 失败说明另一入口已在结算，
+    // 本调用立即放弃，标记仍留库中由下一轮兜底重试，不会丢结算。
     player.markers2 = remaining; // Json 列直接写数组
     try {
       await this.playerService.savePlayer(player);

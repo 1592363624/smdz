@@ -5,7 +5,7 @@ describe('VitalityService', () => {
   /**
    * 构造被测服务。
    * configOverrides 按配置键覆盖返回值，未覆盖的键回退到默认值，
-   * 避免旧的"一个布尔值影响所有配置"式 mock 造成用例间干扰。
+   * 避免「一个布尔值影响所有配置」式 mock 造成用例间干扰。
    */
   function build(configOverrides: Record<string, boolean> = {}) {
     const systemConfig: any = {
