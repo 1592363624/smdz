@@ -38,8 +38,15 @@
     <!-- 数据加载中 -->
     <div v-else-if="!data && loading" class="fl-loading">前线数据加载中…</div>
 
+    <!-- 拉取失败：原来 error 只写不读，失败时整页空白，玩家不知道是前线没了还是网络断了 -->
+    <div v-else-if="!data && error" class="fl-loading err">
+      <div>{{ error }}</div>
+      <button class="fl-btn primary" :disabled="loading" @click="refresh">重试</button>
+    </div>
+
     <!-- 主体：QQ 农场式模块卡片 -->
     <main v-else-if="data" class="fl-body">
+      <div v-if="error" class="fl-banner">{{ error }}（下面仍是最近一次成功加载的前线状态）</div>
       <!-- 状态头卡：防御阵地总览 -->
       <section class="fl-block status">
         <div class="fl-block-head"><span class="fl-b-chip shield">🛡️</span><span>防御阵地</span></div>
@@ -448,6 +455,24 @@ button.fl-switch-btn:hover {
   align-items: center;
   justify-content: center;
   color: var(--muted);
+}
+/* 失败态：文案 + 重试按钮竖排居中，红字（原来连 .err 样式都没有，失败就是一屏空白） */
+.fl-loading.err {
+  flex-direction: column;
+  gap: 12px;
+  color: #f87171;
+  text-align: center;
+  padding: 24px;
+  line-height: 1.7;
+}
+/* 已有数据但本轮刷新失败：顶部提示"看到的是上一次的结果" */
+.fl-banner {
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(248, 113, 113, 0.4);
+  background: rgba(248, 113, 113, 0.08);
+  color: #fca5a5;
+  font-size: 12px;
 }
 .fl-body {
   flex: 1;

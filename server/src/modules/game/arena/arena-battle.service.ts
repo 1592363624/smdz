@@ -104,7 +104,10 @@ interface FighterState {
   actions: number;
   hits: number;
   takenDamage: number;
+  /** 对手对我出手的次数 */
   takenActions: number;
+  /** 对手对我的出手里命中了的次数（与 `hits`＝我打中对手的次数不是一回事） */
+  takenHits: number;
 }
 
 @Injectable()
@@ -219,6 +222,7 @@ export class ArenaBattleService {
       hits: 0,
       takenDamage: 0,
       takenActions: 0,
+      takenHits: 0,
     };
   }
 
@@ -286,6 +290,7 @@ export class ArenaBattleService {
     const finalDamage = Math.round((shieldCut + armorCut + hpCut) * 100) / 100;
     def.takenDamage = round2(def.takenDamage + finalDamage);
     atk.hits++;
+    def.takenHits++;
 
     // 吸血：按攻击方 吸生命 比例回补自身生命池（不超过上限），让消耗战能收敛
     let leech = 0;
@@ -408,7 +413,9 @@ function sideView(fighter: ArenaFighter, state: FighterState) {
     },
     taken: {
       actions: state.takenActions,
-      hits: state.hits,
+      // 这里要的是"对手打中了我几次"。曾经直填 state.hits（=我打中对手的次数），
+      // 于是网页战报会打出「被打 1/0 次命中」这种自相矛盾的话——出手 0 次却命中 1 次。
+      hits: state.takenHits,
       damage: round2(state.takenDamage),
     },
   };

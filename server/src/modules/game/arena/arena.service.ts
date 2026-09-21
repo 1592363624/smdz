@@ -546,14 +546,25 @@ export class ArenaService {
   // 天梯榜
   // ==========================================================
 
-  /** 榜单行（按席位号降序 = 名次；同席位按镜像 id 升序，保证翻页稳定） */
-  async ladderRows(seasonId: number, page: number, pageSize: number): Promise<{ rows: LadderRow[]; total: number; page: number; pages: number }> {
+  /**
+   * 榜单行（按席位号降序 = 名次；同席位按镜像 id 升序，保证翻页稳定）。
+   *
+   * `search` 是按镜像主人名的模糊过滤：榜能上百页，"找到我要打的那个人"是刚需，
+   * 没它只能一页页翻。过滤后的 `rank` 仍是**全榜名次**（先取全量有序 id 再换算），
+   * 所以「挑战镜像 <rank>」这条指令在搜索结果里点的还是同一个人，不会串位。
+   */
+  async ladderRows(
+    seasonId: number, page: number, pageSize: number, search = '',
+  ): Promise<{ rows: LadderRow[]; total: number; page: number; pages: number; search: string }> {
     const take = Math.max(1, Math.floor(pageSize));
     const pageIndex = Math.max(1, Math.floor(page));
     const skip = (pageIndex - 1) * take;
+    const keyword = String(search || '').trim().slice(0, 24);
+    const where: any = { seasonId: Number(seasonId) };
+    if (keyword) where.ownerName = { contains: keyword };
     const [mirrors, total] = await Promise.all([
       this.prisma.arenaMirror.findMany({
-        where: { seasonId: Number(seasonId) },
+        where,
         orderBy: [{ rating: 'desc' }, { id: 'asc' }],
         skip,
         take,
@@ -562,10 +573,19 @@ export class ArenaService {
           rating: true, tier: true, version: true, updatedAt: true,
         },
       }),
-      this.prisma.arenaMirror.count({ where: { seasonId: Number(seasonId) } }),
+      this.prisma.arenaMirror.count({ where }),
     ]);
+    let rankById: Map<number, number> | null = null;
+    if (keyword) {
+      const ordered = await this.prisma.arenaMirror.findMany({
+        where: { seasonId: Number(seasonId) },
+        orderBy: [{ rating: 'desc' }, { id: 'asc' }],
+        select: { id: true },
+      });
+      rankById = new Map(ordered.map((r: any, i: number) => [Number(r.id), i + 1]));
+    }
     const rows = mirrors.map((m: any, idx: number) => ({
-      rank: skip + idx + 1,
+      rank: (rankById ? Number(rankById.get(Number(m.id))) : 0) || skip + idx + 1,
       mirrorId: m.id,
       ownerId: m.ownerId,
       ownerName: m.ownerName,
@@ -576,7 +596,7 @@ export class ArenaService {
       mirrorVersion: m.version,
       capturedAt: new Date(m.updatedAt).getTime(),
     }));
-    return { rows, total, page: pageIndex, pages: Math.max(1, Math.ceil(total / take)) };
+    return { rows, total, page: pageIndex, pages: Math.max(1, Math.ceil(total / take)), search: keyword };
   }
 
   /** 某镜像在主榜单上的名次（1-based；席位号越大越靠前；不在榜返回 0） */
@@ -657,6 +677,74 @@ export class ArenaService {
       frame ? `佩戴头像框：${frame.name}` : '',
       `「挑战镜像 ${rank}」或「挑战镜像 ${row.ownerName}」发起对决`,
     ].filter(Boolean).join('\n');
+  }
+
+  /**
+   * 榜单某名次镜像的侦察情报（Web 只读）。
+   *
+   * 信息口径与指令「竞技场 序号」逐字同源（同一份 mirrorSummaryLines），网页只是把纯文本换成
+   * 结构化字段方便排版，不额外多露任何快照内容。
+   * 这里不碰 getOrCreateProfile：只读接口不该因为"看了一眼对手"就建档上榜，
+   * 防连打冷却按 (userId, seasonId) 直查档案行，没有档案就是没有冷却。
+   */
+  async scoutMirror(userId: number, seasonId: number, rank: number) {
+    const cfg = await this.getConfig();
+    const targetRank = Math.max(1, Math.floor(Number(rank) || 0));
+    const { rows, total } = await this.ladderRows(
+      seasonId, Math.floor((targetRank - 1) / cfg.pageSize) + 1, cfg.pageSize,
+    );
+    const row = rows.find((r) => r.rank === targetRank);
+    if (!row) return { found: false as const, rank: targetRank, message: `天梯榜上没有第 ${targetRank} 名（本赛季共 ${total} 个镜像）。` };
+    const mirror = await this.prisma.arenaMirror.findUnique({ where: { id: row.mirrorId } });
+    if (!mirror || !isUsableMirror(mirror.snapshot)) {
+      return { found: false as const, rank: targetRank, message: '该镜像数据已失效，请侦察其他对手。' };
+    }
+    const snapshot = mirror.snapshot as MirrorSnapshot;
+    const bonus = snapshot.bonus || {};
+    const tier = String(row.tier || this.tierName(cfg, targetRank));
+    const profile = Number(userId) > 0
+      ? await this.prisma.arenaProfile.findFirst({
+        where: { userId: Number(userId), seasonId: Number(seasonId) },
+        select: { avoid: true },
+      })
+      : null;
+    const cooldownUntil = this.avoidUntilMap(profile, cfg)[String(row.mirrorId)] || 0;
+    const weaponName = String(
+      (snapshot.weapons?.[Math.max(0, Number(snapshot.currentWeapon) - 1)] as any)?.name ?? '拳头',
+    );
+    return {
+      found: true as const,
+      rank: targetRank,
+      mirrorId: row.mirrorId,
+      ownerId: row.ownerId,
+      ownerName: row.ownerName,
+      tier,
+      level: row.level,
+      power: row.power,
+      mirrorVersion: row.mirrorVersion,
+      capturedAt: row.capturedAt,
+      /** 我对该镜像的防连打解冻时刻（0=没有冷却）；能不能真打仍由服务端在开战时裁决 */
+      cooldownUntil,
+      /** 与 QQ 端「竞技场 序号」逐字相同的摘要文本，两条入口对同一份快照说法一致 */
+      summary: mirrorSummaryLines(snapshot, `${tier} · 第 ${targetRank} 名`),
+      detail: {
+        familiarType: String(snapshot.familiarType || ''),
+        equippedTitle: String(snapshot.equippedTitle || ''),
+        weaponName,
+        weaponCount: Number(snapshot.weapons?.length) || 0,
+        pools: {
+          hp: Math.round(Number(bonus['生命']) || 0),
+          armor: Math.round(Number(bonus['装甲']) || 0),
+          shield: Math.round(Number(bonus['护盾']) || 0),
+        },
+        stats: {
+          attack: Math.round(Number(bonus['攻击']) || 0),
+          hit: Math.round(Number(bonus['命中']) || 0),
+          dodge: Math.round(Number(bonus['闪避']) || 0),
+          crit: Math.round(Number(bonus['暴击']) || 0),
+        },
+      },
+    };
   }
 
   // ==========================================================
@@ -1218,6 +1306,23 @@ export class ArenaService {
   }
 
   /**
+   * 防连打冷却全表（镜像 id → 解冻时刻 ms），只保留还没到点的条目。
+   * 与 avoidHit 同一口径，区别是一次性给全表：网页据此把「刚被打过、现在还打不了」的对手直接标在
+   * 榜单上，而不是等玩家点下去才吃到一句拒绝。
+   */
+  private avoidUntilMap(profile: any, cfg: ArenaRuntimeConfig): Record<string, number> {
+    const hours = Number(cfg.avoidRepeatHours) || 0;
+    if (hours <= 0) return {};
+    const avoid = asJsonValue<Record<string, number>>(profile?.avoid, {});
+    const out: Record<string, number> = {};
+    for (const key of Object.keys(avoid || {})) {
+      const until = Number(avoid[key] || 0) + hours * 3600 * 1000;
+      if (until > Date.now()) out[key] = until;
+    }
+    return out;
+  }
+
+  /**
    * 支付入场消耗（唯一一处会写玩家行的地方）。
    * 活力直接扣 `Player.vitality`；门票按背包规范键 quantity 扣减。
    */
@@ -1333,6 +1438,8 @@ export class ArenaService {
       dailyLeft: daily.left,
       dailyLimit: cfg.dailyChallengeLimit,
       challengeRankWindow: cfg.challengeRankWindow,
+      /** 防连打冷却表（镜像 id → 解冻时刻 ms，只含未到点的）：网页把打不了的对手标出来 */
+      avoidUntil: this.avoidUntilMap(profile, cfg),
       mirror: profile.mirrorId ? {
         id: Number(profile.mirrorId),
         power: Number(profile.mirrorPower) || 0,
@@ -1358,6 +1465,8 @@ export class ArenaService {
         avoidRepeatHours: cfg.avoidRepeatHours,
         /** 可挑战名次差上限（默认 1=一顺位往上打；0=只要求排名更高、不限差多少） */
         challengeRankWindow: cfg.challengeRankWindow,
+        /** 榜单每页条数：前端按「我的名次」算出我该落在第几页，进页面直接定位到自己那一行 */
+        pageSize: cfg.pageSize,
         tiers: cfg.tiers,
       },
     };
@@ -1435,6 +1544,30 @@ export class ArenaService {
       this.entitlement.listActivePrivileges(Number(userId)),
     ]);
     return { frames, privileges };
+  }
+
+  /**
+   * 奖励目录（头像框 / 特权的全量定义表），随赛季奖励公示一起回给前端。
+   *
+   * 玩家还没拿过这些奖励，`listFrames` 里自然查不到名字，于是奖励预告上会直接印出
+   * `arena_champion`、`batchGather` 这种内部键名——最能勾人爬榜的那张表，反而最像后台日志。
+   * 这里给一份键 → 展示名/说明，前端只查表、不自造第二套命名。
+   */
+  async rewardCatalog() {
+    const [frames, privileges] = await Promise.all([
+      this.entitlement.frameDefs(),
+      Promise.resolve(this.entitlement.privilegeDefs()),
+    ]);
+    return {
+      frames: (frames || []).map((f: any) => ({
+        key: String(f.key || ''), name: String(f.name || f.key || ''),
+        tone: String(f.tone || ''), description: String(f.description || ''),
+      })),
+      privileges: (privileges || []).map((p: any) => ({
+        key: String(p.key || ''), name: String(p.name || p.key || ''),
+        description: String(p.description || ''),
+      })),
+    };
   }
 }
 

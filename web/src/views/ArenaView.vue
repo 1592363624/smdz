@@ -16,6 +16,9 @@
       </div>
       <div class="ar-head-ops">
         <span v-if="myTier" class="ar-tier" :class="toneClass(myTier)">{{ myTier.name }} · 第 {{ num(me?.rank) }} 名</span>
+        <span class="ar-updated" :title="`每 ${Math.round(REFRESH_MS / 1000)} 秒自动刷新一次`">
+          {{ loading ? '同步中…' : `更新于 ${lastSyncText}` }}
+        </span>
         <button class="ar-btn ghost" :disabled="loading" @click="refresh">刷新</button>
       </div>
     </header>
@@ -26,6 +29,9 @@
 
     <main v-else-if="overview" class="ar-body">
       <div v-if="error" class="ar-banner">{{ error }}（其余数据仍为最近一次成功结果）</div>
+      <div v-else-if="seasonEndingSoon" class="ar-banner season">
+        ⏳ 赛季不足 24 小时结算：现在的名次就是发奖名次，还打得动的镜像别留到明天
+      </div>
 
       <!-- ======================= 我的天梯 ======================= -->
       <section class="ar-block">
@@ -52,7 +58,7 @@
             </div>
             <div class="ar-stat">
               <div class="ar-stat-val" :class="{ warn: me.dailyLeft <= 0 }">{{ num(me.dailyLeft) }}<em>/{{ num(me.dailyLimit) }}</em></div>
-              <div class="ar-stat-label">今日剩余挑战（0 点重置）</div>
+              <div class="ar-stat-label">今日剩余挑战（{{ dailyResetText }}重置）</div>
             </div>
           </div>
           <div class="ar-bar"><div class="ar-bar-fill" :style="{ width: dailyPct + '%' }"></div></div>
@@ -97,10 +103,25 @@
         <div class="ar-block-head">
           <span class="ar-b-chip ladder">🏆</span>
           <span class="ar-b-title">天梯榜</span>
-          <span v-if="ladder" class="ar-b-note">共 {{ num(ladder.total) }} 个镜像 · 每页 {{ ladderRows.length }} 行</span>
+          <span v-if="ladder" class="ar-b-note">共 {{ num(ladder.total) }} 个镜像 · 本页 {{ ladderRows.length }} 行 · 现在能打 {{ challengeableHere }} 个</span>
+          <!-- 榜上百页时"找到那个人"不该靠翻页：按镜像主人名模糊搜，名次仍是全榜名次 -->
+          <div class="ar-b-ops">
+            <input
+              v-model="ladderQuery"
+              class="ar-input tiny"
+              type="search"
+              placeholder="搜镜像主人名"
+              :disabled="loading"
+              @keyup.enter="applyLadderQuery"
+            />
+            <button class="ar-btn tiny" :disabled="loading" @click="applyLadderQuery">搜索</button>
+            <button v-if="ladderFilter" class="ar-btn tiny ghost" :disabled="loading" @click="clearLadderQuery">清除「{{ ladderFilter }}」</button>
+          </div>
         </div>
 
-        <div v-if="!ladderRows.length" class="ar-empty">{{ loading ? '榜单加载中…' : '本赛季还没有镜像，先「提交镜像」成为第一个上榜的人' }}</div>
+        <div v-if="!ladderRows.length" class="ar-empty">
+          {{ loading ? '榜单加载中…' : (ladderFilter ? `没有主人名含「${ladderFilter}」的镜像，换个关键词或清除搜索` : '本赛季还没有镜像，先「提交镜像」成为第一个上榜的人') }}
+        </div>
         <div v-else class="ar-table-wrap">
           <table class="ar-table">
             <thead>
@@ -115,22 +136,32 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="row in ladderRows" :key="row.mirrorId" :class="{ mine: row.ownerId === me?.userId }">
-                <td class="rank">{{ row.rank }}</td>
+              <tr
+                v-for="row in ladderRows"
+                :key="row.mirrorId"
+                :class="{ mine: row.ownerId === me?.userId, next: row.rank === nextTargetRank }"
+              >
+                <td class="rank">
+                  {{ row.rank }}
+                  <!-- 一顺位往上打的规则下，"下一个能打的"是这一页最该被看见的一行 -->
+                  <em v-if="row.rank === nextTargetRank" class="ar-next-tag">下一档</em>
+                </td>
                 <td><span class="ar-tier" :class="tierClassByName(row.tier)">{{ row.tier || '未定级' }}</span></td>
                 <td class="name" :title="row.ownerName">{{ row.ownerName }}</td>
                 <td class="num">Lv.{{ num(row.level) }}</td>
                 <td class="num">{{ fmtNum(row.power) }}</td>
                 <td class="ver">v{{ num(row.mirrorVersion) }}<em>{{ fmtAgo(row.capturedAt) }}</em></td>
-                <td>
+                <td class="ops">
+                  <!-- 侦察：挑战前先看对面冻结的是哪一套配置（与 QQ 端「竞技场 序号」同一份情报） -->
+                  <button class="ar-btn tiny ghost icon" :disabled="running" title="侦察这个镜像的配置" @click="openAsk(row, 'intel')">🔍</button>
                   <!-- 自己的镜像不给挑战：服务端也会拒，这里只是把「为什么不能点」写进 title -->
                   <button
                     class="ar-btn tiny"
-                    :class="{ ghost: isPracticeTarget(row) }"
+                    :class="{ ghost: isPracticeTarget(row), cooling: cooldownLeft(row) > 0 }"
                     :disabled="Boolean(challengeBlock(row)) || running"
                     :title="challengeBlock(row) || (isPracticeTarget(row) ? `和 ${row.ownerName} 的镜像练一手：免费、不占次数、不计名次` : `向 ${row.ownerName} 的镜像开战`)"
-                    @click="challenge(row)"
-                  >{{ isPracticeTarget(row) ? '练手' : '挑战' }}</button>
+                    @click="openAsk(row, 'confirm')"
+                  >{{ challengeLabel(row) }}</button>
                 </td>
               </tr>
             </tbody>
@@ -138,6 +169,14 @@
         </div>
 
         <div class="ar-pager">
+          <!-- 榜可能上百页：先给一个「回到自己那一行」，别让爬榜的人翻页找自己 -->
+          <button
+            v-if="myPage > 0"
+            class="ar-btn tiny locate"
+            :disabled="loading || (!ladderFilter && ladderPage === myPage)"
+            :title="`跳转到第 ${num(me?.rank)} 名所在的第 ${myPage} 页`"
+            @click="goMyPage"
+          >📍 到我的名次</button>
           <button class="ar-btn tiny ghost" :disabled="ladderPage <= 1 || loading" @click="goLadderPage(ladderPage - 1)">← 上一页</button>
           <!-- v-for 与 v-if 不同元素：Vue3 里同标签上 v-if 先于 v-for 求值，拿不到 p，故用 template 包一层 -->
           <template v-for="(p, pi) in pageButtons(ladderPage, ladderPages)" :key="'lp-' + pi">
@@ -202,7 +241,7 @@
               <em v-if="band.label">{{ band.label }}</em>
             </div>
             <div class="ar-band-items">
-              <span v-for="(chip, ci) in band.chips" :key="ci" class="ar-chip" :class="chip.cls">{{ chip.text }}</span>
+              <span v-for="(chip, ci) in band.chips" :key="ci" class="ar-chip" :class="chip.cls" :title="chip.hint">{{ chip.text }}</span>
             </div>
           </div>
         </div>
@@ -298,6 +337,12 @@
               <template v-else>读取中…</template>
             </div>
           </div>
+          <!-- 复盘要连着看：一场打完想知道前因后果，逐场返回列表再点太累 -->
+          <div class="ar-drawer-nav">
+            <button class="ar-btn ghost tiny" :disabled="!olderReportId || reportLoading" @click="openReport(olderReportId)">← 更早的一场</button>
+            <span class="ar-dim">{{ reportPositionText }}</span>
+            <button class="ar-btn ghost tiny" :disabled="!newerReportId || reportLoading" @click="openReport(newerReportId)">更新的一场 →</button>
+          </div>
           <button class="ar-btn ghost tiny" @click="closeReport">关闭 ✕</button>
         </header>
 
@@ -317,7 +362,7 @@
                   <span>甲 {{ fmtNum(side.pools?.armor) }}</span>
                   <span>命 {{ fmtNum(side.pools?.hp) }}</span>
                 </div>
-                <div class="ar-side-taken">承受 {{ fmtNum(side.taken?.damage) }} · 被打 {{ num(side.taken?.hits) }}/{{ num(side.taken?.actions) }} 次命中</div>
+                <div class="ar-side-taken">承受 {{ fmtNum(side.taken?.damage) }} · 对手出手 {{ num(side.taken?.actions) }} 次，命中 {{ num(side.taken?.hits) }} 次</div>
               </div>
             </div>
 
@@ -345,6 +390,93 @@
           </template>
         </div>
       </aside>
+    </div>
+    <!-- ======================= 侦察 / 开战确认 =======================
+         挑战会立刻扣入场消耗并吃掉一次每日次数，且席位互换不可回退——
+         所以这里必须先把「对面冻结的是哪套配置」和「这一场赌的是什么」摊开，再让人点确认。 -->
+    <div v-if="ask.open" class="ar-mask" @click.self="closeAsk">
+      <div class="ar-ask">
+        <header class="ar-ask-head">
+          <div class="ar-ask-title">
+            <span class="ar-tier" :class="tierClassByName(ask.row?.tier)">{{ ask.row?.tier || '未定级' }}</span>
+            <b>第 {{ num(ask.row?.rank) }} 名 · {{ ask.row?.ownerName }}</b>
+            <span class="ar-dim">Lv.{{ num(ask.row?.level) }} · 战力 {{ fmtNum(ask.row?.power) }}</span>
+          </div>
+          <button class="ar-btn ghost tiny" title="关闭（Esc）" @click="closeAsk">关闭 ✕</button>
+        </header>
+
+        <div class="ar-ask-body">
+          <div class="ar-ask-section">🔍 镜像情报</div>
+          <div v-if="ask.loading" class="ar-ask-tip">侦察中…</div>
+          <div v-else-if="ask.error" class="ar-ask-tip err">{{ ask.error }}</div>
+          <template v-else-if="ask.intel?.detail">
+            <div class="ar-intel-pools">
+              <span><i>生命</i><b>{{ fmtNum(ask.intel.detail.pools?.hp) }}</b></span>
+              <span><i>装甲</i><b>{{ fmtNum(ask.intel.detail.pools?.armor) }}</b></span>
+              <span><i>护盾</i><b>{{ fmtNum(ask.intel.detail.pools?.shield) }}</b></span>
+            </div>
+            <div class="ar-intel-stats">
+              <span>攻击 {{ fmtNum(ask.intel.detail.stats?.attack) }}</span>
+              <span>命中 {{ fmtNum(ask.intel.detail.stats?.hit) }}</span>
+              <span>闪避 {{ fmtNum(ask.intel.detail.stats?.dodge) }}</span>
+              <span>暴击 {{ num(ask.intel.detail.stats?.crit) }}%</span>
+            </div>
+            <div class="ar-intel-line">
+              🗡️ 在手武器：{{ ask.intel.detail.weaponName || '拳头' }}（共 {{ num(ask.intel.detail.weaponCount) }} 件）
+              <em v-if="ask.intel.detail.familiarType">· {{ ask.intel.detail.familiarType }}</em>
+              <em v-if="ask.intel.detail.equippedTitle">· [{{ ask.intel.detail.equippedTitle }}]</em>
+            </div>
+            <div class="ar-intel-line ar-dim">
+              镜像 v{{ num(ask.intel.mirrorVersion) }} · {{ fmtAgo(ask.intel.capturedAt) || '时间未知' }}冻结，不会随主人变强
+            </div>
+            <div v-if="cooldownLeft(ask.row) > 0" class="ar-intel-cool">
+              ⏳ 防连打冷却中，{{ fmtLeft(cooldownLeft(ask.row)) }}后才能再挑战这一位
+            </div>
+          </template>
+          <div v-else class="ar-ask-tip">这一场现在开不了，情报就不拉了。</div>
+
+          <template v-if="ask.mode === 'confirm'">
+            <div class="ar-ask-section">⚖️ 这一场赌什么</div>
+            <div class="ar-stake">
+              <div class="ar-stake-row">
+                <span class="ar-stake-k">性质</span>
+                <span :class="isPracticeTarget(ask.row) ? 'practice' : 'ladder'">
+                  {{ isPracticeTarget(ask.row) ? '练手局：免费、不占次数、不计胜败、名次一点不动' : '正式局：打赢顶替他的名次，他退到你现在的位置' }}
+                </span>
+              </div>
+              <div class="ar-stake-row">
+                <span class="ar-stake-k">消耗</span>
+                <span>{{ isPracticeTarget(ask.row) ? '无（练手局不计费）' : entryCostText }}{{ isPracticeTarget(ask.row) ? '' : ` · 今日剩 ${num(me?.dailyLeft)} 次` }}</span>
+              </div>
+              <div class="ar-stake-row">
+                <span class="ar-stake-k">打输/平局</span>
+                <span>{{ isPracticeTarget(ask.row) ? '席位与名次完全不动，也不占今日次数、不掉消耗' : '席位不动，只损失一次入场消耗与今日次数，装备/经验/资产一律不受影响' }}</span>
+              </div>
+            </div>
+            <div v-if="challengeBlock(ask.row)" class="ar-ask-tip err">{{ challengeBlock(ask.row) }}</div>
+          </template>
+        </div>
+
+        <footer class="ar-ask-foot">
+          <button class="ar-btn ghost" :disabled="running" @click="closeAsk">
+            {{ ask.mode === 'confirm' ? '再看看' : '关闭' }}
+          </button>
+          <button
+            v-if="ask.mode === 'intel'"
+            class="ar-btn primary"
+            :disabled="running || Boolean(challengeBlock(ask.row))"
+            :title="challengeBlock(ask.row) || '进入开战确认'"
+            @click="ask.mode = 'confirm'"
+          >⚔️ 挑战这个镜像</button>
+          <button
+            v-else
+            class="ar-btn danger"
+            :disabled="running || Boolean(challengeBlock(ask.row))"
+            :title="challengeBlock(ask.row) || '发送指令：' + CMD.challenge(ask.row?.rank)"
+            @click="confirmChallenge"
+          >⚔️ 确认开战（扣 {{ isPracticeTarget(ask.row) ? '0' : entryCostText }}）</button>
+        </footer>
+      </div>
     </div>
   </div>
 </template>
@@ -424,6 +556,9 @@ const rewardConfig = ref(null);
 
 const ladderPage = ref(1);
 const matchPage = ref(1);
+/** 搜索框里的草稿与已生效的过滤词分开存：改字不触发请求，点搜索/回车才拉 */
+const ladderQuery = ref('');
+const ladderFilter = ref('');
 const loading = ref(false);
 /** 指令执行中：期间禁用所有写按钮，避免并发提交镜像 / 连点挑战 */
 const running = ref(false);
@@ -434,6 +569,19 @@ const report = ref(null);
 const reportId = ref(0);
 const reportLoading = ref(false);
 const reportError = ref('');
+
+/**
+ * 侦察 / 开战确认浮层。
+ * mode='intel' 只看对面冻结了哪套配置；mode='confirm' 在此基础上摊开"这一场赌什么"再要一次点击。
+ * 挑战是不可回退的（扣入场消耗 + 占每日次数 + 可能换位），所以列表上的按钮不再直接开战。
+ */
+const ask = ref({ open: false, mode: 'intel', row: null, intel: null, loading: false, error: '' });
+/** 本地 1s 心跳：防连打倒计时与赛季剩余要跟着走，不能等 30s 轮询才跳 */
+const nowTick = ref(Date.now());
+/** 最近一次刷新完成的时刻（顶栏「更新于」；只有真拉到东西才更新） */
+const lastSync = ref(0);
+/** 首屏是否已定位过自己那一页（只做一次，之后尊重玩家手动翻页） */
+let locatedToMyPage = false;
 
 const adminBusy = ref(false);
 const adminResult = ref('');
@@ -447,6 +595,7 @@ const user = ref(readStoredUser());
 const isAdmin = computed(() => ['ADMIN', 'SUPER_ADMIN'].includes(user.value?.role));
 
 let timer = null;
+let clockTimer = null;
 
 // ---------- 派生数据 ----------
 const cfg = computed(() => overview.value?.config || null);
@@ -488,9 +637,46 @@ const closedText = computed(() => {
   return '';
 });
 const seasonText = computed(() => {
+  void nowTick.value;
   if (!season.value) return '赛季加载中…';
-  return `赛季 ${season.value.name || 'S' + season.value.no} · 至 ${fmtDateTime(season.value.endAt)}`;
+  const name = season.value.name || `S${season.value.no}`;
+  if (season.value.expired) return `赛季 ${name} · 已结束，等待结算`;
+  const endAt = Number(season.value.endAt ? new Date(season.value.endAt).getTime() : 0);
+  const left = endAt - nowTick.value;
+  // 玩家真正要决策的是"还来得及爬几名"，光给一个截止日期不够
+  return `赛季 ${name} · 至 ${fmtDateTime(season.value.endAt)}${left > 0 ? ` · 还剩 ${fmtLeft(left)}` : ''}`;
 });
+/** 赛季最后 24 小时：结算前冲榜是另一回事，把提醒提到顶栏 */
+const seasonEndingSoon = computed(() => {
+  void nowTick.value;
+  const endAt = Number(season.value?.endAt ? new Date(season.value.endAt).getTime() : 0);
+  return Boolean(endAt) && endAt - nowTick.value > 0 && endAt - nowTick.value < 24 * 3600 * 1000;
+});
+/** 每日次数的重置倒计时（服务端按本地 0 点懒重置） */
+const dailyResetText = computed(() => {
+  const now = new Date(nowTick.value);
+  const nextMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime();
+  return `${fmtLeft(Math.max(0, nextMidnight - now.getTime()))}后`;
+});
+/** 我在第几页：按名次和后端页容量算，进页面直接落到自己那一行 */
+const myPage = computed(() => {
+  const rank = Number(me.value?.rank) || 0;
+  const size = Number(cfg.value?.pageSize) || 0;
+  if (!rank || !size) return 0;
+  return Math.floor((rank - 1) / size) + 1;
+});
+/**
+ * 「下一档」= 唯一能真正动名次的那个对手。
+ * 一顺位往上打（窗口=1）时整张榜只有一行能爬，把它标出来比让玩家自己算有用得多；
+ * 放开跳级（窗口=0 或 >1）时不存在唯一目标，就不标。
+ */
+const nextTargetRank = computed(() => {
+  const rank = Number(me.value?.rank) || 0;
+  if (rank <= 1 || Number(cfg.value?.challengeRankWindow) !== 1) return 0;
+  return rank - 1;
+});
+/** 本页现在真能点开的行数（含免费练手）：一眼看出"这页还有没有仗可打" */
+const challengeableHere = computed(() => ladderRows.value.filter((row) => !challengeBlock(row)).length);
 const ladderRows = computed(() => ladder.value?.rows || []);
 const ladderPages = computed(() => Number(ladder.value?.pages) || 1);
 const matchRows = computed(() => matches.value?.rows || []);
@@ -611,10 +797,30 @@ const sideViews = computed(() => {
       level: side.level,
       power: side.power,
       pools: side.pools,
-      taken: side.taken,
+      taken: takenOf(r, key),
     };
   });
 });
+
+/**
+ * 一侧"被对手打了多少"：优先按逐回合明细现算，取不到明细才回落到战报里存的 taken。
+ *
+ * 为什么要现算：`sides.taken.hits` 在某个版本之前存的是"我自己打中对手几次"（已修），
+ * 老战报是躺在库里的历史数据，改代码不会让它们自己变对。
+ * 而 actionLog 里每一行都写清了是谁的出手、有没有命中——从它现算，老战报也能读出正确数字。
+ */
+function takenOf(r, sideKey) {
+  const stored = r.sides?.[sideKey]?.taken || {};
+  const log = Array.isArray(r.actionLog) ? r.actionLog : [];
+  if (!log.length) return stored;
+  const other = sideKey === 'attacker' ? 'defender' : 'attacker';
+  const against = log.filter((a) => a?.side === other);
+  return {
+    actions: against.length,
+    hits: against.filter((a) => a?.hit).length,
+    damage: stored.damage ?? Math.round(against.reduce((sum, a) => sum + (Number(a?.damage) || 0), 0)),
+  };
+}
 
 /**
  * 战报头部双方的名次变化：席位互换制下，一场对局只有两种结局——
@@ -646,10 +852,21 @@ onMounted(() => {
   refresh();
   loadHoldersIfNeeded();
   timer = setInterval(refresh, REFRESH_MS);
+  clockTimer = setInterval(() => { nowTick.value = Date.now(); }, 1000);
+  window.addEventListener('keydown', onKeydown);
 });
 onBeforeUnmount(() => {
   if (timer) clearInterval(timer);
+  if (clockTimer) clearInterval(clockTimer);
+  window.removeEventListener('keydown', onKeydown);
 });
+
+/** Esc 关掉当前最上层的浮层（确认面板优先于战报抽屉） */
+function onKeydown(event) {
+  if (event.key !== 'Escape') return;
+  if (ask.value.open) closeAsk();
+  else if (reportOpen.value) closeReport();
+}
 
 // ---------- 数据加载 ----------
 /**
@@ -669,11 +886,18 @@ async function refresh() {
   const settled = await Promise.allSettled(jobs);
   const failed = settled.find((s) => s.status === 'rejected');
   error.value = failed ? humanError(failed.reason) : '';
+  // 首屏落到自己那一页：上百行的榜不该让人翻页找自己在哪
+  if (!locatedToMyPage && me.value) {
+    locatedToMyPage = true;
+    const target = myPage.value;
+    if (target > 1 && ladderPage.value === 1) await loadLadder(target, true);
+  }
+  if (overview.value) lastSync.value = Date.now();
   loading.value = false;
 }
 
 async function loadLadder(page, keepError = false) {
-  const res = await arenaApi.ladder(page);
+  const res = await arenaApi.ladder(page, ladderFilter.value);
   const data = res?.data ?? null;
   // 页码越界时服务端会回落第 1 页：同步回显，别让分页条停在空白页上
   if (data?.page && data.page !== page) ladderPage.value = data.page;
@@ -698,6 +922,28 @@ async function goLadderPage(page) {
   } catch (e) {
     error.value = humanError(e);
   }
+}
+
+/** 应用搜索：换了过滤条件就回到第 1 页（旧页码在新结果集里多半是空的） */
+function applyLadderQuery() {
+  ladderFilter.value = String(ladderQuery.value || '').trim().slice(0, 24);
+  goLadderPage(1);
+}
+function clearLadderQuery() {
+  ladderQuery.value = '';
+  if (!ladderFilter.value) return;
+  ladderFilter.value = '';
+  goLadderPage(1);
+}
+/** 定位到自己那一行：搜索态下先清过滤，否则"第几页"是对过滤结果算的，落不到自己身上 */
+function goMyPage() {
+  const target = myPage.value;
+  if (!target) return;
+  if (ladderFilter.value) {
+    ladderQuery.value = '';
+    ladderFilter.value = '';
+  }
+  goLadderPage(target);
 }
 
 async function goMatchPage(page) {
@@ -732,6 +978,26 @@ function closeReport() {
   report.value = null;
   reportError.value = '';
 }
+
+/** 当前战报在本页战绩列表里的下标（-1 = 这一场不在本页，如挑战后刚补拉到的新场次） */
+const reportIndex = computed(() => matchRows.value.findIndex((r) => Number(r.id) === Number(reportId.value)));
+/** 战绩列表是新→旧排的：往后翻是更早的一场 */
+const olderReportId = computed(() => {
+  const i = reportIndex.value;
+  return i >= 0 && i < matchRows.value.length - 1 ? matchRows.value[i + 1].id : 0;
+});
+const newerReportId = computed(() => (reportIndex.value > 0 ? matchRows.value[reportIndex.value - 1].id : 0));
+const reportPositionText = computed(() => {
+  const i = reportIndex.value;
+  return i >= 0 ? `本页第 ${i + 1} / ${matchRows.value.length} 场` : '';
+});
+/** 顶栏「更新于 HH:mm:ss」：30 秒轮询是无声的，得让人知道数据新不新 */
+const lastSyncText = computed(() => {
+  if (!lastSync.value) return '—';
+  const d = new Date(lastSync.value);
+  const p = (x) => String(x).padStart(2, '0');
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+});
 
 // ---------- 写操作：全部经指令通道 ----------
 /**
@@ -772,6 +1038,47 @@ async function submitMirror() {
     return;
   }
   await sendCommand(CMD.submit);
+}
+
+/**
+ * 打开侦察 / 开战确认浮层。
+ * 打不了的行不再发侦察请求（点进来只会看到一句拒绝），确认模式下直接被禁用。
+ */
+async function openAsk(row, mode) {
+  if (!row) return;
+  const cached = ask.value.intel && Number(ask.value.intel.mirrorId) === Number(row.mirrorId) ? ask.value.intel : null;
+  ask.value = { open: true, mode, row, intel: cached, loading: false, error: '' };
+  if (mode === 'confirm' && challengeBlock(row)) return;
+  if (!cached) await loadIntel(row);
+}
+
+/** 拉某名次镜像的情报（与 QQ 端「竞技场 序号」同一份摘要） */
+async function loadIntel(row) {
+  ask.value.loading = true;
+  ask.value.error = '';
+  try {
+    const res = await arenaApi.scout(row.rank);
+    const data = res?.data ?? null;
+    // 服务端对失效镜像回 found:false + 一句人话，这里原样透出，不伪装成"没有配置"
+    if (!data?.found) ask.value.error = data?.message || '侦察失败：拿不到这个名次的镜像';
+    else ask.value.intel = data;
+  } catch (e) {
+    ask.value.error = humanError(e) || '侦察失败';
+  } finally {
+    ask.value.loading = false;
+  }
+}
+
+function closeAsk() {
+  ask.value = { ...ask.value, open: false, row: null };
+}
+
+/** 确认开战：关掉浮层再走原来的指令路径（写出口仍然只有 sendCommand 一个） */
+async function confirmChallenge() {
+  const row = ask.value.row;
+  if (!row || challengeBlock(row)) return;
+  closeAsk();
+  await challenge(row);
 }
 
 /** 挑战：序号用全榜名次（服务端按名次回查镜像），与「挑战镜像 玩家名」等价 */
@@ -885,13 +1192,19 @@ function adminRevoke(holder) {
 /** 这一场是不是练手局：守方排名不高于自己（服务端同口径判定，这里只用来做表现） */
 function isPracticeTarget(row) {
   const myRank = Number(me.value?.rank) || 0;
-  const rowRank = Number(row.rank) || 0;
+  const rowRank = Number(row?.rank) || 0;
   return myRank > 0 && rowRank >= myRank;
 }
 function challengeBlock(row) {
   if (closedText.value) return closedText.value;
   if (!myMirror.value) return NO_MIRROR_TEXT;
+  if (!row) return '还没选定对手';
   if (Number(row.ownerId) === Number(me.value?.userId)) return '不能挑战自己的镜像';
+  // 防连打（正式局与练手局都吃）：服务端会拒，先把剩余时间标在行上，省一次无效点击
+  const cooling = cooldownLeft(row);
+  if (cooling > 0) {
+    return `${row.ownerName} 的镜像刚被你打过，${fmtLeft(cooling)} 后才能再挑战（换个对手或等冷却走完）`;
+  }
   const practice = isPracticeTarget(row);
   const myRank = Number(me.value?.rank) || 0;
   const rowRank = Number(row.rank) || 0;
@@ -906,6 +1219,20 @@ function challengeBlock(row) {
       : `一次最多能挑战高出 ${window} 名的对手`;
   }
   return '';
+}
+
+/** 我对该镜像的防连打剩余毫秒（0 = 现在就能打）；读 nowTick 让倒计时逐秒走 */
+function cooldownLeft(row) {
+  const until = Number(me.value?.avoidUntil?.[row?.mirrorId]) || 0;
+  return until ? Math.max(0, until - nowTick.value) : 0;
+}
+
+/** 挑战按钮文案：冷却中给剩余时间，自己那一行标「自己」，而不是一个点开只会挨一句拒绝的「挑战」 */
+function challengeLabel(row) {
+  if (Number(row?.ownerId) === Number(me.value?.userId)) return '自己';
+  const left = cooldownLeft(row);
+  if (left > 0) return `⏳ ${fmtLeft(left)}`;
+  return isPracticeTarget(row) ? '练手' : '挑战';
 }
 
 /** 入场/刷新消耗文案（与后端 costLabel 一致：free / 活力 / 门票） */
@@ -926,25 +1253,40 @@ function tierClassByName(name) {
   return toneClass(tiers.value.find((t) => t.name === name));
 }
 
-/** 头像框键 → 名称（未拥有过的键没有定义接口可查，v1 直接显示键名，不编名字） */
+/** 奖励目录：后端随 season-rewards 一起给的全量定义（玩家没拥有的框/特权也有展示名） */
+const catalogFrames = computed(() => rewardConfig.value?.catalog?.frames || []);
+const catalogPrivileges = computed(() => rewardConfig.value?.catalog?.privileges || []);
+
+/** 头像框键 → 名称：先查已拥有的，再查奖励目录；两处都没有才回落键名 */
 function frameName(key) {
-  const hit = ownedFrames.value.find((f) => f.key === key);
-  return hit ? hit.name : key;
-}
-/** 特权键 → 名称：拿当前生效特权的后端文案，查不到就显示键（避免前端另立一套命名） */
-function privilegeName(key) {
-  const hit = privileges.value.find((p) => p.key === key);
+  const hit = ownedFrames.value.find((f) => f.key === key) || catalogFrames.value.find((f) => f.key === key);
   return hit?.name || key;
+}
+/** 特权键 → 名称：拿后端文案（生效中优先，其次奖励目录），查不到才显示键 */
+function privilegeName(key) {
+  const hit = privileges.value.find((p) => p.key === key) || catalogPrivileges.value.find((p) => p.key === key);
+  return hit?.name || key;
+}
+/** 奖励 chip 上的说明性 tooltip：让「冠冕·天梯之首」这种名字背后是有描述的 */
+function rewardHint(kind, key) {
+  const hit = kind === 'frame'
+    ? catalogFrames.value.find((f) => f.key === key)
+    : catalogPrivileges.value.find((p) => p.key === key);
+  return hit?.description || '';
 }
 
 /** 一个档位的奖励条目 → 展示 chips */
 function rewardChips(band) {
   const chips = [];
   for (const title of band.titles || []) chips.push({ text: `🏅 称号 ${title}`, cls: 'title' });
-  for (const frame of band.frames || []) chips.push({ text: `🖼️ 头像框 ${frameName(frame)}`, cls: 'frame' });
+  for (const frame of band.frames || []) chips.push({ text: `🖼️ 头像框 ${frameName(frame)}`, cls: 'frame', hint: rewardHint('frame', frame) });
   for (const priv of band.privileges || []) {
     const days = Number(priv.days) || 0;
-    chips.push({ text: `⚙️ 特权 ${privilegeName(priv.key)} ${days === 0 ? '永久' : `${days}天`}`, cls: 'priv' });
+    chips.push({
+      text: `⚙️ 特权 ${privilegeName(priv.key)} ${days === 0 ? '永久' : `${days}天`}`,
+      cls: 'priv',
+      hint: rewardHint('priv', priv.key),
+    });
   }
   for (const item of band.rewards || []) {
     const type = item.type || 'item';
@@ -1021,6 +1363,20 @@ function fmtAgo(ms) {
   const hours = Math.floor(minutes / 60);
   if (hours < 48) return `${hours}小时前`;
   return `${Math.floor(hours / 24)}天前`;
+}
+/**
+ * 剩余时长（中文）：防连打倒计时、每日重置、赛季剩余共用一份口径。
+ * 天/时/分/秒四档，秒级只在最后 1 分钟出现——冷却通常是小时级，写秒只会吵。
+ */
+function fmtLeft(ms) {
+  const total = Math.max(0, Math.floor(Number(ms) / 1000));
+  const days = Math.floor(total / 86400);
+  const hours = Math.floor((total % 86400) / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  if (days) return `${days} 天 ${hours} 时`;
+  if (hours) return `${hours} 时 ${minutes} 分`;
+  if (minutes) return `${minutes} 分`;
+  return `${total % 60} 秒`;
 }
 function sourceText(source) {
   const map = { season: '赛季奖励', admin: '后台授予', command: '指令发放' };
@@ -1179,6 +1535,18 @@ function readStoredUser() {
   font-size: 11px;
   color: var(--muted);
   font-weight: 500;
+}
+/* 卡片头右侧的操作组（榜单搜索框就住在这里） */
+.ar-b-ops {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.ar-input.tiny {
+  flex: 0 0 150px;
+  width: 150px;
+  padding: 4px 8px;
 }
 
 /* ---------- 我的天梯 ---------- */
@@ -1769,6 +2137,220 @@ function readStoredUser() {
   margin-top: 8px;
 }
 
+/* ---------- 顶栏同步状态 ---------- */
+.ar-updated {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/* 赛季末提醒：与错误条同一位置、换成琥珀色 */
+.ar-banner.season {
+  border-color: rgba(251, 191, 36, 0.4);
+  background: rgba(251, 191, 36, 0.08);
+  color: #fbbf24;
+}
+
+/* ---------- 榜单：下一档与操作列 ---------- */
+.ar-table tr.next td {
+  background: rgba(74, 222, 128, 0.08);
+  border-top: 1px solid rgba(74, 222, 128, 0.3);
+  border-bottom: 1px solid rgba(74, 222, 128, 0.3);
+}
+.ar-next-tag {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 0 5px;
+  border-radius: 6px;
+  background: rgba(74, 222, 128, 0.18);
+  border: 1px solid rgba(74, 222, 128, 0.45);
+  color: #4ade80;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.ar-table td.ops {
+  text-align: right;
+  white-space: nowrap;
+}
+.ar-btn.icon {
+  padding: 4px 7px;
+  margin-right: 4px;
+}
+/* 冷却中的行：中性灰 + 虚线，明确"现在点不了"，而不是一个亮着的按钮 */
+.ar-btn.cooling {
+  color: #9ca3af;
+  border-style: dashed;
+  border-color: rgba(156, 163, 175, 0.45);
+  background: rgba(156, 163, 175, 0.08);
+  font-variant-numeric: tabular-nums;
+}
+.ar-btn.locate {
+  color: #22d3ee;
+  border-color: rgba(34, 211, 238, 0.4);
+}
+
+/* ---------- 战报抽屉翻页 ---------- */
+.ar-drawer-nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* ---------- 侦察 / 开战确认 ---------- */
+.ar-ask {
+  width: min(560px, 100%);
+  max-height: 86vh;
+  margin: auto;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--bg3, #1e1a3a);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
+  animation: ar-pop 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+  overflow: hidden;
+}
+@keyframes ar-pop {
+  from { transform: scale(0.94) translateY(10px); opacity: 0; }
+  to { transform: scale(1) translateY(0); opacity: 1; }
+}
+.ar-ask-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg2, #14102a);
+  flex-shrink: 0;
+}
+.ar-ask-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ar-ask-title b {
+  font-size: 14px;
+}
+.ar-ask-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ar-ask-section {
+  margin-top: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary, #c8c8e0);
+}
+.ar-ask-tip {
+  font-size: 12px;
+  color: var(--muted);
+}
+.ar-ask-tip.err {
+  color: #fca5a5;
+}
+.ar-intel-pools {
+  display: flex;
+  gap: 8px;
+}
+.ar-intel-pools span {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+  padding: 8px 4px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg2, #14102a);
+}
+.ar-intel-pools i {
+  display: block;
+  font-style: normal;
+  font-size: 11px;
+  color: var(--muted);
+}
+.ar-intel-pools b {
+  font-size: 16px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.ar-intel-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-secondary, #c8c8e0);
+}
+.ar-intel-stats span {
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  font-variant-numeric: tabular-nums;
+}
+.ar-intel-line {
+  font-size: 12px;
+  line-height: 1.6;
+}
+.ar-intel-line em {
+  font-style: normal;
+  color: var(--muted);
+  margin-left: 4px;
+}
+.ar-intel-cool {
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px dashed rgba(156, 163, 175, 0.45);
+  background: rgba(156, 163, 175, 0.08);
+  color: #9ca3af;
+  font-size: 11px;
+}
+.ar-stake {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg2, #14102a);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.ar-stake-row {
+  display: flex;
+  gap: 8px;
+}
+.ar-stake-k {
+  width: 52px;
+  flex-shrink: 0;
+  color: var(--muted);
+}
+.ar-stake-row .ladder {
+  color: #fbbf24;
+}
+.ar-stake-row .practice {
+  color: #9ca3af;
+}
+.ar-ask-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 14px;
+  border-top: 1px solid var(--border);
+  background: var(--bg2, #14102a);
+  flex-shrink: 0;
+}
+
 /* ---------- tone 色表（段位 + 头像框共用）----------
    --ar-tone 描边/文字色，--ar-tone-soft 同色低透明底（QQ 内置浏览器不支持 color-mix，
    这里老老实实写两遍 rgba，别指望运行时混色）。 */
@@ -1796,11 +2378,48 @@ function readStoredUser() {
     margin-left: 0;
     width: 100%;
   }
+  .ar-b-ops {
+    width: 100%;
+  }
+  .ar-input.tiny {
+    flex: 1 1 auto;
+    width: auto;
+    min-width: 0;
+  }
   .ar-stat-row {
+    /* 手机上四个统计挤一行会把标签压成一竖条，改成 2×2 */
+    flex-wrap: wrap;
     gap: 6px;
+  }
+  .ar-stat {
+    flex: 1 1 calc(50% - 6px);
+    padding: 8px 4px;
+  }
+  .ar-stat-label {
+    line-height: 1.5;
   }
   .ar-stat-val {
     font-size: 17px;
+  }
+  /* 榜单要横向滚动才能看全，但「侦察/挑战」是这页唯一的出口：钉在右边，别让人横翻去找按钮 */
+  .ar-table td.ops,
+  .ar-table th:last-child {
+    position: sticky;
+    right: 0;
+    background: var(--bg3, #1e1a3a);
+    box-shadow: inset 1px 0 0 rgba(42, 31, 94, 0.9);
+  }
+  .ar-table-wrap {
+    /* 表体横向可滚时给个能拖到的余量，别让 sticky 列盖住内容却看不到滚动条 */
+    -webkit-overflow-scrolling: touch;
+  }
+  .ar-drawer-head {
+    flex-wrap: wrap;
+  }
+  .ar-drawer-nav {
+    width: 100%;
+    order: 3;
+    justify-content: space-between;
   }
   .ar-mirror {
     flex-wrap: wrap;

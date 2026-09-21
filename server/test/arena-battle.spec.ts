@@ -199,6 +199,38 @@ describe('ArenaBattleService · 无头镜像对战', () => {
     expect(result.reason).toBe('cap');
   });
 
+  it('sides.taken 记的是「对手打中我几次」，不是「我打中对手几次」', () => {
+    const svc = makeService(makeFakeCombat());
+    const result = svc.fight(
+      { side: 'attacker', userId: 1, name: '甲', snapshot: makeSnapshot() },
+      { side: 'defender', userId: 2, name: '乙', snapshot: makeSnapshot({ userId: 2 }) },
+      { timeLimitSec: 60, maxActions: 100 },
+    );
+    const againstAtk = result.actionLog.filter((a) => a.side === 'defender');
+    const againstDef = result.actionLog.filter((a) => a.side === 'attacker');
+    // 桩里 checkHit 恒真：被对方打了几次出手 = 被打中几次
+    expect(result.sides.attacker.taken.actions).toBe(againstAtk.length);
+    expect(result.sides.attacker.taken.hits).toBe(againstAtk.filter((a) => a.hit).length);
+    expect(result.sides.defender.taken.actions).toBe(againstDef.length);
+    expect(result.sides.defender.taken.hits).toBe(againstDef.filter((a) => a.hit).length);
+    // 先出手的一方赢，它挨的打必然比对面少——曾经 taken.hits 填的是自身命中数，
+    // 会让网页战报打出「被打 1/0 次命中」（0 次出手却中 1 次）这种自相矛盾的话
+    expect(result.sides.attacker.taken.hits).toBeLessThan(result.sides.defender.taken.hits);
+  });
+
+  it('全部未命中时 taken.hits 归零，taken.actions 仍按对手出手次数计', () => {
+    const combat = makeFakeCombat({ checkHit: jest.fn(() => false) });
+    const svc = makeService(combat);
+    const result = svc.fight(
+      { side: 'attacker', userId: 1, name: '甲', snapshot: makeSnapshot() },
+      { side: 'defender', userId: 2, name: '乙', snapshot: makeSnapshot({ userId: 2 }) },
+      { timeLimitSec: 20, maxActions: 5 },
+    );
+    expect(result.sides.defender.taken.hits).toBe(0);
+    expect(result.sides.defender.taken.actions).toBeGreaterThan(0);
+    expect(result.sides.attacker.taken.hits).toBe(0);
+  });
+
   it('结算全程不改动传入的镜像快照（打的是副本，真实资产与榜上镜像都不受影响）', () => {
     const combat = makeFakeCombat();
     const svc = makeService(combat);

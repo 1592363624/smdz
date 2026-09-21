@@ -38,6 +38,10 @@
           <span>建筑 {{ building.used }}/{{ building.limit }}</span>
           <!-- 正在生长的作物格数量（QQ 农场式"种植中"徽标） -->
           <span v-if="growingCount" class="yd-grow">🌱 种植中 {{ growingCount }}</span>
+          <!-- 熟了要能一眼看见并一键收，而不是靠绿色描边在几十格里找 -->
+          <button v-if="ripeCount" class="yd-meta-btn ripe" title="收获全部已成熟的作物" :disabled="running" @click="harvestAllCrops">
+            🌾 可收获 {{ ripeCount }}
+          </button>
         </div>
       </div>
       <div class="yd-head-ops">
@@ -71,11 +75,11 @@
         <!-- 左侧：院子地块 -->
         <section class="yd-yard">
           <div class="yd-stats">
-            <span class="yd-stat">⚡ 电力 <b>{{ overview?.overview?.powerNet ?? 0 }}</b><em v-if="fuelShortage" class="yd-theo">理论</em></span>
-            <span class="yd-stat">⛽ 燃料 <b>{{ fmtQty(overview?.overview?.fuelStock ?? 0) }}</b>（{{ fuelText }}）</span>
-            <span class="yd-stat">🌱 肥料 <b>{{ fmtQty(overview?.overview?.fertilizerStock ?? 0) }}</b></span>
-            <span class="yd-stat">👷 岗位 <b>{{ fmtQty(overview?.overview?.jobSupply ?? 0) }}/{{ overview?.overview?.jobDemand ?? 0 }}</b></span>
-            <span class="yd-stat">⏱ 距上次观测 <b>{{ fmtDuration(overview?.elapsedSeconds ?? 0) }}</b></span>
+            <span class="yd-stat" :title="fuelShortage ? '燃料见底，发电机发不出东西：这个电力值是「按满燃料应该能发多少」的理论值，不是实际供电' : '院子当前电力净结余（发电 - 用电）'">⚡ 电力 <b>{{ overview?.overview?.powerNet ?? 0 }}</b><em v-if="fuelShortage" class="yd-theo">理论</em></span>
+            <span class="yd-stat" title="燃料还能撑多久；见底时建筑产出时长会归零">⛽ 燃料 <b>{{ fmtQty(overview?.overview?.fuelStock ?? 0) }}</b>（{{ fuelText }}）</span>
+            <span class="yd-stat" title="院子里堆着的肥料，作物生长与部分建筑会消耗">🌱 肥料 <b>{{ fmtQty(overview?.overview?.fertilizerStock ?? 0) }}</b></span>
+            <span class="yd-stat" title="建筑需要的岗位数与院子能供给的岗位数">👷 岗位 <b>{{ fmtQty(overview?.overview?.jobSupply ?? 0) }}/{{ overview?.overview?.jobDemand ?? 0 }}</b></span>
+            <span class="yd-stat" title="距上一次结算院子产出的时间：这段时间的产出都堆在存放地里，点「一键领取」收走">⏱ 距上次观测 <b>{{ fmtDuration(overview?.elapsedSeconds ?? 0) }}</b></span>
           </div>
           <div v-if="!hasPower" class="yd-alarm">电力不足，建筑生产停止——检查电站与燃料</div>
           <div v-else-if="fuelShortage" class="yd-alarm fuel">燃料不足！发电机空转，建筑产出时长已归零——请补充燃料到院子</div>
@@ -91,8 +95,17 @@
                 <button class="yd-btn tiny" :class="{ on: batchKind === 'crop' }" :title="C.texts.batchHint" @click="toggleBatch('crop')">
                   {{ batchKind === 'crop' ? C.texts.batchOff : C.texts.batchOn }}
                 </button>
+                <button
+                  v-if="batchKind === 'crop'"
+                  class="yd-btn tiny"
+                  :disabled="running || !freeCropPlots"
+                  :title="`一次选中全部 ${freeCropPlots} 块已开垦空地，不用一格一格拖`"
+                  @click="selectAllEmpty('crop')"
+                >
+                  全选空地 {{ freeCropPlots }}
+                </button>
                 <button class="yd-btn tiny warn" :disabled="running || !cropNames.length" @click="harvestAllCrops">
-                  🌾 一键收获{{ cropNames.length ? `（${cropNames.length} 种）` : '' }}
+                  🌾 一键收获{{ cropNames.length ? `（${cropNames.length} 种 / ${ripeCount} 块）` : '' }}
                 </button>
                 <button class="yd-btn tiny" :disabled="running" @click="useVoucher">凭证开垦 +5</button>
               </div>
@@ -102,7 +115,7 @@
                 v-for="p in visibleCropPlots"
                 :key="'c-' + p.index"
                 class="yd-plot"
-                :class="[p.state, { sel: selected === p, picked: selection.has('crop:' + p.index), ripe: p.stage?.ripe }]"
+                :class="[p.state, { sel: selectedKey === 'crop:' + p.index, picked: selection.has('crop:' + p.index), ripe: p.stage?.ripe }]"
                 :data-sel-key="'crop:' + p.index"
                 @pointerdown="onPlotDown($event, 'crop', p)"
                 @click="onPlot(p, 'crop')"
@@ -130,7 +143,9 @@
               </button>
             </div>
             <div v-if="crop.plots.length > visibleCropPlots.length" class="yd-more">
-              仅显示前 {{ visibleCropPlots.length }} 块，共 {{ crop.plots.length }} 块
+              <span>已显示 {{ visibleCropPlots.length }} / {{ crop.plots.length }} 块农田</span>
+              <button class="yd-btn tiny" @click="loadMorePlots">⤵ 再显示 {{ C.plot.maxVisible }} 块</button>
+              <span class="yd-dim">没显示出来的地块照常生产，只是不在这里点得到</span>
             </div>
           </div>
 
@@ -145,6 +160,15 @@
                 <button class="yd-btn tiny" :class="{ on: batchKind === 'building' }" :title="C.texts.batchHint" @click="toggleBatch('building')">
                   {{ batchKind === 'building' ? C.texts.batchOff : C.texts.batchOn }}
                 </button>
+                <button
+                  v-if="batchKind === 'building'"
+                  class="yd-btn tiny"
+                  :disabled="running || !freeBuildingPlots"
+                  :title="`一次选中全部 ${freeBuildingPlots} 块已开垦空地，不用一格一格拖`"
+                  @click="selectAllEmpty('building')"
+                >
+                  全选空地 {{ freeBuildingPlots }}
+                </button>
               </div>
             </div>
             <div class="yd-grid" :class="{ brushing: batchKind === 'building' }" :style="gridStyle">
@@ -152,7 +176,7 @@
                 v-for="p in visibleBuildingPlots"
                 :key="'b-' + p.index"
                 class="yd-plot"
-                :class="[p.state, { sel: selected === p, picked: selection.has('building:' + p.index) }]"
+                :class="[p.state, { sel: selectedKey === 'building:' + p.index, picked: selection.has('building:' + p.index) }]"
                 :data-sel-key="'building:' + p.index"
                 @pointerdown="onPlotDown($event, 'building', p)"
                 @click="onPlot(p, 'building')"
@@ -171,7 +195,9 @@
               </button>
             </div>
             <div v-if="building.plots.length > visibleBuildingPlots.length" class="yd-more">
-              仅显示前 {{ visibleBuildingPlots.length }} 块，共 {{ building.plots.length }} 块
+              <span>已显示 {{ visibleBuildingPlots.length }} / {{ building.plots.length }} 块建筑区</span>
+              <button class="yd-btn tiny" @click="loadMorePlots">⤵ 再显示 {{ C.plot.maxVisible }} 块</button>
+              <span class="yd-dim">没显示出来的地块照常生产，只是不在这里点得到</span>
             </div>
           </div>
 
@@ -210,7 +236,14 @@
               </span>
               <span v-if="!storage.length" class="yd-empty">暂无存放产出</span>
             </div>
-            <button class="yd-btn primary block" :disabled="running" @click="collect">🎁 一键领取（产出）</button>
+            <button
+              class="yd-btn primary block"
+              :disabled="running || !canCollect"
+              :title="canCollect ? '领取存放地里堆着的全部产出' : '存放地是空的：院子还没攒下可领取的产出'"
+              @click="collect"
+            >
+              🎁 一键领取（产出）
+            </button>
             <div v-if="claimList.length" class="yd-claim">
               预计可得：<span v-for="g in claimList" :key="'g-' + g.name" class="gain">+{{ g.name }}×{{ fmtQty(g.quantity) }}</span>
             </div>
@@ -234,6 +267,8 @@
                 <span class="yd-s-main">
                   <span class="yd-s-name">{{ s.name }}</span>
                   <span class="yd-s-target">→ {{ s.target }}</span>
+                  <!-- 种/装之前先看清"要等多久、换回什么"，否则选种子纯靠猜 -->
+                  <span v-if="stockMeta(s)" class="yd-s-meta">{{ stockMeta(s) }}</span>
                 </span>
                 <span class="yd-s-qty">×{{ fmtQty(s.quantity) }}</span>
                 <span class="yd-s-go">{{ s.kind === 'seed' ? '种下' : '安装' }}</span>
@@ -299,7 +334,7 @@
             </div>
             <div class="yd-d-desc">{{ selected.description || '暂无描述' }}</div>
           </div>
-          <button class="yd-x" @click="selected = null">✕</button>
+          <button class="yd-x" @click="selectedKey = ''">✕</button>
         </div>
         <div class="yd-d-rates">
           <span v-for="(o, i) in selected.outputs" :key="'ro-' + i" :class="o.quantity >= 0 ? 'gain' : 'cost'">
@@ -377,8 +412,12 @@
               <span class="yd-s-main">
                 <span class="yd-s-name">{{ s.name }}</span>
                 <span class="yd-s-target">→ {{ s.target }}</span>
+                <span v-if="stockMeta(s)" class="yd-s-meta">{{ stockMeta(s) }}</span>
               </span>
-              <span class="yd-s-qty">×{{ fmtQty(s.quantity) }}</span>
+              <span class="yd-s-qty">
+                ×{{ fmtQty(s.quantity) }}
+                <em v-if="picker.count > 1 && s.quantity < picker.count" class="yd-s-short">只够 {{ Math.floor(s.quantity) }}</em>
+              </span>
               <span class="yd-s-go">{{ s.kind === 'seed' ? '种下' : '安装' }}</span>
             </button>
           </div>
@@ -415,12 +454,34 @@ const loading = ref(false);
 const error = ref('');
 /** 指令执行中：期间禁用其它操作，避免并发写入 */
 const running = ref(false);
-/** 当前选中的地块（详情条数据源） */
-const selected = ref(null);
+/**
+ * 当前选中地块的 key（'crop:3' / 'building:7'）。
+ * 存 key 而不是存对象：院子数据每 45 秒整体换一批新对象，攥着旧对象会让高亮先消失、
+ * 详情条再一直显示陈旧数量（同名作物刚补种过，×N 就该跟着变）。
+ */
+const selectedKey = ref('');
+/** 选中地块的实时视图（从最新数据里按 key 取回，作物阶段跟着本地心跳走） */
+const selected = computed(() => {
+  const plot = plotOfKey(selectedKey.value);
+  if (!plot) return null;
+  return plot.stage ? { ...plot, stage: liveCropStage(plot.stage) } : plot;
+});
 /** 空地上弹出的种子/建筑选择器（count>1 表示批量） */
 const picker = ref({ open: false, kind: 'crop', items: [], count: 1 });
 /** 右侧仓库当前 Tab */
 const stockTab = ref('seed');
+/**
+ * 首屏把仓库停在"有货的那一边"：默认固定看种子，结果背包里只有建筑时，
+ * 玩家一进家园看到的就是一行「背包里没有可种植的种子」，像是坏了。
+ */
+let stockTabPicked = false;
+watch(data, (loaded) => {
+  if (!loaded || stockTabPicked) return;
+  stockTabPicked = true;
+  if (!(loaded.seeds || []).length && (loaded.buildings || []).length) stockTab.value = 'building';
+});
+/** 存放地与本次预计收益都为空时，领取没有东西可领（按钮别亮着骗一次点击） */
+const canCollect = computed(() => storage.value.length > 0 || claimList.value.length > 0);
 /** 正在刷选的区域：'' | 'crop' | 'building'（同时只对一块区域生效） */
 const batchKind = ref('');
 /** 刷选中的地块 key 集合，形如 'crop:3' */
@@ -655,9 +716,20 @@ const claimList = computed(() => (overview.value?.gains || []).filter((g) => Num
 const stockList = computed(() => (stockTab.value === 'seed' ? seeds.value : buildings.value));
 // 地块可能成百上千（高等级 + 多凭证），只渲染前 N 块防止页面卡死
 // 渲染上限内顺手换成 liveCropStage：stage 随 clockTick 逐秒推进，不必等 45s 轮询才跳
-const visibleCropPlots = computed(() => crop.value.plots.slice(0, C.plot.maxVisible)
+/**
+ * 当前渲染上限，「⤵ 再显示」按 maxVisible 递增。
+ * 上限之外的地块此前只能干看着（后端全给了、前端只画前 150 块），高等级家园等于丢操作。
+ */
+const plotLimit = ref(C.plot.maxVisible);
+const visibleCropPlots = computed(() => crop.value.plots.slice(0, plotLimit.value)
   .map((p) => (p.stage ? { ...p, stage: liveCropStage(p.stage) } : p)));
-const visibleBuildingPlots = computed(() => building.value.plots.slice(0, C.plot.maxVisible));
+const visibleBuildingPlots = computed(() => building.value.plots.slice(0, plotLimit.value));
+function loadMorePlots() {
+  plotLimit.value += C.plot.maxVisible;
+}
+/** 已开垦但还空着的地块数（全选与"还能种几颗"都看这个） */
+const freeCropPlots = computed(() => crop.value.plots.filter((p) => p.state === 'empty').length);
+const freeBuildingPlots = computed(() => building.value.plots.filter((p) => p.state === 'empty').length);
 const gridStyle = computed(() => ({
   '--yd-min': `${C.plot.minSize}px`,
   '--yd-gap': `${C.plot.gap}px`,
@@ -681,6 +753,15 @@ const growingCount = computed(() => {
   }
   return count;
 });
+/** 田里已成熟的作物格数量：顶栏徽标与「一键收获（N 种 / M 块）」共用 */
+const ripeCount = computed(() => {
+  void clockTick.value;
+  let count = 0;
+  for (const p of crop.value.plots) {
+    if (p.state === 'occupied' && p.stage && liveCropStage(p.stage).ripe) count += 1;
+  }
+  return count;
+});
 
 /** 本地时钟首次把某块地算成熟时，拉一次院子同步服务端 ripe/收获态 */
 watch(cropNames, (now, prev) => {
@@ -693,13 +774,20 @@ watch(cropNames, (now, prev) => {
 });
 
 // ---------- 刷选派生 ----------
+/** 地块 key（'crop:3'）→ 最新数据里的那一格；取不到返回 null */
+function plotOfKey(key) {
+  const text = String(key || '');
+  if (!text.includes(':')) return null;
+  const [kind, raw] = text.split(':');
+  const source = kind === 'building' ? building.value.plots : crop.value.plots;
+  return source[Number(raw)] || null;
+}
 /** 选中的 key → 还原成 { kind, plot } */
 const selectionList = computed(() => {
   const list = [];
   for (const key of selection.value) {
-    const [kind, raw] = String(key).split(':');
-    const source = kind === 'crop' ? crop.value.plots : building.value.plots;
-    const plot = source[Number(raw)];
+    const kind = String(key).split(':')[0];
+    const plot = plotOfKey(key);
     if (plot) list.push({ kind, plot });
   }
   return list;
@@ -943,6 +1031,27 @@ function iconOf(plot) {
 function stockIcon(stock) {
   return matchIcon(stock.target || stock.name, stock.kind === 'seed' ? 'crop' : 'building');
 }
+/**
+ * 仓库/选择器里的一行小字：这颗种子要等多久、成熟换回什么；这个建筑每分钟的产耗。
+ * 后端把 growSeconds / harvest / outputs 都带回来了，玩家选种时不该只能看名字猜。
+ */
+function stockMeta(stock) {
+  if (stock.kind === 'seed') {
+    const parts = [];
+    if (Number(stock.growSeconds) > 0) parts.push(`⏱ ${fmtRemain(stock.growSeconds)}成熟`);
+    const gain = (stock.harvest || [])
+      .filter((h) => Number(h.quantity) > 0)
+      .map((h) => `${h.name}×${fmtQty(h.quantity)}`)
+      .join(' ');
+    if (gain) parts.push(`收 ${gain}`);
+    return parts.join(' · ');
+  }
+  const rates = (stock.outputs || [])
+    .filter((o) => Math.abs(Number(o.quantity)) >= 0.0001)
+    .map((o) => `${o.quantity >= 0 ? '+' : ''}${fmtQty(o.quantity)} ${o.name}/分`)
+    .join(' ');
+  return rates;
+}
 /** 展示口径：大数取整、一般两位小数、极小值四位 */
 function fmtQty(v) {
   const n = Number(v) || 0;
@@ -999,6 +1108,22 @@ function toggleSelectionKey(key) {
   if (next.has(key)) next.delete(key);
   else next.add(key);
   selection.value = next;
+}
+/**
+ * 一次选中该区域全部已开垦空地（拖刷几十上百格的替代方案）。
+ * 会先清掉已有选择：混进已种植/已安装的格后，批量条按第一条的状态决定按下去是种还是拆，
+ * 那种"看起来选了 30 块、实际只种了其中几块"的行为比多一次点击更糟。
+ */
+function selectAllEmpty(kind) {
+  if (batchKind.value !== kind) batchKind.value = kind;
+  const source = kind === 'building' ? building.value.plots : crop.value.plots;
+  const keys = source.filter((p) => p.state === 'empty').map((p) => `${kind}:${p.index}`);
+  if (!keys.length) {
+    ui.pushToast({ type: 'info', message: C.texts.noEmptyPlot });
+    return;
+  }
+  selection.value = new Set(keys);
+  ui.pushToast({ type: 'info', message: C.texts.selectAllEmpty(kind, keys.length) });
 }
 
 let brushing = false;
@@ -1077,7 +1202,7 @@ function toastResults(texts) {
 /** 批量收尾：解锁、清选择、退出批量模式、延迟重拉数据 */
 function endBatch() {
   running.value = false;
-  selected.value = null;
+  selectedKey.value = '';
   picker.value = { open: false, kind: picker.value.kind, items: [], count: 1 };
   clearSelection();
   batchKind.value = '';
@@ -1189,7 +1314,7 @@ async function run(cmd, opts = {}) {
     ui.pushToast({ type: 'error', message: e?.response?.data?.message || `执行失败：${cmd}` });
   } finally {
     running.value = false;
-    selected.value = null;
+    selectedKey.value = '';
     picker.value.open = false;
     // 即时指令：短延时补拉院子。延时指令（挖土/赶路/建造）还必须补拉 playerInfo，
     // 否则「建造房子中 Ns」的 endAt 来自旧快照/缺失，倒计时会卡住不动。
@@ -1347,7 +1472,7 @@ function onPlot(plot, kind) {
     ui.pushToast({ type: 'info', message: plot.unlockHint || '该地块尚未开垦' });
     return;
   }
-  selected.value = plot;
+  selectedKey.value = `${kind}:${plot.index}`;
   if (plot.state === 'empty') openPicker(kind, 1);
 }
 
@@ -1549,6 +1674,28 @@ button.yd-switch-btn:hover {
 @keyframes yd-grow-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.6; }
+}
+/* 顶栏「可收获」徽标：能点，点了就是那枚一键收获，省得在几十格里找绿光 */
+.yd-meta-btn {
+  padding: 1px 8px;
+  border-radius: 10px;
+  border: 1px solid rgba(251, 191, 36, 0.45);
+  background: rgba(251, 191, 36, 0.12);
+  color: #fbbf24;
+  font-size: 11px;
+  cursor: pointer;
+  animation: yd-ripe-pulse 2.4s ease-in-out infinite;
+}
+.yd-meta-btn:hover:not(:disabled) {
+  filter: brightness(1.2);
+}
+.yd-meta-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+@keyframes yd-ripe-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(251, 191, 36, 0); }
+  50% { box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.16); }
 }
 .yd-head-ops {
   display: flex;
@@ -1975,6 +2122,10 @@ button.yd-switch-btn:hover {
   border-color: #4ade80;
 }
 .yd-more {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
   margin-top: 6px;
   color: var(--muted);
   font-size: 11px;
@@ -2128,6 +2279,25 @@ button.yd-switch-btn:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* 选种/装建筑前最该看到的两件事：要等多久、换回什么 */
+.yd-s-meta {
+  font-size: 10px;
+  color: #4ade80;
+  margin-top: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.yd-s-qty {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.yd-s-qty em {
+  display: block;
+  font-style: normal;
+  font-size: 10px;
+  color: #fb923c;
 }
 .yd-s-qty {
   font-size: 11px;

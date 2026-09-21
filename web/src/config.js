@@ -17,7 +17,7 @@ export const WS_URL =
 export const COMMAND_PREFIXES = ['/', '！', '!'];
 
 // 版本号：显示在界面右上角，发新版时在此调整
-export const APP_VERSION = '0.8.2';
+export const APP_VERSION = '0.9.0';
 
 // GitHub Issue 反馈页地址：头部「BUG 反馈」按钮的跳转目标，可用 VITE_GITHUB_ISSUES_URL 覆盖
 export const GITHUB_ISSUES_URL =
@@ -323,6 +323,9 @@ export const HOME_YARD_CONFIG = {
     batchOff: '退出批量',
     batchHint: '开启后可在地块上按住拖动刷选，再一次性种下 / 收获 / 拆除',
     batchEmpty: '批量：点或拖着刷过要操作的地块',
+    /** 全选空地：一次选中该区域全部已开垦空格，替代在几百格里按住拖 */
+    selectAllEmpty: (kind, n) => `已选中 ${n} 块${kind === 'crop' ? '农田' : '建筑区'}空地`,
+    noEmptyPlot: '这一区没有已开垦的空地了，用凭证或升级再开垦',
     seedCount: (n) => `种下 ${n} 颗`,
     installCount: (n) => `安装 ${n} 个`,
     harvestCount: (n) => `收获 ${n} 块`,

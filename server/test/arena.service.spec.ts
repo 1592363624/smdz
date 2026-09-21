@@ -53,7 +53,9 @@ function makeFakePrisma() {
         if ('gte' in c && !(Number(value) >= Number(c.gte))) return false;
         if ('lt' in c && !(Number(value) < Number(c.lt))) return false;
         if ('lte' in c && !(new Date(value).getTime() <= Number(c.lte))) return false;
-        if (!('in' in c || 'gt' in c || 'gte' in c || 'lt' in c || 'lte' in c)) {
+        // 榜单按主人名模糊搜索用的 contains
+        if ('contains' in c && !String(value ?? '').includes(String(c.contains))) return false;
+        if (!('in' in c || 'gt' in c || 'gte' in c || 'lt' in c || 'lte' in c || 'contains' in c)) {
           for (const [subKey, subVal] of Object.entries(c)) {
             if (row[subKey] !== subVal) return false;
           }
@@ -678,12 +680,86 @@ describe('ArenaService · 只读接口负载（网页天梯页吃这份，不做
     expect(overview.me.tier).toBe('传奇角斗士');
     expect(overview.me.challengeRankWindow).toBe(1);
     expect(Object.keys(overview.me).sort()).toEqual([
-      'bestRank', 'challengeRankWindow', 'dailyLeft', 'dailyLimit', 'draws', 'losses', 'mirror',
-      'rank', 'seat', 'streak', 'tier', 'userId', 'wins',
+      'avoidUntil', 'bestRank', 'challengeRankWindow', 'dailyLeft', 'dailyLimit', 'draws', 'losses',
+      'mirror', 'rank', 'seat', 'streak', 'tier', 'userId', 'wins',
     ]);
     const report: any = await service.reportForUser(prisma.__tables.arenaMatch[0].id, 2);
     expect(report.ranks).toEqual({ attacker: { before: 2, after: 1 }, defender: { before: 1, after: 2 } });
     expect(report.seats.swapped).toBe(true);
+  });
+
+  it('榜单按主人名过滤后，rank 仍是全榜名次（搜索结果里的「挑战镜像 N」不能指向别人）', async () => {
+    const { service, prisma } = makeService({ players: { 4: makePlayerRow(4) } });
+    await service.submitMirror(1);
+    await service.submitMirror(2);
+    await service.submitMirror(4);
+    const seasonId = prisma.__tables.arenaSeason[0].id;
+
+    const full = await service.ladderRows(seasonId, 1, 20);
+    expect(full.rows).toHaveLength(3);
+    expect(full.search).toBe('');
+    const rankOf = new Map(full.rows.map((r) => [r.ownerName, r.rank]));
+
+    const filtered = await service.ladderRows(seasonId, 1, 20, '玩家2');
+    expect(filtered.rows.map((r) => r.ownerName)).toEqual(['玩家2']);
+    expect(filtered.total).toBe(1);
+    expect(filtered.search).toBe('玩家2');
+    // 关键：过滤后的名次取自全榜，不是"结果里的第 1 行"
+    expect(filtered.rows[0].rank).toBe(rankOf.get('玩家2'));
+    expect(filtered.rows[0].rank).not.toBe(1);
+
+    // 搜不到就给空结果，而不是回落成全榜
+    const none = await service.ladderRows(seasonId, 1, 20, '不存在的人');
+    expect(none.rows).toEqual([]);
+    expect(none.total).toBe(0);
+  });
+
+  it('概况把防连打冷却摊开：刚打过的镜像带着解冻时刻，网页才标得出「这一位现在打不了」', async () => {
+    const { service, prisma } = makeService();
+    await service.submitMirror(1);
+    await service.submitMirror(2);
+    await service.challengeMirror(2, '玩家1');
+    const targetMirrorId = prisma.__tables.arenaMirror.find((m: any) => m.ownerId === 1).id;
+
+    // 攻方刚打过 1 号镜像：冷却表里必须有它，且时刻在将来
+    const attackerView: any = await service.getOverview(2);
+    const until = Number(attackerView.me.avoidUntil[String(targetMirrorId)]) || 0;
+    expect(until).toBeGreaterThan(Date.now());
+    // 守方没主动打过人：空表，而不是 undefined（前端按 key 取值，不该再判存在性）
+    const defenderView: any = await service.getOverview(1);
+    expect(defenderView.me.avoidUntil).toEqual({});
+  });
+
+  it('侦察某名次镜像：三池/战斗属性/在手武器一次给全，且不替访客建档', async () => {
+    const { service, prisma } = makeService();
+    await service.submitMirror(1);
+    await service.submitMirror(2);
+    await service.challengeMirror(2, '玩家1');
+    const seasonId = prisma.__tables.arenaSeason[0].id;
+
+    // 2 号打赢后顶到第 1 名，被顶下去的 1 号镜像落在第 2 名——侦察的正是刚打过的那一位
+    const intel: any = await service.scoutMirror(2, seasonId, 2);
+    expect(intel.found).toBe(true);
+    expect(intel.rank).toBe(2);
+    expect(intel.ownerName).toBe('玩家1');
+    expect(intel.detail.pools).toEqual({ hp: 3000, armor: 500, shield: 800 });
+    expect(intel.detail.stats).toEqual({ attack: 200, hit: 120, dodge: 20, crit: 10 });
+    expect(intel.detail.weaponName).toBe('铁剑');
+    expect(intel.detail.weaponCount).toBe(1);
+    // 摘要文本与指令「竞技场 序号」同一份算法，两条入口对同一镜像不能各说一套
+    expect(intel.summary.join('\n')).toContain('镜像主人：玩家1');
+    // 2 号刚打过 1 号镜像：侦察结果里就该带上冷却时刻，网页据此把这一行标成打不了
+    expect(intel.cooldownUntil).toBeGreaterThan(Date.now());
+
+    // 只读纪律：3 号既没档案也没上榜，侦察不能顺手给他建一条
+    const idle: any = await service.scoutMirror(3, seasonId, 1);
+    expect(idle.cooldownUntil).toBe(0);
+    expect(prisma.__tables.arenaProfile.some((p: any) => p.userId === 3)).toBe(false);
+
+    // 榜上没有的名次：给一句人话，不抛错也不回空对象
+    const missing: any = await service.scoutMirror(2, seasonId, 99);
+    expect(missing.found).toBe(false);
+    expect(missing.message).toContain('天梯榜上没有第 99 名');
   });
 });
 

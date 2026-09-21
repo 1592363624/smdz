@@ -28,12 +28,20 @@ export class ArenaController {
   }
 
   @Get('ladder')
-  @ApiOperation({ summary: '天梯榜分页：?page=2' })
-  async ladder(@Query('page') page?: string) {
+  @ApiOperation({ summary: '天梯榜分页：?page=2&q=名字关键词（q 为按镜像主人名的模糊过滤）' })
+  async ladder(@Query('page') page?: string, @Query('q') q?: string) {
     const { season } = await this.arena.ensureActiveSeason();
     const cfg = await this.arena.getConfig();
     const pageIndex = Number(page) > 1 ? Math.floor(Number(page)) : 1;
-    return { success: true, data: await this.arena.ladderRows(season.id, pageIndex, cfg.pageSize) };
+    return { success: true, data: await this.arena.ladderRows(season.id, pageIndex, cfg.pageSize, q) };
+  }
+
+  @Get('mirror/:rank')
+  @ApiOperation({ summary: '侦察榜单某名次的镜像（与指令「竞技场 序号」同一份情报，只读）' })
+  async mirror(@Req() req, @Param('rank') rank: string) {
+    const userId = Number(req.user?.userId);
+    const { season } = await this.arena.ensureActiveSeason();
+    return { success: true, data: await this.arena.scoutMirror(userId, season.id, Number(rank)) };
   }
 
   @Get('matches')
@@ -59,8 +67,12 @@ export class ArenaController {
   }
 
   @Get('season-rewards')
-  @ApiOperation({ summary: '当前赛季奖励配置（名次档/称号/头像框/特权，公示用）' })
+  @ApiOperation({ summary: '当前赛季奖励配置（名次档/称号/头像框/特权，公示用；带 catalog 供前端把键名换成展示名）' })
   async seasonRewards() {
-    return { success: true, data: await this.seasons.getRewardsConfig() };
+    const [rewards, catalog] = await Promise.all([
+      this.seasons.getRewardsConfig(),
+      this.arena.rewardCatalog(),
+    ]);
+    return { success: true, data: { ...(rewards || {}), catalog } };
   }
 }

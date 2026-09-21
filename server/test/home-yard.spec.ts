@@ -189,6 +189,27 @@ describe('家园院子格子视图', () => {
     expect(yard.buildings.map((b) => b.name)).toEqual(['基础钻机']);
   });
 
+  it('种子库存带回成熟时长与整周期收获量，且与已种下格子的 harvest 同一口径', async () => {
+    // 一格已种下的椰树（100 秒前种下）+ 背包里 3 颗椰树种子：
+    // 玩家在"种之前"和"种下去之后"看到的必须是同一份数字。
+    const plantedAt = Math.floor(Date.now() / 1000) - 100;
+    const fixture = makeYardFixture({
+      resources2: [{ name: '椰树', quantity: 1, plantedAt, outputs2: [{ name: '奶', quantity: 0.0007 }] }],
+      backpack: [{ name: '椰树种子', quantity: 3 }],
+    });
+
+    const yard = await fixture.service.getHomeYard(7);
+    const seed = yard.seeds[0];
+    const plot = yard.crop.plots[0];
+
+    // fixture 的 getCropGrowthPlan：totalSeconds=600 / rewardScaleDivisor=600 → 整周期倍率 1
+    expect(seed.growSeconds).toBe(600);
+    expect(seed.harvest).toEqual([{ name: '奶', quantity: 0.0007 }]);
+    expect(seed.harvest).toEqual(plot.harvest);
+    // 0.0007 这类低速收益不能被 2 位小数取整抹成 0，否则格子上会写「成熟收获 奶×0」
+    expect(plot.harvest[0].quantity).toBeGreaterThan(0);
+  });
+
   it('materials 汇总背包资源存量（建造引导「已有 X」用），装备不计入', async () => {
     const fixture = makeYardFixture({
       backpack: [

@@ -901,12 +901,49 @@
     "/api/game/arena/ladder": {
       "get": {
         "operationId": "ArenaController_ladder",
-        "summary": "天梯榜分页：?page=2",
+        "summary": "天梯榜分页：?page=2&q=名字关键词（q 为按镜像主人名的模糊过滤）",
         "parameters": [
           {
             "name": "page",
             "required": true,
             "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "使魔竞技场"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/game/arena/mirror/{rank}": {
+      "get": {
+        "operationId": "ArenaController_mirror",
+        "summary": "侦察榜单某名次的镜像（与指令「竞技场 序号」同一份情报，只读）",
+        "parameters": [
+          {
+            "name": "rank",
+            "required": true,
+            "in": "path",
             "schema": {
               "type": "string"
             }
@@ -1008,7 +1045,7 @@
     "/api/game/arena/season-rewards": {
       "get": {
         "operationId": "ArenaController_seasonRewards",
-        "summary": "当前赛季奖励配置（名次档/称号/头像框/特权，公示用）",
+        "summary": "当前赛季奖励配置（名次档/称号/头像框/特权，公示用；带 catalog 供前端把键名换成展示名）",
         "parameters": [],
         "responses": {
           "200": {

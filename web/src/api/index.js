@@ -152,8 +152,10 @@ export const homeApi = {
 export const arenaApi = {
   // 赛季概况 + 我的天梯状态 + 竞技场门槛配置（面板首屏，只读）
   overview: () => http.get('/game/arena/overview'),
-  // 天梯榜分页（镜像为冻结快照，含快照等级/战斗力/版本与提交时刻）
-  ladder: (page = 1) => http.get('/game/arena/ladder', { params: { page } }),
+  // 天梯榜分页（镜像为冻结快照，含快照等级/战斗力/版本与提交时刻）；q 为按主人名的模糊过滤
+  ladder: (page = 1, q = '') => http.get('/game/arena/ladder', { params: q ? { page, q } : { page } }),
+  // 侦察榜单某名次的镜像：与指令「竞技场 序号」同一份情报，只是换成结构化方便排版
+  scout: (rank) => http.get(`/game/arena/mirror/${encodeURIComponent(rank)}`),
   // 我的战绩分页（结构化行，前端不再解析指令文本）
   matches: (page = 1) => http.get('/game/arena/matches', { params: { page } }),
   // 单份完整战报（lines 正文 + actionLog 逐回合明细，仅参战双方可读）

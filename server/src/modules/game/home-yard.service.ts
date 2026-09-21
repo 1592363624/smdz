@@ -80,6 +80,10 @@ export interface HomeYardStock {
   description: string;
   /** 种下 / 安装后的每分钟产出（负数=消耗） */
   outputs: HomeYardRate[];
+  /** 一次性可得：种子=整株成熟收获量，建筑=拆除返还（与地块上的 harvest 同一口径） */
+  harvest?: HomeYardRate[];
+  /** 种子成熟所需总秒数（建筑无此字段）。选种时"要等多久"和"收多少"同样重要 */
+  growSeconds?: number;
 }
 
 /** 一片区域（作物田或建筑区） */
@@ -209,21 +213,14 @@ export class HomeYardService {
       const outputs = this.toRates(resource?.outputs2 ?? resource?.['产出2'] ?? []);
       if (outputs.length > 0) {
         const def = this.findResourceDef(name);
-        // 分阶段成熟玩法：收获收益 = 产出2 正收益 × 成熟总秒数/600（整周期掉落）
-        const plan = this.homeService.getCropGrowthPlan(name);
-        const harvestRate = plan.totalSeconds / plan.rewardScaleDivisor;
+        // 分阶段成熟玩法：收获收益 = 产出2 正收益 × 成熟总秒数/600（整周期掉落），见 cropHarvestRates
         cropSlots.push({
           name,
           quantity,
           // 每粒种子独立的种植时间戳；旧聚合存档没有该字段（buildCropStage 里按已成熟处理）
           plantedAt: Number(resource?.plantedAt ?? resource?.['种植时间'] ?? 0) || undefined,
           outputs: [],
-          harvest: outputs
-            .filter((item) => item.quantity > 0 && item.name !== '电力')
-            .map((item) => ({
-              name: item.name,
-              quantity: Math.round(item.quantity * harvestRate * 100) / 100,
-            })),
+          harvest: this.cropHarvestRates(name, outputs),
           description: String(def?.description ?? resource?.description ?? ''),
         });
         continue;
@@ -312,6 +309,8 @@ export class HomeYardService {
           target: seed.cropName,
           description: seed.description,
           outputs: seed.outputs,
+          harvest: seed.harvest,
+          growSeconds: seed.growSeconds,
         });
       }
     }
@@ -443,8 +442,17 @@ export class HomeYardService {
    * 解析种子 → 可种植作物的映射。
    * 与 HomeService.plantSeed 同源：优先取物品使用效果的第一项，其次去掉「种子」后缀，
    * 命中资源定义且产出2 非空才算可种（否则它只是个普通物品）。
+   *
+   * 额外带回「整株成熟收获量 + 成熟秒数」：玩家选种时看的就是这两项，
+   * 少了它们，种下一颗之前没人知道自己要等多久、能收多少。
    */
-  private resolveSeedTarget(seedName: string): { cropName: string; outputs: HomeYardRate[]; description: string } | null {
+  private resolveSeedTarget(seedName: string): {
+    cropName: string;
+    outputs: HomeYardRate[];
+    harvest: HomeYardRate[];
+    growSeconds: number;
+    description: string;
+  } | null {
     // 兼容「椰树种子1」这类带数量后缀的背包写法
     const bare = seedName.replace(/\d+$/, '').trim();
     const def = this.staticData.getItemByName(bare) ?? this.staticData.getItemByName(seedName);
@@ -463,8 +471,28 @@ export class HomeYardService {
     return {
       cropName,
       outputs,
+      harvest: this.cropHarvestRates(cropName, outputs),
+      growSeconds: this.homeService.getCropGrowthPlan(cropName).totalSeconds,
       description: String(resourceDef?.description ?? def?.description ?? ''),
     };
+  }
+
+  /**
+   * 作物整周期收获量（与地块上的 harvest 唯一的一份算法）。
+   * 口径 = 产出2 的正收益 × 成熟总秒数 / rewardScaleDivisor，电力不计入掉落；
+   * 两处（已种下的格子、背包里还没种的种子）必须走这里，否则种之前看到的和种下去之后算的两套数。
+   * 保留 4 位小数：低速作物（如 0.0007/分）按 2 位取整会直接显示成「×0」，
+   * 展示精度交给前端 fmtQty 决定，这里不做二次截断。
+   */
+  private cropHarvestRates(cropName: string, outputs: HomeYardRate[]): HomeYardRate[] {
+    const plan = this.homeService.getCropGrowthPlan(cropName);
+    const rate = plan.totalSeconds / plan.rewardScaleDivisor;
+    return outputs
+      .filter((item) => item.quantity > 0 && item.name !== '电力')
+      .map((item) => ({
+        name: item.name,
+        quantity: Math.round(item.quantity * rate * 10000) / 10000,
+      }));
   }
 
   /**
