@@ -17,7 +17,7 @@ export const WS_URL =
 export const COMMAND_PREFIXES = ['/', '！', '!'];
 
 // 版本号：显示在界面右上角，发新版时在此调整
-export const APP_VERSION = '0.8.1';
+export const APP_VERSION = '0.8.2';
 
 // GitHub Issue 反馈页地址：头部「BUG 反馈」按钮的跳转目标，可用 VITE_GITHUB_ISSUES_URL 覆盖
 export const GITHUB_ISSUES_URL =
