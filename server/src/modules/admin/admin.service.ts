@@ -431,6 +431,14 @@ export class AdminService {
     await this.prisma.delayedTask.deleteMany({ where: { userId: targetId } });
     await this.prisma.currencyLog.deleteMany({ where: { userId: targetId } });
     await this.prisma.commandLog.deleteMany({ where: { senderId: targetId } });
+    // 竞技场镜像 / 天梯档案 / 特权 / 头像框同样是「按 userId 存、无外键级联」：
+    // 镜像留着会变成无人认领却仍可被挑战的幽灵靶子（打赢还给一个已消失的账号记分），
+    // 特权留着则是一条永远不会有人使用的能力授予。战报（ArenaMatch）作为审计保留，
+    // 参战人名已冗余在行内，不受账号消失影响。
+    await this.prisma.arenaMirror.deleteMany({ where: { ownerId: targetId } });
+    await this.prisma.arenaProfile.deleteMany({ where: { userId: targetId } });
+    await this.prisma.playerPrivilege.deleteMany({ where: { userId: targetId } });
+    await this.prisma.playerAvatarFrame.deleteMany({ where: { userId: targetId } });
 
     // 家园三张动态图与宿主入口无外键，删号前先拆，避免幽灵家园刷「观察附近/查看家园」。
     const targetPlayer = await this.prisma.player.findUnique({

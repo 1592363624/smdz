@@ -878,6 +878,339 @@
         ]
       }
     },
+    "/api/game/arena/overview": {
+      "get": {
+        "operationId": "ArenaController_overview",
+        "summary": "赛季与竞技场概况 + 我的天梯状态（面板首屏，只读）",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "使魔竞技场"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/game/arena/ladder": {
+      "get": {
+        "operationId": "ArenaController_ladder",
+        "summary": "天梯榜分页：?page=2",
+        "parameters": [
+          {
+            "name": "page",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "使魔竞技场"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/game/arena/matches": {
+      "get": {
+        "operationId": "ArenaController_matches",
+        "summary": "我的战绩分页（结构化，前端不做文本解析）",
+        "parameters": [
+          {
+            "name": "page",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "使魔竞技场"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/game/arena/report/{id}": {
+      "get": {
+        "operationId": "ArenaController_report",
+        "summary": "单份完整战报（仅参战双方可读）",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "使魔竞技场"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/game/arena/frames": {
+      "get": {
+        "operationId": "ArenaController_frames",
+        "summary": "我的头像框与佩戴状态、当前生效特权",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "使魔竞技场"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/game/arena/season-rewards": {
+      "get": {
+        "operationId": "ArenaController_seasonRewards",
+        "summary": "当前赛季奖励配置（名次档/称号/头像框/特权，公示用）",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "使魔竞技场"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/arena/overview": {
+      "get": {
+        "operationId": "ArenaAdminController_overview",
+        "summary": "竞技场概况（赛季 / 镜像数 / 参战人数 / 场次数）",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "管理员 · 竞技场"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/arena/ladder": {
+      "get": {
+        "operationId": "ArenaAdminController_ladder",
+        "summary": "天梯榜（后台审计用，可放大页容量）",
+        "parameters": [
+          {
+            "name": "page",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "size",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "管理员 · 竞技场"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/arena/season-rewards": {
+      "get": {
+        "operationId": "ArenaAdminController_seasonRewards",
+        "summary": "当前赛季奖励配置（已归一化）",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "管理员 · 竞技场"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/arena/privileges": {
+      "get": {
+        "operationId": "ArenaAdminController_holders",
+        "summary": "某特权的在册持有者（默认批量采集）",
+        "parameters": [
+          {
+            "name": "key",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "管理员 · 竞技场"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/arena/settle": {
+      "post": {
+        "operationId": "ArenaAdminController_settle",
+        "summary": "立即结算到期赛季（幂等：未到期的赛季不会被发奖）",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "管理员 · 竞技场"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/arena/season/extend": {
+      "post": {
+        "operationId": "ArenaAdminController_extend",
+        "summary": "调整本赛季截止时刻：body { days }",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "管理员 · 竞技场"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/arena/privilege/grant": {
+      "post": {
+        "operationId": "ArenaAdminController_grant",
+        "summary": "授予特权：body { userId, key, days, reason }（days=0 表示永久）",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "管理员 · 竞技场"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/arena/privilege/revoke": {
+      "post": {
+        "operationId": "ArenaAdminController_revoke",
+        "summary": "撤销特权：body { userId, key }",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "管理员 · 竞技场"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/admin/users": {
       "get": {
         "operationId": "AdminController_listUsers",

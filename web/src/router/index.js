@@ -8,6 +8,7 @@ import OnboardView from '../views/OnboardView.vue';
 import ChatView from '../views/ChatView.vue';
 import HomeView from '../views/HomeView.vue';
 import FrontlineView from '../views/FrontlineView.vue';
+import ArenaView from '../views/ArenaView.vue';
 import AdminView from '../views/AdminView.vue';
 
 const router = createRouter({
@@ -21,6 +22,8 @@ const router = createRouter({
     { path: '/home', name: 'home', component: HomeView, meta: { requiresAuth: true } },
     // 家园前线：防守阵地/火力通道/地精波次独立页面（与家园同属家园系统）
     { path: '/frontline', name: 'frontline', component: FrontlineView, meta: { requiresAuth: true } },
+    // 竞技场：镜像天梯/战报回放独立页面（榜单与逐回合明细占屏大，侧栏放不下）
+    { path: '/arena', name: 'arena', component: ArenaView, meta: { requiresAuth: true } },
     { path: '/admin', name: 'admin', component: AdminView, meta: { requiresAuth: true, requiresAdmin: true } },
   ],
 });

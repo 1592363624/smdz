@@ -79,13 +79,13 @@ describe('B. 分类条目数与模板行过滤', () => {
     expect(c['使魔']).toBe(31);
     expect(c['武器']).toBe(122);
     expect(c['装备']).toBe(238);
-    expect(c['物品']).toBe(170); // items.json 171 - 「物品模板」（含新增主线补给箱）
+    expect(c['物品']).toBe(171); // items.json 172 - 「物品模板」（含新增主线补给箱、竞技场门票）
     expect(c['资源']).toBe(119);
     expect(c['怪物']).toBe(146); // monsters.json：145 + 新增「遗迹守卫」（远古遗迹封印唤醒系统）
     expect(c['任务']).toBe(86); // tasks.json 87 - 「任务模板」
     expect(c['增益']).toBe(18); // buffs.json 19 - 「增益模板」
     expect(c['建筑']).toBe(104); // buildings.json 105 - 「建筑模板」
-    expect(c['称号']).toBe(140);
+    expect(c['称号']).toBe(143); // titles.json 140 + 竞技场赛季限定 3 条（竞技场之王/角斗大师/天梯常客）
     expect(c['部件']).toBe(165); // vehicles.json 166 - 「载具模板」
     expect(c['攻击文本']).toBe(67);
     expect(c['对话文本']).toBe(19); // npcs.json 20 - 「对话模板」

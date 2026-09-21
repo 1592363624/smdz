@@ -21,6 +21,7 @@ import { GatherHandler } from './gather.handler';
 import { GameCommandHandler } from './game-command.handler';
 import { LotteryCommandHandler } from './lottery-command.handler';
 import { WorldEventHandler } from './world-event.handler';
+import { ArenaHandler } from './arena.handler';
 
 /// 指令处理器类列表（供 Nest 注册为 provider）
 export const handlerProviders = [
@@ -42,6 +43,7 @@ export const handlerProviders = [
   LotteryCommandHandler,
   GatherHandler,
   WorldEventHandler,
+  ArenaHandler,
 ];
 
 /// 组装 key -> 处理器实例 的映射

@@ -663,3 +663,164 @@ model DelayedTask {
   @@index([runAt])
   @@index([type, userId, dedupeKey])
 }
+
+// ========== 使魔竞技场（异步 PVP · 镜像天梯） ==========
+// 设计见 docs/arena-ladder-design.md。要点：打的是冻结镜像，输了只掉天梯分，
+// 不动任何真实资产 —— 因此天梯状态全部落在下面这几张新表，Player 宽表零改动。
+
+/// 竞技场赛季：一赛季一份榜单；到期按名次发放可配置奖励（称号/头像框/资源/特权）。
+model ArenaSeason {
+  id       Int      @id @default(autoincrement())
+  /// 赛季序号（1,2,3…），对外文案作 S{no}
+  no       Int      @unique
+  name     String   @default("")
+  startAt  DateTime
+  endAt    DateTime
+  /// ACTIVE=进行中；SETTLED=已结算（结算幂等就靠这个状态位）
+  status   String   @default("ACTIVE")
+  /// 结算瞬间冻结的奖励配置快照（事后改配置不影响已发赛季，可复盘）
+  rewardSnapshot Json?
+  /// 结算摘要：{ total:Int, granted:Int, rows:[{rank,userId,name,seat,texts[]}] }
+  settleInfo   Json?
+  settledAt    DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([status, endAt])
+}
+
+/// 玩家竞技场档案：席位 / 名次 / 段位 / 战绩 / 每日挑战次数。
+model ArenaProfile {
+  id         Int      @id @default(autoincrement())
+  userId     Int      @unique
+  /// 当前所属赛季（换季时按 arena.seasonCarry 处理名次继承）
+  seasonId   Int      @default(0)
+  /// 席位号（越大越靠前）：排名互换制下它只是排序键，名次 = 按它降序后的序号，不对外展示。
+  /// 默认 1 = 空榜第一人的席位；新入榜者一律排在当前最低席位之后（可以是 0 或负数）。
+  rating     Int      @default(1)
+  /// 本赛季达到过的最好名次（1=登顶过，0=尚未上榜）。
+  /// 列名沿用 peakRating 是积分制遗留，用 @map 保持库表不变，语义已换成「最好名次」。
+  bestRank   Int      @default(0) @map("peakRating")
+  /// 段位名（由 arena.tierConfig 的**名次区间**推导，冗余存一行方便榜单与后台筛选）
+  tier       String   @default("")
+  wins       Int      @default(0)
+  losses     Int      @default(0)
+  draws      Int      @default(0)
+  /// 连胜(正数)/连败(负数)，仅展示用
+  streak     Int      @default(0)
+  /// 每日挑战次数：{ lastDate:"2026-09-20", used:3 }（懒重置，与签到/抽奖同口径）
+  daily      Json?
+  /// 防连打：{ mirrorId: 上次挑战时刻(ms) }，超过 arena.avoidRepeatHours 才可再打
+  avoid      Json?
+  /// 当前挂出的镜像（一玩家一镜像）
+  mirrorId   Int?
+  /// 镜像提交瞬间的战斗力/等级，用于「镜像已过期」提示
+  mirrorPower Int     @default(0)
+  mirrorLevel Int     @default(0)
+  submittedAt DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([seasonId, rating])
+}
+
+/// 角斗镜像：玩家当前配置的冻结快照。挑战时只读这份 JSON，绝不回写真实玩家。
+model ArenaMirror {
+  id        Int    @id @default(autoincrement())
+  ownerId   Int
+  ownerName String @default("")
+  seasonId  Int    @default(0)
+  /// 快照本体（MirrorSnapshot，见 arena/mirror-snapshot.util.ts）
+  snapshot  Json
+  /// 快照瞬间战斗力 / 等级（榜单展示）
+  power     Int    @default(0)
+  level     Int    @default(0)
+  /// 席位号冗余列：随主人换位同步刷新，榜单排序与名次都由它算（列名沿用积分制）
+  rating    Int    @default(1)
+  tier      String @default("")
+  /// 第几次提交（覆盖刷新 +1），战报里可看出打的是第几版镜像
+  version   Int    @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([ownerId, seasonId])
+  @@index([seasonId, rating])
+}
+
+/// 战报：一次挑战的完整结算记录（双方参战数据均为快照，赛后可复盘）。
+model ArenaMatch {
+  id         Int  @id @default(autoincrement())
+  seasonId   Int  @default(0)
+  attackerId Int
+  attackerName String @default("")
+  /// 防守方 = 镜像主人（可能离线）
+  defenderId   Int
+  defenderName String @default("")
+  mirrorId     Int
+  mirrorVersion  Int  @default(1)
+  /// 胜者：attacker / defender / draw
+  winner       String @default("")
+  rounds       Int    @default(0)
+  durationSec  Float  @default(0)
+  /// 四列存的是**席位号**（结算前后的快照）：互换即 attackerAfter=defenderBefore 且 defenderAfter=attackerBefore；
+  /// 名次会随后续换位而变，所以只写进 report.ranks，不在这里冗余。
+  attackerRatingBefore Int @default(0)
+  attackerRatingAfter  Int @default(0)
+  defenderRatingBefore Int @default(0)
+  defenderRatingAfter  Int @default(0)
+  /// 入场消耗快照：{ mode:"vitality", amount:20 } / { mode:"ticket", item:"竞技场门票", amount:1 }
+  entryCost  Json?
+  /// 战报正文与双方快照摘要：{ lines:string[], actionLog:[], sides:{...}, seats:{attacker,defender,swapped}, ranks:{...} }
+  report     Json
+  createdAt  DateTime @default(now())
+
+  @@index([attackerId, createdAt])
+  @@index([defenderId, createdAt])
+  @@index([seasonId, createdAt])
+}
+
+// ========== 玩家特权与装扮（赛季奖励落点，功能可授予可到期） ==========
+
+/// 按玩家发放的可撤销「功能特权」：把散落在各指令里的「只有管理员能做」改成
+/// 可授予的能力。与 role 分离——role 是后台身份，特权是玩法奖励（会到期）。
+model PlayerPrivilege {
+  id        Int       @id @default(autoincrement())
+  userId    Int
+  /// 特权键：batchGather=野外批量采集（见 arena/arena-config.defaults.ts PRIVILEGE_DEFS）
+  key       String
+  /// 来源：arenaSeason / admin（同 (userId,key,source) 覆盖，便于按来源续期/撤销）
+  source    String    @default("admin")
+  /// 授予理由文案（如「S1 赛季冠军」），面板与后台展示
+  reason    String    @default("")
+  /// 操作人（管理员手工授予时记录；赛季结算为空）
+  grantedBy Int?
+  /// 到期时刻；null=永久（管理员手工授予可用）
+  expiresAt DateTime?
+  /// 非空=已撤销（提前收回：赛季重置、后台调整、误发回滚）
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@unique([userId, key, source])
+  @@index([userId, key])
+  @@index([key])
+}
+
+/// 头像框：与称号同构（拥有 + 单一佩戴）。竞技场赛季奖励的稀有装扮落点。
+model PlayerAvatarFrame {
+  id       Int      @id @default(autoincrement())
+  userId   Int
+  /// 头像框键，定义见 arena.avatarFrames 配置
+  frameKey String
+  name     String   @default("")
+  /// 获得来源：arenaSeason / admin
+  source   String   @default("admin")
+  /// 同一玩家同时只能佩戴一个，服务层负责互斥
+  equipped Boolean  @default(false)
+  /// 展示样式（渐变/描边标识），冗余存一份，配置改名后历史仍可读
+  tone     String   @default("")
+  ownedAt  DateTime @default(now())
+
+  @@unique([userId, frameKey])
+  @@index([userId, equipped])
+}

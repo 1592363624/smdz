@@ -4266,5 +4266,41 @@
         "quantity": 100
       }
     ]
+  },
+  {
+    "name": "竞技场之王",
+    "description": "使魔竞技场赛季冠军（镜像天梯第一）。限定称号，仅由赛季结算直发",
+    "bonus": {},
+    "requirements": [
+      {
+        "name": "竞技场赛季冠军",
+        "quantity": 1
+      }
+    ],
+    "rewards": []
+  },
+  {
+    "name": "角斗大师",
+    "description": "使魔竞技场赛季前十。限定称号，仅由赛季结算直发",
+    "bonus": {},
+    "requirements": [
+      {
+        "name": "竞技场赛季前十",
+        "quantity": 1
+      }
+    ],
+    "rewards": []
+  },
+  {
+    "name": "天梯常客",
+    "description": "使魔竞技场赛季打满参与场次。由赛季结算直发",
+    "bonus": {},
+    "requirements": [
+      {
+        "name": "竞技场赛季参与",
+        "quantity": 1
+      }
+    ],
+    "rewards": []
   }
 ]

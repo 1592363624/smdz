@@ -65,6 +65,14 @@
         >
           <span class="tab-icon">🏠</span>家园
         </button>
+        <!-- 竞技场：镜像天梯独立页面（榜单 + 战报回放占屏大，同样塞不进侧栏） -->
+        <button
+          class="sidebar-tab"
+          title="打开使魔竞技场天梯（独立页面）"
+          @click="router.push('/arena')"
+        >
+          <span class="tab-icon">🏟️</span>竞技场
+        </button>
       </div>
 
       <div class="sidebar-content">
@@ -321,6 +329,14 @@
           @click="router.push('/home')"
         >
           <span class="tab-icon">🏠</span>家园
+        </button>
+        <!-- 竞技场：与桌面侧栏同一入口，手机抽屉也要能进天梯页 -->
+        <button
+          class="sidebar-tab"
+          title="打开使魔竞技场天梯（独立页面）"
+          @click="router.push('/arena')"
+        >
+          <span class="tab-icon">🏟️</span>竞技场
         </button>
       </div>
 
@@ -617,6 +633,12 @@
              @click="onMsgClick(v.msg)"
              @dblclick="onMsgDblClick(v.msg)">
           <div class="msg-body">
+            <!-- TODO(arena) 头像框暂未铺到这里：聊天消息列表根本没有头像节点，且服务端消息负载的
+                 sender 只 select {id, username, nickname}（server/src/modules/chat/chat.service.ts），
+                 既没有 avatar 也没有 frame。要渲染「佩戴中头像框」的彩色描边，需要
+                 ① 服务端 sender 带上 frame:{key,name,tone}，② 这里加一个头像元素，
+                 ③ 复用 ArenaView 的 TONE_CLASS 色表（tone → ar-tone-* 类）。
+                 属于消息负载改造，不在本次只读面板范围内，故此处仅留标记不动结构。 -->
             <span v-if="v.msg.sender" class="sender" :title="'右键 @ ' + (v.msg.sender.nickname || v.msg.sender.username)" @contextmenu.prevent="quickAtUser(v.msg.sender)">{{ v.msg.sender.nickname || v.msg.sender.username }}：</span>
             <span v-else-if="v.msg.type !== 'system' && v.msg.type !== 'game' && v.msg.type !== 'combat' && v.msg.type !== 'info'" class="sender">系统：</span>
             <!-- 私密消息（自己发出的）→ 打上 🔒 标记便于识别；他人看到的是占位文案，文案本身已带锁图标 -->

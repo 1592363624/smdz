@@ -49,6 +49,13 @@ import {
   DEFAULT_WORLD_EVENT_REWARDS_JSON,
   DEFAULT_WORLD_EVENT_BUFFS_JSON,
 } from '../../config/world-event.config';
+// 使魔竞技场（镜像天梯）默认配置（段位表/入场消耗/赛季奖励/特权上限）
+import {
+  ARENA_CONFIG_KEYS,
+  ARENA_DEFAULT_CONFIGS,
+  ARENA_LEGACY_SEASON_CARRY,
+  isLegacyArenaTierConfig,
+} from '../../config/arena.config';
 
 /** 导出文件 format 标识，导入时严格校验，防止误传其他 JSON */
 export const SYSTEM_CONFIG_EXPORT_FORMAT = 'system-config-export';
@@ -508,6 +515,8 @@ const DEFAULT_CONFIGS: SystemConfigDefault[] = [
     type: 'json',
     group: 'game',
   },
+  // ===== 使魔竞技场（arena.*）：整组默认项定义在 config/arena.config.ts =====
+  ...ARENA_DEFAULT_CONFIGS,
 ];
 
 /**
@@ -517,8 +526,16 @@ const DEFAULT_CONFIGS: SystemConfigDefault[] = [
  *
  * - game.highestPlayerLevel：原版自动保存线程写入的运行时统计，本实现的等级差距
  *   经验加成直接查 Player 表，无人读取该键。
+ * - arena.rating*（4 键）：天梯一度按 Elo 积分实现，现已改成**排名互换制**（打赢顶替名次、
+ *   打输席位不动），积分制下的基准/下限/K 值/分差截断全部失去读取方，留着就是后台的假开关。
  */
-const OBSOLETE_CONFIG_KEYS = ['game.highestPlayerLevel'];
+const OBSOLETE_CONFIG_KEYS = [
+  'game.highestPlayerLevel',
+  'arena.ratingBase',
+  'arena.ratingFloor',
+  'arena.ratingK',
+  'arena.ratingMarginCap',
+];
 
 @Injectable()
 export class SystemConfigService implements OnModuleInit {
@@ -613,6 +630,15 @@ export class SystemConfigService implements OnModuleInit {
           // 自定义过的奖励表：条目数量键 count → 规范键 quantity
           await this.upgradeCheckinRewardEntries(existing);
         }
+        // 竞技场换成「名次互换制」后，积分制时代存下来的值没有读取方，留着就是后台的假开关：
+        // 段位表按 minRating 阈值（现在生效的是名次区间表）、seasonCarry=softReset（现在只有 keep/reset）。
+        // 旧形状是唯一的（玩家/管理员不可能在名次制下手写出一份 minRating 表），所以直接刷回默认值。
+        if (cfg.key === ARENA_CONFIG_KEYS.tierConfig && isLegacyArenaTierConfig(existing.value)) {
+          await this.resetArenaLegacyValue(cfg, '积分制段位表（minRating 阈值）');
+        } else if (cfg.key === ARENA_CONFIG_KEYS.seasonCarry
+          && String(existing.value ?? '').trim() === ARENA_LEGACY_SEASON_CARRY) {
+          await this.resetArenaLegacyValue(cfg, `积分制换季口径 ${ARENA_LEGACY_SEASON_CARRY}`);
+        }
       } catch (err: any) {
         this.logger.warn(`补默认配置 ${cfg.key} 失败: ${err?.message ?? err}`);
       }
@@ -683,6 +709,16 @@ export class SystemConfigService implements OnModuleInit {
    * （旧键只是脏镜像），数值一律不动；无旧键时直接返回，不产生无谓写库。
    * 只在启动补默认配置时跑一次（小表、低频）。
    */
+  /** 把竞技场积分制遗留的配置值刷回当前默认（旧形状在新规则下没有读取方，留着即假开关） */
+  private async resetArenaLegacyValue(cfg: { key: string; value: string }, why: string): Promise<void> {
+    await this.prisma.systemConfig.update({
+      where: { key: cfg.key },
+      data: { value: cfg.value },
+    });
+    this.cache.delete(cfg.key);
+    this.logger.log(`已重置竞技场配置 ${cfg.key}（${why} → 名次互换制默认值）`);
+  }
+
   private async upgradeCheckinRewardEntries(row: { value: string }): Promise<void> {
     if (!row?.value) return;
     try {

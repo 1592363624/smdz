@@ -29,6 +29,7 @@ module.exports = {
     'test/integration-merchant.spec.ts',
     'test/integration-openbox.spec.ts',
     'test/integration-vehicle-combat.spec.ts',
+    'test/integration-arena.spec.ts',
     'test/onboarding-flow.spec.ts',
     'test/skill-view.smoke.spec.ts',
   ],

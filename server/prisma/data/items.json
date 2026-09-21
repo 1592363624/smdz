@@ -383,6 +383,14 @@
     "useMarkers": []
   },
   {
+    "name": "竞技场门票",
+    "description": "“挑战镜像”来使用（系统配置 arena.entryMode=ticket 时按张计费）",
+    "value": 30,
+    "type": "物品",
+    "useEffects": [],
+    "useMarkers": []
+  },
+  {
     "name": "合金",
     "description": "各种合金，可以用来强化装备。“装备强化”来使用。",
     "value": 1,

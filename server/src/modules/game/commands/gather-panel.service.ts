@@ -32,6 +32,9 @@ import { AutoMineService } from '.././auto-mine.service';
 import { VitalityService } from '.././vitality.service';
 import { DelayedTaskService } from '.././delayed-task.service';
 import { GameSupportService } from '.././game-support.service';
+import { EntitlementService } from '.././entitlement.service';
+import { SystemConfigService } from '../../system-config/system-config.service';
+import { ARENA_CONFIG_KEYS, DEFAULT_ARENA_BATCH_GATHER_PRIVILEGE_MAX, PRIVILEGE_BATCH_GATHER, arenaPositive } from '../../../config/arena.config';
 import { MovementVehicleService } from './movement-vehicle.service';
 import { RescueWhiteService } from './rescue-white.service';
 
@@ -83,6 +86,12 @@ export class GatherPanelService {
     @Optional() private readonly autoMineService?: AutoMineService,
     @Optional() private readonly vitalityService?: VitalityService,
     @Optional() private readonly delayedTaskService?: DelayedTaskService,
+    /**
+     * 野外批量采集的**特权**判定口（竞技场赛季奖励可授予）。
+     * 可选：既有测试桩按位置构造本服务，不注入时退化为「仅管理员可批量」的原行为。
+     */
+    @Optional() private readonly entitlement?: EntitlementService,
+    @Optional() private readonly systemConfig?: SystemConfigService,
   ) {}
 
   async buildPlayerInfo(userId: number): Promise<any | null> {
@@ -2326,8 +2335,9 @@ export class GatherPanelService {
   async handleGatherResource(userId: number, cmdName: string, requestedCount?: number): Promise<string> {
     if (!cmdName) return '';
 
-    // 超管特权「野外批量采集」：指令带数字后缀时实时查库 role（不信前端传值）；
-    // 无数字后缀不发起查询，普通采集零额外开销。mutate 外查好传入闭包。
+    // 「野外批量采集」是**可授予的能力**：管理员角色，或竞技场赛季发放的 batchGather 特权。
+    // 指令带数字后缀时才实时查权限（无后缀零额外开销）；角色查库、特权查权益账本。
+    // mutate 外查好传入闭包。
     const preParsed = this.parseGatherCommand(cmdName);
     const preCount = Math.max(1, Math.floor(Number.isFinite(requestedCount) ? requestedCount as number : preParsed.count));
     let userRole = '';
@@ -2387,7 +2397,13 @@ export class GatherPanelService {
     // 原版公式：a1 = 取随机数(3000×倍率, 6000×倍率) × d / 1000（毫秒→秒）
     const isOwnYard = player.houseName === map.name;
     const isAdmin = userRole === 'ADMIN' || userRole === 'SUPER_ADMIN';
-    const extraMultiplier = (isOwnYard || isAdmin) ? Math.max(1, Math.floor(count)) : 1;
+    // 野外批量授权有两个来源：① 后台角色（管理员，倍率不受限，方便测试与活动投放）；
+    // ② 竞技场赛季奖励发放的**可到期特权** batchGather（倍率受 arena.batchGatherPrivilegeMax 约束，
+    //    避免玩法奖励变成无上限产资源）。家园院子按原版语义始终允许「指令N」。
+    const batchCap = await this.resolveBatchCap(userId, isOwnYard, isAdmin, Math.max(1, Math.floor(count)));
+    const extraMultiplier = batchCap > 0 ? Math.min(Math.max(1, Math.floor(count)), batchCap) : 1;
+    // 非家园地图的批量授权（含特权持有者）：结算据此放开无限资源的单次动作上限
+    const batchGranted = !isOwnYard && batchCap > 0;
     const timeScale = Math.max(0.01, Number(target.timeScale ?? target.时间倍率 ?? 1) || 1);
     const seconds = Math.round((3000 + Math.random() * 3000) * timeScale / 1000) * extraMultiplier;
 
@@ -2429,7 +2445,7 @@ export class GatherPanelService {
     // 添加标记("采集", 次数)：锁定期间 行动无限制 会拦截移动/攻击/再次采集；
     // 获得增益("采集", 秒数)：同一标记的另一种写法，到期即采集完成。
     markers['采集中'] = { target: resourceName, cmd: gatherName,
-      count: extraMultiplier, adminBatch: !isOwnYard && isAdmin,
+      count: extraMultiplier, adminBatch: batchGranted,
       startedAt: now, settleAt: now + cappedSeconds * 1000 };
     this.combatState.addMarker('采集', cappedSeconds, markers2, now);
     player.markers = markers; // Json 列直接写对象
@@ -2456,7 +2472,12 @@ export class GatherPanelService {
     startText = startText.replace('【名称】', String(player.name ?? '冒险者'));
     startText = startText
       .replace('【武器】', String(currentWeapon?.name ?? '') || '拳头');
-    return `${startText},大概需要${cappedSeconds}秒`;
+    // 特权持有者请求的倍率被上限截断时必须说出来：玩家输入「收集物品50」却只跑 10 倍，
+    // 不解释就是「吃了我的次数」级别的误解（管理员不受上限，故无需提示）。
+    const clampNote = batchCap > 0 && !isOwnYard && !isAdmin && count > batchCap
+      ? `\n（批量采集特权上限 ${batchCap} 倍，本次按 ${batchCap} 倍执行）`
+      : '';
+    return `${startText},大概需要${cappedSeconds}秒${clampNote}`;
     });
   }
 
@@ -3167,6 +3188,35 @@ export class GatherPanelService {
     return Array.isArray(parsed) && parsed.length > 0;
   }
 
+
+  /**
+   * 野外批量采集的倍率上限（一次性判定，结果同时决定耗时/产出倍率与结算是否放开无限资源上限）。
+   *
+   * @returns 0 = 本次没有批量能力；>0 = 允许的最大倍率（家园与管理员直接按请求值放行，不受特权上限约束）
+   */
+  private async resolveBatchCap(
+    userId: number,
+    isOwnYard: boolean,
+    isAdmin: boolean,
+    requested: number,
+  ): Promise<number> {
+    if (isOwnYard || isAdmin) return requested;
+    // 普通单次采集零额外开销：只有真的带了数字后缀才查特权账本
+    if (requested <= 1 || !this.entitlement) return 0;
+    if (!await this.entitlement.hasPrivilege(userId, PRIVILEGE_BATCH_GATHER)) return 0;
+    let max = DEFAULT_ARENA_BATCH_GATHER_PRIVILEGE_MAX;
+    try {
+      const raw = await this.systemConfig?.get<number>(
+        ARENA_CONFIG_KEYS.batchGatherPrivilegeMax,
+        DEFAULT_ARENA_BATCH_GATHER_PRIVILEGE_MAX,
+      );
+      max = arenaPositive(raw, DEFAULT_ARENA_BATCH_GATHER_PRIVILEGE_MAX);
+    } catch {
+      // 配置读失败按默认上限放行，不让特权持有者直接退化成不能批量
+      max = DEFAULT_ARENA_BATCH_GATHER_PRIVILEGE_MAX;
+    }
+    return Math.max(1, Math.min(requested, max));
+  }
 
   parseResourceOutputName(rawName: any, rawQuantity: number): { name: string; quantity: number; quality: string } {
     const source = String(rawName ?? '').trim();

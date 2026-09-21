@@ -350,6 +350,14 @@ async function main() {
     { name: '世界事件', alias: 'world-event,事件,sj', description: '查看全服世界事件进度与奖励', handlerKey: 'worldEvent', minRole: 'USER', sortOrder: 360 },
     { name: '领取世界奖励', alias: 'claim-world-reward,lqsjjl', description: '领取已解锁的世界事件奖励', handlerKey: 'worldEvent', minRole: 'USER', sortOrder: 361 },
     { name: '世界事件管理', alias: 'world-event-admin', description: '开启/结算/重置/调目标世界事件(管理员)', handlerKey: 'worldEvent', minRole: 'ADMIN', sortOrder: 1000 },
+    // 使魔竞技场 · 镜像天梯（独立 arena 处理器）
+    { name: '竞技场', alias: 'arena,jjc,天梯', description: '查看竞技场面板与天梯榜', handlerKey: 'arena', minRole: 'USER', sortOrder: 370 },
+    { name: '提交镜像', alias: 'arena-submit', description: '用当前配置冻结一版角斗镜像上榜', handlerKey: 'arena', minRole: 'USER', sortOrder: 371 },
+    { name: '挑战镜像', alias: 'arena-challenge', description: '挑战天梯榜上的镜像（自动战斗出战报，不动真实资产）', handlerKey: 'arena', minRole: 'USER', sortOrder: 372 },
+    { name: '竞技场战绩', alias: 'arena-history', description: '查看我的竞技场战绩', handlerKey: 'arena', minRole: 'USER', sortOrder: 373 },
+    { name: '战报', alias: 'arena-report', description: '查看一场对战的完整战报', handlerKey: 'arena', minRole: 'USER', sortOrder: 374 },
+    { name: '头像框', alias: 'arena-frames', description: '查看或佩戴已获得的头像框', handlerKey: 'arena', minRole: 'USER', sortOrder: 375 },
+    { name: '竞技场管理', alias: 'arena-admin', description: '赛季结算/开季/改期/发特权(管理员)', handlerKey: 'arena', minRole: 'ADMIN', sortOrder: 1001 },
   ];
 
   // 使魔技能/通用技能指令批量注册：使 /技能名 可直接施放（指令分发先查 Command 表，

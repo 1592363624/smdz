@@ -43,6 +43,12 @@ import { StatsService } from './stats.service';
 import { AutoMineService } from './auto-mine.service';
 import { VitalityService } from './vitality.service';
 import { CheckinRewardService } from './checkin-reward.service';
+import { EntitlementService } from './entitlement.service';
+import { ArenaBattleService } from './arena/arena-battle.service';
+import { ArenaService } from './arena/arena.service';
+import { ArenaSeasonService } from './arena/arena-season.service';
+import { ArenaController } from './arena/arena.controller';
+import { ArenaAdminController } from './arena/arena-admin.controller';
 import { LotteryService } from './lottery.service';
 import { HandbookService } from './handbook.service';
 import { GameGlobalSettingService } from './game-global-setting.service';
@@ -118,6 +124,10 @@ import { FeedbackModule } from '../feedback/feedback.module';
     GameGlobalSettingService,
     GlobalProficiencyService,
     WorldEventService,
+    EntitlementService,
+    ArenaBattleService,
+    ArenaService,
+    ArenaSeasonService,
     TutorialService,
     StaticDataService,
     DelayedTaskService,
@@ -174,12 +184,16 @@ import { FeedbackModule } from '../feedback/feedback.module';
     GameGlobalSettingService,
     GlobalProficiencyService,
     WorldEventService,
+    EntitlementService,
+    ArenaBattleService,
+    ArenaService,
+    ArenaSeasonService,
     TutorialService,
     GameHighlightService,
     // token 别名同样导出，供全局的 AdminService 等注入
     ITEM_SYSTEM_SERVICE,
     COMBAT_SYSTEM_SERVICE,
   ],
-  controllers: [GameController, WorldEventController],
+  controllers: [GameController, WorldEventController, ArenaController, ArenaAdminController],
 })
 export class GameModule {}

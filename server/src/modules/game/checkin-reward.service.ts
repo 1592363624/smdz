@@ -1,19 +1,24 @@
 /**
- * 签到奖励服务：签到规则（基础经验、连续加成、三张奖励表）全部读自系统配置中心 SystemConfig，
- * 管理员后台改完立即生效、无需重启；发放走本服务唯一出口，支持背包物品 / 经验 / 活力三类。
+ * 奖励发放服务：签到规则（基础经验、连续加成、三张奖励表）全部读自系统配置中心 SystemConfig，
+ * 管理员后台改完立即生效、无需重启；发放走本服务唯一出口，
+ * 支持背包物品 / 经验 / 活力 / 称号 / 头像框 / 功能特权六类
+ * （后三类由竞技场赛季奖励引入，落库统一委托 EntitlementService）。
  * 所有解析均容错：配置被改成非法 JSON 或字段缺失时回落内置默认规则，签到不会整体不可用。
- * 依赖方向：SystemConfig（全局）+ PlayerService；不依赖任何指令域服务。
+ * 依赖方向：SystemConfig（全局）+ PlayerService + EntitlementService（叶子权益账本）。
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { formatDisplayNumber } from '../../common/utils/game-text.util';
 import { SystemConfigService } from '../system-config/system-config.service';
 import { PlayerService } from './player.service';
+import { PlayerMutateService } from './player-mutate.service';
+import { EntitlementService } from './entitlement.service';
 import {
   CHECKIN_BASE_EXP_KEY,
   CHECKIN_CONSECUTIVE_EXP_MAX_DAYS_KEY,
   CHECKIN_CONSECUTIVE_EXP_PER_DAY_KEY,
   CHECKIN_REWARDS_KEY,
+  CHECKIN_REWARD_TYPES,
   CheckinRewardEntry,
   CheckinRewardGroup,
   CheckinRewardsConfig,
@@ -37,6 +42,10 @@ export interface CheckinConfig {
 /** 发放奖励时的上下文：活力类奖励需要直接改玩家对象（随调用方统一落库） */
 export interface CheckinGrantContext {
   player?: any;
+  /** 权益类奖励（特权/头像框）的授予来源，默认按签到记 */
+  source?: string;
+  /** 特权授予理由文案 */
+  reason?: string;
 }
 
 @Injectable()
@@ -46,7 +55,33 @@ export class CheckinRewardService {
   constructor(
     private readonly systemConfig: SystemConfigService,
     private readonly playerService: PlayerService,
+    /**
+     * 称号 / 头像框 / 特权的落库账本。
+     * 声明为可选：既有测试与桩工厂按两参构造本服务，只发物品/经验/活力时不需要它。
+     */
+    @Optional() private readonly entitlement?: EntitlementService,
+    /** 无受管玩家对象时补发活力用的写锁收口（同样可选，见 grantRewards 的 vitality 分支） */
+    @Optional() private readonly mutate?: PlayerMutateService,
   ) {}
+
+  /**
+   * 后台代发（手里没有玩家快照）时给玩家加活力：走 PlayerMutateService 单一快照写回。
+   * 未注入该依赖（旧桩）时返回 false，由调用方决定不记这条文案。
+   */
+  private async addVitalityDirectly(userId: number, quantity: number): Promise<boolean> {
+    if (!this.mutate) {
+      this.logger.warn(`活力奖励 +${quantity} 需要 PlayerMutateService（玩家 ${userId}），当前未注入`);
+      return false;
+    }
+    await this.mutate.mutate(userId, (ctx) => {
+      if (!ctx?.player) return;
+      ctx.player.vitality = Number(ctx.player.vitality || 0) + quantity;
+    }).catch((err: any) => {
+      this.logger.warn(`活力奖励发放失败（玩家 ${userId}）：${err?.message ?? err}`);
+      return undefined;
+    });
+    return true;
+  }
 
   /**
    * 读取并规范化签到配置（四项配置一次性批量读取）。
@@ -110,7 +145,9 @@ export class CheckinRewardService {
    * 发放一组奖励条目，并返回用于回执展示的文案（每项一条，如「签到礼包x1」）。
    * - item：走背包唯一出口 addToBackpack（按名合并、类型以静态数据为准）；
    * - exp：走 addExp（内部处理升级）；
-   * - vitality：直接累加到传入的 player 对象上，由调用方统一落库，避免多写覆盖。
+   * - vitality：直接累加到传入的 player 对象上，由调用方统一落库，避免多写覆盖；
+   * - title / frame / privilege：委托 EntitlementService（会到期的玩法权益，非角色）；
+   *   这三类与数量无关（privilege 的 quantity 表示天数），不被上面的「数量必须为正」拦掉。
    */
   async grantRewards(
     userId: number,
@@ -121,6 +158,12 @@ export class CheckinRewardService {
     if (!Array.isArray(entries) || entries.length === 0) return texts;
 
     for (const entry of entries) {
+      const name = String(entry?.name ?? '').trim();
+      // 权益类奖励：与「数量」无关（privilege 用 quantity 当有效天数，允许 0=永久）
+      if (entry.type === 'title' || entry.type === 'frame' || entry.type === 'privilege') {
+        texts.push(await this.grantEntitlement(userId, entry, name, ctx));
+        continue;
+      }
       // 数量只读规范键 quantity（normalizeRewards 出口已洗成标准结构）
       const quantity = Number(entry?.quantity);
       // 数量非正数视为无效配置，静默跳过（配置写错不该让签到整体失败）
@@ -134,16 +177,54 @@ export class CheckinRewardService {
       if (entry.type === 'vitality') {
         if (ctx.player) {
           ctx.player.vitality = Number(ctx.player.vitality || 0) + quantity;
+          texts.push(`活力+${formatDisplayNumber(quantity)}`);
+          continue;
         }
-        texts.push(`活力+${formatDisplayNumber(quantity)}`);
+        // 没有受管玩家对象（如赛季结算是后台代发的）时，走玩家写锁单独加活力；
+        // 否则这一条会被静默丢掉，而后台却看到「活力+N」的发放记录 —— 那是假账。
+        const applied = await this.addVitalityDirectly(userId, quantity);
+        if (applied) texts.push(`活力+${formatDisplayNumber(quantity)}`);
         continue;
       }
-      const name = String(entry?.name ?? '').trim();
       if (!name) continue;
       await this.playerService.addToBackpack(userId, name, quantity);
       texts.push(`${name}x${formatDisplayNumber(quantity)}`);
     }
     return texts;
+  }
+
+  /**
+   * 权益类奖励发放（称号 / 头像框 / 功能特权）。
+   * 账本缺失（未注入 EntitlementService 的旧桩）时只记告警不抛错，保证签到主流程不受影响。
+   */
+  private async grantEntitlement(
+    userId: number,
+    entry: CheckinRewardEntry,
+    name: string,
+    ctx: CheckinGrantContext = {},
+  ): Promise<string> {
+    if (!name) return '';
+    if (!this.entitlement) {
+      this.logger.warn(`奖励条目 ${entry.type}:${name} 需要 EntitlementService，当前未注入（玩家 ${userId}）`);
+      return '';
+    }
+    const source = String(ctx?.source || 'reward');
+    if (entry.type === 'title') {
+      return (await this.entitlement.grantTitle(userId, name)).text;
+    }
+    if (entry.type === 'frame') {
+      return (await this.entitlement.grantFrame(userId, name, source)).text;
+    }
+    const days = Number(entry.quantity);
+    const grantDays = Number.isFinite(days) && days > 0 ? Math.floor(days) : 0;
+    const result = await this.entitlement.grantPrivilege(userId, name, {
+      source,
+      days: grantDays,
+      // 天数非正数即「永久」是配置显式表达的意思（0=永久），不是漏填
+      permanent: grantDays <= 0,
+      reason: ctx?.reason || '',
+    });
+    return result.text;
   }
 
   /**
@@ -223,8 +304,20 @@ export class CheckinRewardService {
       for (const r of Array.isArray(item.rewards) ? item.rewards : []) {
         if (!r) continue;
         const quantity = Number(r.quantity);
+        const type = CHECKIN_REWARD_TYPES.has(r.type) ? r.type : 'item';
+        const isEntitlement = type === 'title' || type === 'frame' || type === 'privilege';
+        // 权益类只看 name（称号名/框键/特权键），quantity 仅 privilege 当天数用（0=永久）；
+        // 其余类型仍要求正数数量——配置写错不该让一条空奖励混进发放队列。
+        if (isEntitlement) {
+          const name = String(r.name ?? '').trim();
+          if (!name) continue;
+          rewards.push({
+            type, name,
+            quantity: Number.isFinite(quantity) && quantity > 0 ? Math.floor(quantity) : 0,
+          });
+          continue;
+        }
         if (!Number.isFinite(quantity) || quantity <= 0) continue;
-        const type = r.type === 'exp' || r.type === 'vitality' ? r.type : 'item';
         rewards.push({ type, name: String(r.name ?? '').trim(), quantity });
       }
       // 整组奖励都无效时保留空组没有意义，直接丢弃

@@ -6388,8 +6388,13 @@ export class CombatSystemService implements OnApplicationShutdown {
 
   /**
    * 获取武器数据：对应原版 z1 = 攻击方.武器[武器]，索引 0 代表拳头（无武器）。
+   * 解析出伤害/属性系数/冷却/特效语义，是「这一格武器怎么打」的唯一口径。
+   *
+   * 对竞技场开放为公共口（原为 private，仅去掉 private，行为逐字不变）：
+   * 镜像对战必须复用与 PVE 完全相同的武器解析，另写一份「武器读法」会造出
+   * 「面板看得到、竞技场打不出来」的双真相源。
    */
-  private getWeaponData(attacker: any, weaponIndex: number): WeaponData {
+  getWeaponData(attacker: any, weaponIndex: number): WeaponData {
     if (weaponIndex === 0) {
       // 原版 武器攻击 L54-58：z1.攻击文本 = 文本列表[1]（拳头条目），显示时按命中等级抽取模板并展开占位符
       return {

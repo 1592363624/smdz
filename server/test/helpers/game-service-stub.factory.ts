@@ -90,7 +90,7 @@ function defineLazyMounts(stub: any): void {
 
   // 签到奖励服务：未显式提供时按默认依赖构造；systemConfig 缺失时其读取逻辑会回落到内置默认规则
   defineLazyMount(stub, 'checkinReward', (s) => new CheckinRewardService(
-    s.systemConfig, s.playerService,
+    s.systemConfig, s.playerService, s.entitlementService, s.playerMutate,
   ));
 
   defineLazyMount(stub, 'petCommandService', (s) => new PetCommandService(
@@ -201,6 +201,7 @@ function defineLazyMounts(stub: any): void {
       s.familiarService, s.achievementService, s.itemSystemService, s.homeService, s.familiarSystemService,
       s.staticData, s.chatService, s.taskService, s.shortcutService, s.statsService, s.combatState,
       undefined as any, undefined as any, s.autoMineService, s.vitalityService, s.delayedTaskService,
+      s.entitlementService, s.systemConfig,
     );
     s.gatherPanelService = inst;
     (inst as any).movement = s.movementVehicleService;

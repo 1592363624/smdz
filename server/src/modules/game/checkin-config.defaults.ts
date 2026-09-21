@@ -5,16 +5,30 @@
  * 数值全部可在后台「系统配置中心 → 游戏数据」在线调整，改完立即生效。
  */
 
-/** 签到奖励类型：item=背包物品 / exp=经验 / vitality=活力 */
-export type CheckinRewardType = 'item' | 'exp' | 'vitality';
+/**
+ * 奖励类型：item=背包物品 / exp=经验 / vitality=活力
+ * / title=称号直发 / frame=头像框 / privilege=功能特权（后三类由竞技场赛季奖励引入，
+ *   发放口统一走 CheckinRewardService.grantRewards → EntitlementService，配置即可用）。
+ */
+export type CheckinRewardType = 'item' | 'exp' | 'vitality' | 'title' | 'frame' | 'privilege';
 
-/** 单条奖励条目：type=item 时 name 为物品名；exp/vitality 时 name 无意义（留空） */
+/**
+ * 单条奖励条目：
+ * - type=item 时 name 为物品名；exp/vitality 时 name 无意义（留空）；
+ * - type=title 时 name 为称号名、frame 时 name 为头像框键；
+ * - type=privilege 时 name 为特权键（如 batchGather），quantity 为**有效天数**（0=永久）。
+ */
 export interface CheckinRewardEntry {
   type: CheckinRewardType;
   name: string;
   /** 奖励数量：规范键只有 quantity，读写 count 拿到 undefined */
   quantity: number;
 }
+
+/** 合法奖励类型白名单：配置里出现表外类型会被归一成 item（避免拼错键名导致静默不发） */
+export const CHECKIN_REWARD_TYPES: ReadonlySet<CheckinRewardType> = new Set<CheckinRewardType>([
+  'item', 'exp', 'vitality', 'title', 'frame', 'privilege',
+]);
 
 /** 一组奖励：days 为触发天数（每日表=连续第几天；连续表=连续签到天数；累计表=累计签到天数） */
 export interface CheckinRewardGroup {

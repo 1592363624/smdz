@@ -146,6 +146,24 @@ export const homeApi = {
   frontline: () => http.get('/game/home/frontline'),
 };
 
+/// 使魔竞技场（镜像天梯）只读接口。
+/// 约定：这里一个写接口都没有——提交镜像 / 挑战 / 佩戴头像框全部走 commandApi.execute，
+/// 与 QQ 端逐字相同的指令文本，保证「机器人 / 网页 / API」共用同一条写路径与同一套门槛。
+export const arenaApi = {
+  // 赛季概况 + 我的天梯状态 + 竞技场门槛配置（面板首屏，只读）
+  overview: () => http.get('/game/arena/overview'),
+  // 天梯榜分页（镜像为冻结快照，含快照等级/战斗力/版本与提交时刻）
+  ladder: (page = 1) => http.get('/game/arena/ladder', { params: { page } }),
+  // 我的战绩分页（结构化行，前端不再解析指令文本）
+  matches: (page = 1) => http.get('/game/arena/matches', { params: { page } }),
+  // 单份完整战报（lines 正文 + actionLog 逐回合明细，仅参战双方可读）
+  report: (id) => http.get(`/game/arena/report/${id}`),
+  // 我的头像框（拥有列表 + 佩戴中键）与当前生效特权
+  frames: () => http.get('/game/arena/frames'),
+  // 当前赛季奖励配置（名次档 → 称号/头像框/特权/资源，对玩家公示「后台可改」这件事）
+  seasonRewards: () => http.get('/game/arena/season-rewards'),
+};
+
 /// 系统/版本接口
 export const systemApi = {
   // 获取部署版本信息与更新检测配置（用于检测部署完成、弹窗提示更新日志）
@@ -225,6 +243,26 @@ export const adminApi = {
   logFiles: () => http.get('/admin/logs/files'),
   // 后台日志：读取尾部/增量(file/lines/keyword/level/since，只读)
   logTail: (params) => http.get('/admin/logs/tail', { params }),
+};
+
+/// 竞技场管理接口（ADMIN/SUPER_ADMIN；权限由服务端守卫把关，前端只控制入口显隐）
+export const adminArenaApi = {
+  // 竞技场概况（赛季 / 镜像数 / 参战人数 / 场次数，不传我的天梯状态）
+  overview: () => http.get('/admin/arena/overview'),
+  // 天梯榜（后台审计用，可放大页容量 size）
+  ladder: (params) => http.get('/admin/arena/ladder', { params }),
+  // 当前赛季奖励配置（已归一化，与玩家侧公示同源）
+  seasonRewards: () => http.get('/admin/arena/season-rewards'),
+  // 某特权的在册持有者（默认 batchGather；回包 defs 供授予下拉用）
+  privileges: (key) => http.get('/admin/arena/privileges', { params: key ? { key } : {} }),
+  // 立即结算到期赛季（幂等：未到期的赛季不会被发奖）
+  settle: () => http.post('/admin/arena/settle'),
+  // 改期：把本赛季截止时刻设为「从现在起 days 天后」（days=0 即立刻到期）
+  extendSeason: (days) => http.post('/admin/arena/season/extend', { days }),
+  // 授予特权（days=0 表示永久，慎用）
+  grantPrivilege: (payload) => http.post('/admin/arena/privilege/grant', payload),
+  // 撤销特权（立即失效，不等到期）
+  revokePrivilege: (payload) => http.post('/admin/arena/privilege/revoke', payload),
 };
 
 /// 全服世界事件接口（只读）。领取/管理走统一发指令通道（与 QQ 端逐字相同），不新增写 API。

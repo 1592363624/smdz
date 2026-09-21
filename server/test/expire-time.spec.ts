@@ -139,8 +139,6 @@ describe('玩家数据读取（getPlayerData）', () => {
 });
 
 describe('信息面板增益行（formatBuffList）', () => {
-  const nowSec = Math.floor(Date.now() / 1000);
-
   const build = (buffs: any[]) => {
     const service: any = createGameServiceStub();
     service.playerService = { safeJsonParse: (_v: any, d: any) => d };
@@ -148,6 +146,9 @@ describe('信息面板增益行（formatBuffList）', () => {
   };
 
   it('过期增益不再显示，未过期增益显示正确倒计时', () => {
+    // nowSec 必须在用例内取：describe 注册与并行套件真正执行之间可以差好几秒，
+    // 提早在注册时取的基准会让 1:04~1:05 的倒计时窗口随机错过（并行全量跑时的偶发红）。
+    const nowSec = Math.floor(Date.now() / 1000);
     const list = build([
       { name: 'ex', expireAt: nowSec - 1 },
       { name: '闪避', expireAt: nowSec + 65 },
@@ -158,6 +159,7 @@ describe('信息面板增益行（formatBuffList）', () => {
   });
 
   it('全部过期时返回空数组（面板整行省略）', () => {
+    const nowSec = Math.floor(Date.now() / 1000);
     expect(build([{ name: 'ex', expireAt: nowSec - 1 }])).toHaveLength(0);
   });
 
