@@ -115,7 +115,7 @@ npx prisma db seed             # 写入种子数据（指令/固定配置）
 npm run dev                    # 开发模式(热更新)
 ```
 
-### 2. 前端 (端口 5173)
+### 2. 前端 (端口 5592)
 
 ```bash
 cd web
@@ -123,7 +123,7 @@ npm install
 npm run dev                    # Vite 热更新
 ```
 
-浏览器访问 <http://localhost:5173，Swagger> 文档见 <http://localhost:3333/api/docs>
+浏览器访问 <http://localhost:5592，Swagger> 文档见 <http://localhost:3333/api/docs>
 
 ## AstrBot 对接
 
@@ -198,7 +198,7 @@ Body: {
 | DATABASE\_URL      | MySQL 8.0 连接串 | `mysql://用户:密码@主机:3306/库名`        |
 | JWT\_SECRET        | JWT密钥(务必修改)   | dev\_secret\_change\_me           |
 | JWT\_EXPIRES\_IN   | token有效期(秒)   | 604800（7天）                        |
-| CORS\_ORIGINS      | 允许的前端来源       | localhost:5173,...                |
+| CORS\_ORIGINS      | 允许的前端来源       | localhost:5592,...                |
 | BOT\_ACCESS\_TOKEN | AstrBot访问令牌   | astrbot\_web\_secret              |
 | QQ\_APP\_ID        | QQ 登录应用 ID    | -                                 |
 | QQ\_APP\_KEY       | QQ 登录应用密钥     | -                                 |

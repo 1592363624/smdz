@@ -189,12 +189,41 @@ const active = computed(() => data.value?.active || { active: false, remainSecon
 const stock = computed(() => data.value?.stock || []);
 const canBattle = computed(() => Boolean(data.value?.canBattle));
 
+/** 上次自动补发「前往前线」的时间戳（毫秒），配合 autoEnter.cooldownMs 防止赶路中反复重发 */
+let lastAutoEnterAt = 0;
+
+/**
+ * 进入前线页自动前往前线：布防 / 拆卸 / 战斗都要求人在前线，
+ * 刷新后检测到不在前线就自动补发一次「前往 家园名前线」。
+ * 走的是与手动按钮相同的统一指令通道，只是前置校验静默化（无家园 / 未建成时不弹警告），
+ * 冷却期内不重发，服务器返回的文本仍以 toast 告知。
+ */
+async function maybeAutoEnterFrontline() {
+  if (!C.autoEnter?.enabled) return;
+  // 无家园 / 房子未建成 / 已在前线 / 有指令在跑：都不需要自动补发
+  if (!houseName.value || progress.value < 4 || atFrontline.value || running.value) return;
+  const now = Date.now();
+  if (now - lastAutoEnterAt < (Number(C.autoEnter.cooldownMs) || 0)) return;
+  lastAutoEnterAt = now;
+  try {
+    const res = await commandApi.execute(C.commands.goFrontline(houseName.value));
+    const text = res?.data?.content ?? '';
+    ui.pushToast({ type: text.includes('成功') ? 'success' : 'info', message: text || '已自动前往前线', timeout: 4000 });
+    // 指令落地后补拉一次，尽快把 atFrontline 刷成 true
+    setTimeout(refresh, C.refetchDelayMs);
+  } catch (e) {
+    ui.pushToast({ type: 'info', message: e?.response?.data?.message || '自动前往前线失败，可手动点击「前往前线」' });
+  }
+}
+
 async function refresh() {
   loading.value = true;
   try {
     const res = await homeApi.frontline();
     data.value = res?.data ?? null;
     error.value = '';
+    // 数据到位后再判定位置，避免用旧的 atFrontline 误判
+    void maybeAutoEnterFrontline();
   } catch (e) {
     error.value = e?.response?.data?.message || '前线数据加载失败';
   } finally {

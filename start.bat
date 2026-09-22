@@ -9,9 +9,9 @@ echo   Shimo3 Web - Starting Servers
 echo ============================================
 echo.
 
-echo [0/2] Checking ports 3333 / 5173 ...
+echo [0/2] Checking ports 3333 / 5592 ...
 call :kill_port 3333
-call :kill_port 5173
+call :kill_port 5592
 echo.
 
 echo [1/2] Starting backend server...
@@ -25,7 +25,7 @@ start "Shimo3-Frontend" cmd /k "cd /d "%ROOT_DIR%web" && npm run dev"
 echo.
 echo Done!
 echo Backend:  http://localhost:3333/api/docs
-echo Frontend: http://localhost:5173/chat
+echo Frontend: http://localhost:5592/chat
 echo.
 echo Press any key to close this window...
 pause >nul

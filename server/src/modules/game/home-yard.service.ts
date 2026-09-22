@@ -43,6 +43,14 @@ export interface HomeYardCropStage {
   totalSeconds: number;
   /** 播种时刻（秒级 Unix）。前端用 serverNow() 本地逐秒倒数，避免 remainSeconds 冻在刷新间隔里 */
   plantedAt?: number;
+  /** 实时累积玩法：已领取的生长秒数（部分领取后递增，前端据此推算剩余可领量） */
+  claimedSeconds: number;
+  /** 是否开启实时累积（关闭时前端不展示「可领取」） */
+  accrualEnabled: boolean;
+  /** 未成熟时是否允许部分领取 */
+  partialClaimEnabled: boolean;
+  /** 累积秒数是否封顶到成熟时长（前端本地推算可领量需与后端同口径） */
+  capAtMatureSeconds: boolean;
 }
 
 /** 单个地块 */
@@ -61,6 +69,8 @@ export interface HomeYardPlot {
   outputs: HomeYardRate[];
   /** 一次性可得：作物=成熟收获产出，建筑=拆除返还 */
   harvest: HomeYardRate[];
+  /** 实时累积玩法：当前已累积、可随时领取的产出（建筑格恒为空数组） */
+  claimable: HomeYardRate[];
   /** 作物生长阶段（仅 occupied 作物格有值；建筑格为 undefined） */
   stage?: HomeYardCropStage;
   description: string;
@@ -201,8 +211,11 @@ export class HomeYardService {
       name: string;
       quantity: number;
       plantedAt?: number;
+      claimedSeconds?: number;
       outputs: HomeYardRate[];
       harvest: HomeYardRate[];
+      /** 当前已累积可领量（实时累积玩法；与 stage 同源，供地块直接展示） */
+      claimable: HomeYardRate[];
       description: string;
     }> = [];
     const obstacles: HomeYardObstacle[] = [];
@@ -219,8 +232,11 @@ export class HomeYardService {
           quantity,
           // 每粒种子独立的种植时间戳；旧聚合存档没有该字段（buildCropStage 里按已成熟处理）
           plantedAt: Number(resource?.plantedAt ?? resource?.['种植时间'] ?? 0) || undefined,
+          claimedSeconds: Math.max(0, Number(resource?.claimedSeconds ?? 0) || 0),
           outputs: [],
           harvest: this.cropHarvestRates(name, outputs),
+          // 实时累积量：与收获（harvestCrop）同源的 cropAccrual，展示与结算不会两套数
+          claimable: this.cropClaimableRates(name, resource),
           description: String(def?.description ?? resource?.description ?? ''),
         });
         continue;
@@ -368,8 +384,11 @@ export class HomeYardService {
       name: string;
       quantity: number;
       plantedAt?: number;
+      claimedSeconds?: number;
       outputs: HomeYardRate[];
       harvest: HomeYardRate[];
+      /** 当前已累积可领量（作物格有值；建筑格不传，渲染为空数组） */
+      claimable?: HomeYardRate[];
       description: string;
     }>;
   }): HomeYardArea {
@@ -387,7 +406,10 @@ export class HomeYardService {
           total: slot.quantity,
           outputs: slot.outputs.slice(0, HOME_YARD_CONFIG.outputsPerPlot),
           harvest: slot.harvest.slice(0, HOME_YARD_CONFIG.outputsPerPlot),
-          stage: args.kind === 'crop' ? this.buildCropStage(slot.name, slot.plantedAt) : undefined,
+          claimable: (slot.claimable ?? []).slice(0, HOME_YARD_CONFIG.outputsPerPlot),
+          stage: args.kind === 'crop'
+            ? this.buildCropStage(slot.name, slot.plantedAt, slot.claimedSeconds ?? 0)
+            : undefined,
           description: slot.description,
           unlockHint: '',
         });
@@ -404,6 +426,7 @@ export class HomeYardService {
         total: 0,
         outputs: [],
         harvest: [],
+        claimable: [],
         description: '',
         unlockHint: '',
       });
@@ -416,6 +439,7 @@ export class HomeYardService {
         total: 0,
         outputs: [],
         harvest: [],
+        claimable: [],
         description: '',
         unlockHint: this.buildUnlockHint(args.kind, args.level, i),
       });
@@ -496,11 +520,24 @@ export class HomeYardService {
   }
 
   /**
+   * 作物当前已累积、可随时领取的产出（实时累积玩法）。
+   * 直接复用 HomeService.cropAccrual，保证「地块上看到的」与「收获/领取时发的」是同一份数。
+   * 未开启实时累积时返回空数组（前端只展示成熟收获量）。
+   */
+  private cropClaimableRates(cropName: string, entry: any): HomeYardRate[] {
+    const plan = this.homeService.getCropGrowthPlan(cropName);
+    if (!plan.accrual.enabled) return [];
+    return this.homeService.cropAccrual(cropName, entry).items
+      .map((item) => ({ name: item.name, quantity: Math.round(item.quantity * 10000) / 10000 }))
+      .filter((item) => item.quantity > 0);
+  }
+
+  /**
    * 计算作物当前生长阶段（与 HomeService.harvestCrop 的成熟判定同口径）。
    * - 有 plantedAt：按 (now - plantedAt) 与总时长换算阶段下标与剩余时间；
    * - 无 plantedAt（旧聚合存档/历史数据）：视为已成熟，方便旧数据直接收获。
    */
-  private buildCropStage(cropName: string, plantedAt?: number): HomeYardCropStage {
+  private buildCropStage(cropName: string, plantedAt?: number, claimedSeconds = 0): HomeYardCropStage {
     const plan = this.homeService.getCropGrowthPlan(cropName);
     const stageCount = Math.max(1, plan.stageNames.length);
     const now = Date.now() / 1000;
@@ -515,6 +552,11 @@ export class HomeYardService {
       remainSeconds: ripe ? 0 : Math.max(1, Math.ceil(plan.totalSeconds - elapsed)),
       ripe,
       totalSeconds: plan.totalSeconds,
+      // 实时累积记账与开关：前端据此本地推算「还能领多少」，无需每格都等接口刷新
+      claimedSeconds: Math.max(0, Number(claimedSeconds) || 0),
+      accrualEnabled: plan.accrual.enabled,
+      partialClaimEnabled: plan.accrual.partialClaimEnabled,
+      capAtMatureSeconds: plan.accrual.capAtMatureSeconds,
       ...(plantedSec ? { plantedAt: plantedSec } : {}),
     };
   }

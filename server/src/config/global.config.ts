@@ -108,7 +108,8 @@ export class GlobalConfig {
     this.uploadMaxSize = Number(process.env.UPLOAD_MAX_SIZE || 10 * 1024 * 1024);
     this.uploadUrlPrefix = process.env.UPLOAD_URL_PREFIX || '/uploads';
     this.maxAttachments = Number(process.env.MAX_ATTACHMENTS || 5);
-    this.corsOrigins = (process.env.CORS_ORIGINS || 'http://localhost:5173,http://localhost:8080')
+    // 默认放行的前端来源：与 web/vite.config.js 的开发端口 5592 保持一致
+    this.corsOrigins = (process.env.CORS_ORIGINS || 'http://localhost:5592,http://localhost:5173,http://localhost:8080')
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean);

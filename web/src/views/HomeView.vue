@@ -90,27 +90,31 @@
               <span class="yd-b-chip crop">🌾</span>
               <span class="yd-b-title">农田</span>
               <span class="yd-b-count">{{ crop.used }}/{{ crop.limit }}</span>
-              <span class="yd-dim">{{ batchKind === 'crop' ? C.texts.batchEmpty : '空地点击选种子种下；地块随等级与凭证开垦' }}</span>
+              <span class="yd-dim" :title="C.texts.brushGesture">{{ brushing && brushKind === 'crop' ? C.texts.brushingHint : C.texts.cropHint }}</span>
               <div class="yd-b-ops">
-                <button class="yd-btn tiny" :class="{ on: batchKind === 'crop' }" :title="C.texts.batchHint" @click="toggleBatch('crop')">
-                  {{ batchKind === 'crop' ? C.texts.batchOff : C.texts.batchOn }}
-                </button>
                 <button
-                  v-if="batchKind === 'crop'"
                   class="yd-btn tiny"
                   :disabled="running || !freeCropPlots"
                   :title="`一次选中全部 ${freeCropPlots} 块已开垦空地，不用一格一格拖`"
                   @click="selectAllEmpty('crop')"
                 >
-                  全选空地 {{ freeCropPlots }}
+                  ✥ 全选空地 {{ freeCropPlots }}
                 </button>
                 <button class="yd-btn tiny warn" :disabled="running || !cropNames.length" @click="harvestAllCrops">
                   🌾 一键收获{{ cropNames.length ? `（${cropNames.length} 种 / ${ripeCount} 块）` : '' }}
                 </button>
+                <button
+                  class="yd-btn tiny"
+                  :disabled="running || !growingNames.length"
+                  :title="`对还在生长的作物各发一条收获指令：领走已累积的部分，作物继续长`"
+                  @click="claimGrowingCrops"
+                >
+                  📦 领取生长产出{{ growingNames.length ? `（${growingNames.length} 种）` : '' }}
+                </button>
                 <button class="yd-btn tiny" :disabled="running" @click="useVoucher">凭证开垦 +5</button>
               </div>
             </div>
-            <div class="yd-grid" :class="{ brushing: batchKind === 'crop' }" :style="gridStyle">
+            <div class="yd-grid" :class="{ brushing: brushing && brushKind === 'crop' }" :style="gridStyle">
               <button
                 v-for="p in visibleCropPlots"
                 :key="'c-' + p.index"
@@ -118,7 +122,7 @@
                 :class="[p.state, { sel: selectedKey === 'crop:' + p.index, picked: selection.has('crop:' + p.index), ripe: p.stage?.ripe }]"
                 :data-sel-key="'crop:' + p.index"
                 @pointerdown="onPlotDown($event, 'crop', p)"
-                @click="onPlot(p, 'crop')"
+                @click="onPlot(p, 'crop', $event)"
               >
                 <span class="yd-p-icon">{{ iconOf(p) }}</span>
                 <span class="yd-p-name">{{ p.name || (p.state === 'locked' ? '待开垦' : '+') }}</span>
@@ -127,7 +131,7 @@
                   <span class="yd-p-stages">
                     <i v-for="(sName, si) in p.stage.names" :key="'s' + si" :class="{ on: si <= p.stage.index, ripe: p.stage.ripe }"></i>
                   </span>
-                  <span class="yd-p-out" :class="p.stage.ripe ? 'gain' : ''">{{ cropStageText(p.stage) }}</span>
+                  <span class="yd-p-out" :class="p.stage.ripe ? 'gain' : ''">{{ cropStageText(p) }}</span>
                 </template>
                 <template v-else-if="p.state === 'occupied'">
                   <span class="yd-p-out">
@@ -155,23 +159,19 @@
               <span class="yd-b-chip build">🏭</span>
               <span class="yd-b-title">建筑区</span>
               <span class="yd-b-count">{{ building.used }}/{{ building.limit }}</span>
-              <span class="yd-dim">{{ batchKind === 'building' ? C.texts.batchEmpty : '空地点击选建筑安装；已安装的点击可拆除' }}</span>
+              <span class="yd-dim" :title="C.texts.brushGesture">{{ brushing && brushKind === 'building' ? C.texts.brushingHint : C.texts.buildingHint }}</span>
               <div class="yd-b-ops">
-                <button class="yd-btn tiny" :class="{ on: batchKind === 'building' }" :title="C.texts.batchHint" @click="toggleBatch('building')">
-                  {{ batchKind === 'building' ? C.texts.batchOff : C.texts.batchOn }}
-                </button>
                 <button
-                  v-if="batchKind === 'building'"
                   class="yd-btn tiny"
                   :disabled="running || !freeBuildingPlots"
                   :title="`一次选中全部 ${freeBuildingPlots} 块已开垦空地，不用一格一格拖`"
                   @click="selectAllEmpty('building')"
                 >
-                  全选空地 {{ freeBuildingPlots }}
+                  ✥ 全选空地 {{ freeBuildingPlots }}
                 </button>
               </div>
             </div>
-            <div class="yd-grid" :class="{ brushing: batchKind === 'building' }" :style="gridStyle">
+            <div class="yd-grid" :class="{ brushing: brushing && brushKind === 'building' }" :style="gridStyle">
               <button
                 v-for="p in visibleBuildingPlots"
                 :key="'b-' + p.index"
@@ -179,7 +179,7 @@
                 :class="[p.state, { sel: selectedKey === 'building:' + p.index, picked: selection.has('building:' + p.index) }]"
                 :data-sel-key="'building:' + p.index"
                 @pointerdown="onPlotDown($event, 'building', p)"
-                @click="onPlot(p, 'building')"
+                @click="onPlot(p, 'building', $event)"
               >
                 <span class="yd-p-icon">{{ iconOf(p) }}</span>
                 <span class="yd-p-name">{{ p.name || (p.state === 'locked' ? '待开垦' : '+') }}</span>
@@ -293,12 +293,12 @@
         </aside>
       </div>
 
-      <!-- 批量操作条：拖拽刷选后一次性种下 / 收获 / 拆除 -->
+      <!-- 批量操作条：刷选 / Shift 点选后一次性种下、收获、拆除 -->
       <div v-if="selectionCount" class="yd-batch-bar">
         <span class="yd-bb-info">已选 <b>{{ selectionCount }}</b> 块 · {{ selectionLabel }}</span>
         <div class="yd-bb-ops">
           <button
-            v-if="selectionState === 'empty' && batchKind === 'crop'"
+            v-if="selectionState === 'empty' && selectionKind === 'crop'"
             class="yd-btn warn"
             :disabled="running"
             @click="openPicker('crop', selectionCount)"
@@ -313,14 +313,13 @@
           >
             {{ C.texts.installCount(selectionCount) }}
           </button>
-          <button v-else-if="batchKind === 'crop'" class="yd-btn warn" :disabled="running" @click="harvestSelected">
+          <button v-else-if="selectionKind === 'crop'" class="yd-btn warn" :disabled="running" @click="harvestSelected">
             {{ C.texts.harvestCount(selectionCount) }}
           </button>
           <button v-else class="yd-btn danger" :disabled="running" @click="removeSelected">
             {{ C.texts.removeCount(selectionCount) }}
           </button>
-          <button class="yd-btn ghost" @click="clearSelection">取消选择</button>
-          <button class="yd-btn ghost" @click="toggleBatch(batchKind)">{{ C.texts.batchOff }}</button>
+          <button class="yd-btn ghost" :title="C.texts.brushGesture" @click="clearSelection">取消选择</button>
         </div>
       </div>
 
@@ -358,19 +357,33 @@
               ? '✓ 已成熟，点击下方收获'
               : `🌱 生长中，还需 ${fmtRemain(liveCropStage(selected.stage).remainSeconds)} 成熟` }}
           </div>
+          <!-- 实时累积：生长中的作物也能看到并领走已累积的产出 -->
+          <div v-if="selected.kind === 'crop' && selectedClaimable.length" class="yd-d-stage-tip gain">
+            已累积可领：{{ selectedClaimable.map((i) => `${fmtQty(i.quantity)} ${i.name}`).join('、') }}
+          </div>
         </div>
         <div class="yd-d-ops">
           <template v-if="selected.kind === 'crop'">
             <button
+              v-if="!selected.stage || liveCropStage(selected.stage).ripe"
               class="yd-btn warn"
-              :disabled="running || (selected.stage && !liveCropStage(selected.stage).ripe)"
+              :disabled="running"
               @click="run(C.commands.harvest(selected.name))"
             >
               🌾 收获全部（{{ selected.name }} ×{{ selected.total }}）
             </button>
+            <button
+              v-else
+              class="yd-btn"
+              :disabled="running || !selectedClaimable.length"
+              :title="`领走已累积的产出，作物保留在地里继续生长`"
+              @click="run(C.commands.harvest(selected.name))"
+            >
+              📦 领取已累积产出
+            </button>
             <span class="yd-dim">
               {{ selected.stage && !liveCropStage(selected.stage).ripe
-                ? '未成熟的作物还不能收获，等它长完再收'
+                ? '生长中：可随时领走已累积的部分，成熟后才能收走作物腾出地块'
                 : '收获会一次收走该作物全部已成熟的棵' }}
             </span>
           </template>
@@ -450,6 +463,7 @@ import { useUiStore } from '../stores/ui';
 import { usePlayerStore } from '../stores/player';
 import { syncServerClock, serverNow } from '../utils/serverClock';
 import { onTabRetap, scrollTopWithin } from '../composables/useTabRetap';
+import { tapMedium } from '../utils/haptics';
 
 const router = useRouter();
 const ui = useUiStore();
@@ -488,8 +502,10 @@ watch(data, (loaded) => {
 });
 /** 存放地与本次预计收益都为空时，领取没有东西可领（按钮别亮着骗一次点击） */
 const canCollect = computed(() => storage.value.length > 0 || claimList.value.length > 0);
-/** 正在刷选的区域：'' | 'crop' | 'building'（同时只对一块区域生效） */
-const batchKind = ref('');
+/** 正在拖刷：驱动网格的 brushing 样式与区头提示 */
+const brushing = ref(false);
+/** 本次刷选的区域：'' | 'crop' | 'building'（同时只对一块区域生效） */
+const brushKind = ref('');
 /** 刷选中的地块 key 集合，形如 'crop:3' */
 const selection = ref(new Set());
 let timer = null;
@@ -769,6 +785,25 @@ const ripeCount = computed(() => {
   return count;
 });
 
+/** 正在生长、且已累积出可领取产出的作物名（一键领取的对象） */
+const growingNames = computed(() => {
+  void clockTick.value;
+  const names = new Set();
+  for (const p of crop.value.plots) {
+    if (p.state !== 'occupied' || !p.name || !p.stage) continue;
+    if (liveCropStage(p.stage).ripe) continue;
+    if (liveCropClaimable(p).length > 0) names.add(p.name);
+  }
+  return Array.from(names);
+});
+/** 详情面板选中格子的实时可领量（跟随本地心跳） */
+const selectedClaimable = computed(() => {
+  void clockTick.value;
+  const plot = selected.value;
+  if (!plot || plot.kind !== 'crop') return [];
+  return liveCropClaimable(plot);
+});
+
 /** 本地时钟首次把某块地算成熟时，拉一次院子同步服务端 ripe/收获态 */
 watch(cropNames, (now, prev) => {
   if ((prev?.length || 0) > 0 && now.length > prev.length) {
@@ -799,12 +834,15 @@ const selectionList = computed(() => {
   return list;
 });
 const selectionCount = computed(() => selectionList.value.length);
+/** 选区属于哪一区：由第一条选中 key 派生（以前看「批量」开关，现在没有开关了） */
+const selectionKind = computed(() => selectionList.value[0]?.kind ?? '');
 /** 选中块的状态（刷选时已保证同类）：empty / occupied */
 const selectionState = computed(() => selectionList.value[0]?.plot?.state ?? '');
 const selectionLabel = computed(() => {
   if (!selectionCount.value) return '';
-  if (selectionState.value === 'empty') return batchKind.value === 'crop' ? '空地（准备种植）' : '空地（准备安装）';
-  return batchKind.value === 'crop' ? '已种植作物' : '已安装建筑';
+  const isCrop = selectionKind.value === 'crop';
+  if (selectionState.value === 'empty') return isCrop ? '空地（准备种植）' : '空地（准备安装）';
+  return isCrop ? '已种植作物' : '已安装建筑';
 });
 /** 按名称聚合的选中项（建筑批量拆除用） */
 const selectionGroups = computed(() => {
@@ -817,12 +855,34 @@ const selectionGroups = computed(() => {
 });
 
 // ---------- 数据拉取 ----------
+/** 上次自动补发「回家」的时间戳（毫秒），配合 autoEnter.cooldownMs 防止赶路中反复重发 */
+let lastAutoEnterAt = 0;
+
+/**
+ * 进入家园页自动回家：院内种 / 收 / 装 / 拆都要求人在院子，
+ * 刷新后检测到不在家就静默补发一次「前往 家园名」，等价于点了「回家」按钮。
+ * 有家园但还没建档 / 正在执行指令 / 建造挂起时跳过，冷却期内不重发。
+ */
+async function maybeAutoEnterHome() {
+  if (!C.autoEnter?.enabled) return;
+  const name = rawHouseName.value;
+  // 无家园 / 已在家 / 指令或建造进行中：都不需要自动补发
+  if (!name || atHome.value || running.value || pendingOp.value) return;
+  const now = Date.now();
+  if (now - lastAutoEnterAt < (Number(C.autoEnter.cooldownMs) || 0)) return;
+  lastAutoEnterAt = now;
+  // requireHome=false：此刻人不在院子，走「回家」同款放行口径
+  await run(C.commands.goHome(name), { requireHome: false });
+}
+
 async function refresh() {
   loading.value = true;
   try {
     const res = await homeApi.yard();
     data.value = res?.data ?? null;
     error.value = '';
+    // 数据到位后再判定位置，避免用旧的 atHome 误判
+    void maybeAutoEnterHome();
   } catch (e) {
     error.value = e?.response?.data?.message || '家园数据加载失败';
   } finally {
@@ -859,6 +919,8 @@ onActivated(() => {
 onDeactivated(() => {
   if (timer) { clearInterval(timer); timer = null; }
   if (clockTimer) { clearInterval(clockTimer); clockTimer = null; }
+  // 刷选的监听挂在 window 上，切走标签不会自动松手：不摘掉就会在别的页面上继续吃 pointermove
+  endBrush();
 });
 
 /** 空闲且队列有货：调服务端接龙（无读条时开挖下一条） */
@@ -993,12 +1055,43 @@ function liveCropStage(stage) {
   };
 }
 
+/**
+ * 作物实时累积的「当前可领量」（本地按秒推算，与后端 cropAccrual 同口径）。
+ * 每秒速率 = 整周期收获量 / 总成熟秒数，可领 = 速率 ×（已累积秒数 - 已领取秒数）。
+ * 没有 plantedAt 的旧存档格子退回接口快照 plot.claimable。
+ */
+function liveCropClaimable(plot) {
+  const stage = plot?.stage;
+  if (!stage || stage.accrualEnabled === false) return [];
+  const total = Number(stage.totalSeconds || 0);
+  const plantedAt = Number(stage.plantedAt || 0);
+  if (!plantedAt || total <= 0) return (plot.claimable || []).filter((i) => Number(i.quantity) > 0);
+
+  const nowSec = clockTick.value / 1000;
+  const elapsed = Math.max(0, nowSec - plantedAt);
+  // capAtMatureSeconds=true（默认）时成熟后不再累积，与后端一致
+  const grown = stage.capAtMatureSeconds === false ? elapsed : Math.min(elapsed, total);
+  const seconds = Math.max(0, grown - Number(stage.claimedSeconds || 0));
+  return (plot.harvest || [])
+    .map((h) => ({ name: h.name, quantity: (Number(h.quantity) || 0) * seconds / total }))
+    .filter((item) => item.quantity > 0);
+}
+
+/** 可领量的简短文案（地块角标用，只展示第一项） */
+function claimableText(plot) {
+  const items = liveCropClaimable(plot);
+  if (!items.length) return '';
+  return `可领 ${fmtQty(items[0].quantity)} ${items[0].name}`;
+}
+
 /** 格子/详情里的成熟文案（跟随本地心跳） */
-function cropStageText(stage) {
-  const live = liveCropStage(stage);
+function cropStageText(plot) {
+  const live = liveCropStage(plot?.stage);
   if (live.ripe) return '✓ 可收获';
   const name = live.names?.[live.index] ?? '';
-  return `${name} · ${fmtRemain(live.remainSeconds)}`;
+  const claimable = claimableText(plot);
+  // 生长中同时提示「已累积可领多少」，避免玩家以为没成熟就一无所有
+  return claimable ? `${name} · ${fmtRemain(live.remainSeconds)} · ${claimable}` : `${name} · ${fmtRemain(live.remainSeconds)}`;
 }
 watch([pendingOp, homePendingAction], () => {
   syncPendingFlag();
@@ -1106,17 +1199,7 @@ function fmtRemain(sec) {
   return h > 0 ? `${h}时${m}分` : `${Math.max(1, m)}分`;
 }
 
-// ---------- 刷选交互（批量模式） ----------
-/** 开/关某块区域的批量刷选；切换时清空选择，避免跨区域混选 */
-function toggleBatch(kind) {
-  if (batchKind.value === kind) {
-    batchKind.value = '';
-    clearSelection();
-    return;
-  }
-  batchKind.value = kind;
-  clearSelection();
-}
+// ---------- 刷选交互（默认手势，无模式开关） ----------
 function clearSelection() {
   selection.value = new Set();
 }
@@ -1125,6 +1208,13 @@ function addSelectionKey(key) {
   if (selection.value.has(key)) return;
   const next = new Set(selection.value);
   next.add(key);
+  selection.value = next;
+}
+/** 减选笔专用：没选过的格保持没选过，绝不顺手加进去 */
+function removeSelectionKey(key) {
+  if (!selection.value.has(key)) return;
+  const next = new Set(selection.value);
+  next.delete(key);
   selection.value = next;
 }
 function toggleSelectionKey(key) {
@@ -1139,7 +1229,6 @@ function toggleSelectionKey(key) {
  * 那种"看起来选了 30 块、实际只种了其中几块"的行为比多一次点击更糟。
  */
 function selectAllEmpty(kind) {
-  if (batchKind.value !== kind) batchKind.value = kind;
   const source = kind === 'building' ? building.value.plots : crop.value.plots;
   const keys = source.filter((p) => p.state === 'empty').map((p) => `${kind}:${p.index}`);
   if (!keys.length) {
@@ -1150,11 +1239,22 @@ function selectAllEmpty(kind) {
   ui.pushToast({ type: 'info', message: C.texts.selectAllEmpty(kind, keys.length) });
 }
 
-let brushing = false;
 /** 本次刷选的基准状态：只刷同状态地块，避免空地与作物混选 */
 let brushState = '';
-/** 刷选期间代为翻页的滚动容器（刷选态网格挂着 touch-action:none，手指拖不动页面） */
+/**
+ * 这一笔是加选还是减选：由起笔那一格当时有没有被选中决定，整笔保持不变。
+ * 逐格翻转（刷过一次就反一次）会让来回补刷变成随机结果，所以方向只在起笔判一次。
+ */
+let brushMode = 'add';
+/** 刷选期间代为翻页的滚动容器（刷选时 touchmove 被我们拦下，页面不会自己滚） */
 let brushScrollBox = null;
+/**
+ * 按下之后、判定完成之前的一次性状态。判定结果有三种：
+ * 起刷选 / 交还给 click（单选）/ 交还给浏览器滚页。
+ */
+let press = null;
+/** 刷选已经吃掉这一次手势，紧随其后的 click 不能再当作「单选」执行 */
+let suppressClick = false;
 
 /**
  * 指针停在滚动容器上下边缘附近时自动翻页。
@@ -1178,50 +1278,122 @@ function findBrushScroller(target) {
 }
 
 /**
- * 批量模式下按下地块开始刷选（非批量模式完全不介入，交给 click 处理）。
- * 触屏同样生效：网格在刷选态会禁用 touch-action，避免被页面滚动抢走手势。
+ * 地块上按下：先不表态，等「移动距离」或「按住时长」其中一个越过阈值再判定。
+ * 触屏必须等长按计时到点才起刷选，也绝不在 pointerdown 里 preventDefault ——
+ * 农田网格在窄屏上占了一屏多，滚页比刷选常用得多，抢掉滚页等于把页面弄坏。
  */
 function onPlotDown(event, kind, plot) {
-  if (batchKind.value !== kind || !plot) return;
-  event.preventDefault();
-  brushing = true;
-  brushState = plot.state;
-  if (plot.state === 'locked') {
-    ui.pushToast({ type: 'info', message: plot.unlockHint || '该地块尚未开垦' });
-    return;
+  if (!plot || event.button > 0) return; // 只认主键，右键/中键交回浏览器
+  endBrush(); // 上一次残留的监听与计时先清干净
+  suppressClick = false;
+  press = {
+    kind,
+    plot,
+    pointerType: event.pointerType || 'mouse',
+    x: event.clientX,
+    y: event.clientY,
+    target: event.currentTarget,
+    timer: 0,
+  };
+  if (press.pointerType !== 'mouse') {
+    press.timer = setTimeout(() => {
+      if (!press) return;
+      press.timer = 0;
+      beginBrush();
+    }, C.batch.holdMs);
   }
-  const key = `${kind}:${plot.index}`;
-  // Shift 点击 = 反选，方便微调
-  if (event.shiftKey) toggleSelectionKey(key);
-  else addSelectionKey(key);
-  brushScrollBox = findBrushScroller(event.target);
-  window.addEventListener('pointermove', onBrushMove);
+  window.addEventListener('pointermove', onPressMove);
   window.addEventListener('pointerup', endBrush);
   window.addEventListener('pointercancel', endBrush);
+  // 必须非 passive：passive 监听里 preventDefault 无效，拦不住滚页
+  window.addEventListener('touchmove', blockScrollWhileBrushing, { passive: false });
 }
 
-/** 拖动刷过其它地块：只加不选，且只收同状态的地块 */
+/** 长按已经成立 → 之后的手指移动归刷选，页面不再跟着滚 */
+function blockScrollWhileBrushing(event) {
+  if (brushing.value) event.preventDefault();
+}
+
+/** 判定中的移动：刷选已起就连续刷，没起就看是否越过阈值 */
+function onPressMove(event) {
+  if (brushing.value) {
+    onBrushMove(event);
+    return;
+  }
+  if (!press) return;
+  const moved = Math.hypot(event.clientX - press.x, event.clientY - press.y);
+  if (press.pointerType === 'mouse') {
+    // 鼠标没有滚页手势要保护：按住拖开一点就是刷选
+    // 越过阈值的这一笔要立刻算第一笔，否则「从哪一格开始拖」就漏了那一格
+    if (moved > C.batch.mouseSlop) {
+      beginBrush();
+      onBrushMove(event);
+    }
+    return;
+  }
+  // 触屏：长按还没到位就滑出去了 = 玩家要滚页，别抢这个手势
+  if (moved > C.batch.touchSlop) endBrush();
+}
+
+/** 起刷选：以按下那一格为基准，只往选区里加同状态的地块 */
+function beginBrush() {
+  const held = press;
+  if (!held) return;
+  // 待开垦格不参与刷选；不弹提示，松手后 click 会照常说明这块为什么点不动
+  if (held.plot.state === 'locked') {
+    endBrush();
+    return;
+  }
+  brushing.value = true;
+  brushKind.value = held.kind;
+  brushState = held.plot.state;
+  suppressClick = true;
+  // 选区永远同区同状态：种植用的其实是选区「块数」，混进别区或已种的格只会把数量虚报
+  if (selection.value.size && (selectionKind.value !== held.kind || selectionState.value !== held.plot.state)) clearSelection();
+  const startKey = `${held.kind}:${held.plot.index}`;
+  // 起笔落在已选中的格上 = 这一笔是擦除：第二遍框选同一批地就能直接取消，不用先去点「取消选择」
+  brushMode = selection.value.has(startKey) ? 'remove' : 'add';
+  if (brushMode === 'remove') removeSelectionKey(startKey);
+  else addSelectionKey(startKey);
+  brushScrollBox = findBrushScroller(held.target);
+  if (held.pointerType !== 'mouse') tapMedium();
+}
+
+/** 拖动刷过其它地块：按这一笔的方向统一加或统一减，且只碰与起笔同状态的地块 */
 function onBrushMove(event) {
-  if (!brushing) return;
+  if (!brushing.value) return;
   brushEdgeScroll(event);
   const el = document.elementFromPoint(event.clientX, event.clientY);
   const host = el?.closest?.('.yd-plot');
   const key = host?.getAttribute?.('data-sel-key');
   if (!key) return;
   const [kind, raw] = key.split(':');
-  if (kind !== batchKind.value) return;
+  if (kind !== brushKind.value) return;
   const source = kind === 'crop' ? crop.value.plots : building.value.plots;
   const plot = source[Number(raw)];
   if (!plot || plot.state !== brushState || plot.state === 'locked') return;
-  addSelectionKey(key);
+  if (brushMode === 'remove') removeSelectionKey(key);
+  else addSelectionKey(key);
 }
 
-function endBrush() {
-  brushing = false;
-  brushScrollBox = null;
-  window.removeEventListener('pointermove', onBrushMove);
+/** 一次手势结束（松手 / 取消 / 判定失败）：摘监听、清计时器 */
+function releasePress() {
+  if (press?.timer) clearTimeout(press.timer);
+  press = null;
+  window.removeEventListener('pointermove', onPressMove);
   window.removeEventListener('pointerup', endBrush);
   window.removeEventListener('pointercancel', endBrush);
+  window.removeEventListener('touchmove', blockScrollWhileBrushing);
+}
+
+/** 收尾：既结束按下判定，也结束刷选态 */
+function endBrush() {
+  releasePress();
+  brushing.value = false;
+  brushKind.value = '';
+  brushState = '';
+  brushMode = 'add';
+  brushScrollBox = null;
 }
 
 // ---------- 操作 ----------
@@ -1249,13 +1421,12 @@ function toastResults(texts) {
   ui.pushToast({ type: 'success', message: `${shown || '操作完成'}${tail}`, timeout: 5000 });
 }
 
-/** 批量收尾：解锁、清选择、退出批量模式、延迟重拉数据 */
+/** 批量收尾：解锁、清选择、延迟重拉数据 */
 function endBatch() {
   running.value = false;
   selectedKey.value = '';
   picker.value = { open: false, kind: picker.value.kind, items: [], count: 1 };
   clearSelection();
-  batchKind.value = '';
   setTimeout(refresh, C.refetchDelayMs);
 }
 
@@ -1507,22 +1678,29 @@ function startClaim() {
   return run(G.firstCommand, { requireHome: false });
 }
 
-function onPlot(plot, kind) {
+/**
+ * 地块 click：一次手势没被刷选用掉时才会走到这里。
+ * 轻点 = 单选（空地开选择器、已种的看详情）；Shift 点 = 往选区里加/减这一格，
+ * 用来在刷完之后补一两块漏掉的、或去掉多刷的一块。
+ */
+function onPlot(plot, kind, event) {
   if (!plot) return;
-  // 批量模式下点击 = 勾选/取消（拖拽刷选由 pointerdown / pointermove 处理）
-  if (batchKind.value === kind) {
-    if (plot.state === 'locked') {
-      ui.pushToast({ type: 'info', message: plot.unlockHint || '该地块尚未开垦' });
-      return;
-    }
-    toggleSelectionKey(`${kind}:${plot.index}`);
+  if (suppressClick) {
+    suppressClick = false;
     return;
   }
   if (plot.state === 'locked') {
     ui.pushToast({ type: 'info', message: plot.unlockHint || '该地块尚未开垦' });
     return;
   }
-  selectedKey.value = `${kind}:${plot.index}`;
+  const key = `${kind}:${plot.index}`;
+  if (event?.shiftKey) {
+    // 与刷选同一条规矩：选区永远同区同状态，混了别的格就重开，别把数量虚报出去
+    if (selection.value.size && (selectionKind.value !== kind || selectionState.value !== plot.state)) clearSelection();
+    toggleSelectionKey(key);
+    return;
+  }
+  selectedKey.value = key;
   if (plot.state === 'empty') openPicker(kind, 1);
 }
 
@@ -1572,25 +1750,42 @@ function harvestAllCrops() {
   if (!cropNames.value.length) {
     ui.pushToast({
       type: 'info',
-      message: growingCount.value ? `地里还有 ${growingCount.value} 棵在生长，成熟后才能收获` : C.texts.nothingToHarvest,
+      message: growingCount.value
+        ? `地里还有 ${growingCount.value} 棵在生长，可以点「领取生长产出」先拿已累积的部分`
+        : C.texts.nothingToHarvest,
     });
     return;
   }
   runMany(cropNames.value.map((name) => C.commands.harvest(name)));
 }
 
-/** 收获选中地块（按作物名去重；后端会拦截未成熟的，前端只收集已成熟的避免无效请求） */
+/**
+ * 一键领取生长中作物已累积的产出。
+ * 后端收到「收获 名称」后，对未成熟的棵走部分领取分支：领走已累积部分、作物保留继续生长。
+ */
+function claimGrowingCrops() {
+  if (!growingNames.value.length) {
+    ui.pushToast({ type: 'info', message: '还在生长的作物暂时没有可领取的产出' });
+    return;
+  }
+  runMany(growingNames.value.map((name) => C.commands.harvest(name)));
+}
+
+/**
+ * 收获 / 领取选中地块（按作物名去重）。
+ * 实时累积玩法下未成熟的也能领：后端对未成熟棵走部分领取，只领走已累积的部分。
+ */
 function harvestSelected() {
   const names = Array.from(
     new Set(
       selectionList.value
-        .filter((x) => x.plot.stage && liveCropStage(x.plot.stage).ripe)
+        .filter((x) => x.plot.stage)
         .map((x) => x.plot.name)
         .filter(Boolean),
     ),
   );
   if (!names.length) {
-    ui.pushToast({ type: 'info', message: '选中的作物都还没成熟，先等它们长完再收' });
+    ui.pushToast({ type: 'info', message: '没有选中的作物地块' });
     return;
   }
   runMany(names.map((name) => C.commands.harvest(name)));
@@ -2056,11 +2251,16 @@ button.yd-switch-btn:active {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(var(--yd-min, 96px), 1fr));
   gap: var(--yd-gap, 10px);
-}
-/* 刷选模式：禁用滚动与文本选中，让触屏拖拽刷选不被页面滚动抢走 */
-.yd-grid.brushing {
-  touch-action: none;
+  /* 地块是按钮：长按刷选时不能冒出文本选中条和 iOS 长按菜单。
+     这里绝不能再挂 touch-action: none —— 农田网格在窄屏上占了一屏多，
+     那等于把滚页一起废掉；刷选期间拦滚动靠 onPlotDown 注册的非 passive touchmove。 */
   user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+/* 刷选进行中：光标收成十字，明确「这一拖是在选地块」而不是在划文字 */
+.yd-grid.brushing {
+  cursor: crosshair;
 }
 .yd-plot {
   position: relative;

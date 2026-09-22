@@ -1,6 +1,11 @@
 {
   "stageNames": ["播种", "发芽", "生长", "开花", "成熟"],
   "rewardScaleDivisor": 600,
+  "accrual": {
+    "enabled": true,
+    "partialClaimEnabled": true,
+    "capAtMatureSeconds": true
+  },
   "tiers": [
     {
       "label": "速生作物",

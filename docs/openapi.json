@@ -562,10 +562,55 @@
       "get": {
         "operationId": "GameController_getHomeYard",
         "summary": "获取家园院子格子视图（地块/仓库/障碍/存放地，只读不结算）",
+        "description": "作物为实时累积玩法：产出按已生长秒数累积（封顶到成熟时长），未成熟也能通过「收获」指令领走已累积的部分；成熟后收获会一次结清剩余累积量并腾出地块。",
         "parameters": [],
         "responses": {
           "200": {
-            "description": ""
+            "description": "院子视图；作物地块附带实时累积信息",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "crop": {
+                      "type": "object",
+                      "properties": {
+                        "plots": {
+                          "type": "array",
+                          "description": "作物地块；建筑地块 claimable 恒为空数组",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "index": { "type": "integer", "description": "地块序号（0 基）" },
+                              "kind": { "type": "string", "enum": ["crop", "building"] },
+                              "state": { "type": "string", "enum": ["occupied", "empty", "locked"] },
+                              "name": { "type": "string", "description": "作物名 / 建筑名" },
+                              "total": { "type": "integer", "description": "同名事物在院子里的总数量" },
+                              "outputs": {
+                                "type": "array",
+                                "description": "每分钟产出（作物恒为空数组）",
+                                "items": { "$ref": "#/components/schemas/HomeYardRate" }
+                              },
+                              "harvest": {
+                                "type": "array",
+                                "description": "整周期成熟收获量（每秒速率 = quantity / stage.totalSeconds）",
+                                "items": { "$ref": "#/components/schemas/HomeYardRate" }
+                              },
+                              "claimable": {
+                                "type": "array",
+                                "description": "当前已累积、可随时领取的产出（服务端快照；前端按 plantedAt/claimedSeconds 本地逐秒推算）",
+                                "items": { "$ref": "#/components/schemas/HomeYardRate" }
+                              },
+                              "stage": { "$ref": "#/components/schemas/HomeYardCropStage" }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -2791,6 +2836,37 @@
       }
     },
     "schemas": {
+      "HomeYardRate": {
+        "type": "object",
+        "description": "速率 / 数量条目（quantity 允许为负，负数表示消耗）",
+        "properties": {
+          "name": { "type": "string", "description": "物品名", "example": "铁矿" },
+          "quantity": { "type": "number", "description": "数量或速率；负数表示消耗", "example": 12.5 }
+        },
+        "required": ["name", "quantity"]
+      },
+      "HomeYardCropStage": {
+        "type": "object",
+        "description": "作物生长阶段 + 实时累积信息（仅 occupied 作物格有值）",
+        "properties": {
+          "index": { "type": "integer", "description": "当前阶段下标（0 基，播种=0）" },
+          "total": { "type": "integer", "description": "阶段总数" },
+          "names": {
+            "type": "array",
+            "description": "阶段名称（如 播种/发芽/生长/开花/成熟）",
+            "items": { "type": "string" }
+          },
+          "progressPct": { "type": "number", "description": "生长进度 0~1" },
+          "remainSeconds": { "type": "integer", "description": "剩余成熟秒数（接口快照，前端本地倒数兜底）" },
+          "ripe": { "type": "boolean", "description": "是否已成熟（成熟后才能收获腾地）" },
+          "totalSeconds": { "type": "integer", "description": "总成熟秒数" },
+          "plantedAt": { "type": "integer", "description": "播种时刻（秒级 Unix）" },
+          "claimedSeconds": { "type": "integer", "description": "实时累积：已领取的生长秒数，用于推算剩余可领量" },
+          "accrualEnabled": { "type": "boolean", "description": "是否开启实时累积（关闭时 claimable 恒为空）" },
+          "partialClaimEnabled": { "type": "boolean", "description": "未成熟时是否允许领取已累积的部分" },
+          "capAtMatureSeconds": { "type": "boolean", "description": "累积秒数是否封顶到成熟时长" }
+        }
+      },
       "UpdateNicknameDto": {
         "type": "object",
         "properties": {

@@ -5,7 +5,7 @@
 ## 运行前提
 
 1. 后端已启动（`server/` → `node dist/main.js`，监听 3333）
-2. dev server 已启动（`web/` → vite，监听 5173）
+2. dev server 已启动（`web/` → vite，监听 5592）
 3. puppeteer-core 可用：
    - 系统 npm：`npm i -g puppeteer-core` 后脚本同级放一份，或
    - 本项目惯例：装在 `%TEMP%\pup\`（`cd %TEMP%\pup && npm i puppeteer-core`），脚本复制到该目录运行

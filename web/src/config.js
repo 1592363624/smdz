@@ -17,7 +17,7 @@ export const WS_URL =
 export const COMMAND_PREFIXES = ['/', '！', '!'];
 
 // 版本号：显示在界面右上角，发新版时在此调整
-export const APP_VERSION = '0.9.0';
+export const APP_VERSION = '0.9.1';
 
 // GitHub Issue 反馈页地址：头部「BUG 反馈」按钮的跳转目标，可用 VITE_GITHUB_ISSUES_URL 覆盖
 export const GITHUB_ISSUES_URL =
@@ -206,6 +206,13 @@ export const HOME_YARD_CONFIG = {
   /** 执行指令后重新拉取数据的延迟（毫秒），等后端写完再读 */
   refetchDelayMs: 400,
   /**
+   * 进入家园页自动「回家」：院子里很多操作要求人在院内，
+   * 检测到不在家时自动补发一次「前往 家园名」，省去手动点「回家」。
+   * - enabled：总开关，关掉后回到纯手动
+   * - cooldownMs：自动补发冷却（毫秒），避免赶路中反复重发刷屏
+   */
+  autoEnter: { enabled: true, cooldownMs: 60000 },
+  /**
    * 地块图标：按名称包含关键词自上而下匹配，首个命中生效；均未命中用 fallbackIcon。
    * 新增作物/建筑时只要往这里补一条规则即可。
    */
@@ -299,15 +306,21 @@ export const HOME_YARD_CONFIG = {
     withCount: (name, count) => `${name}${count}`,
   },
   /**
-   * 批量 / 拖拽刷选配置（QQ 农场式操作）
+   * 批量 / 拖拽刷选配置（QQ 农场式操作，已取消模式开关：地块默认就能刷）
    * - maxPerCommand：单条指令允许携带的最大数量，超出自动拆成多条
    *   （如种 150 棵 → 「种植 种子99」+「种植 种子51」）
-   * - drag：刷选判定用的指针移动阈值
+   * - holdMs：触屏按住多久判定为「要刷选」。在这之前滑动算滚页手势，直接交还浏览器
+   * - mouseSlop：鼠标按下后移动多少像素才起刷选。没越过就是一次普通点击（选种子 / 看详情）
+   *   —— 阈值存在的全部意义：不越过就不能 preventDefault 掉 click，否则单选路径被吞
+   * - touchSlop：长按计时期间允许的手指抖动，超过即放弃刷选
    */
   batch: {
     maxPerCommand: 99,
     /** toast 里最多合并展示的执行结果条数（避免刷屏） */
     toastResultLimit: 3,
+    holdMs: 260,
+    mouseSlop: 6,
+    touchSlop: 12,
   },
   /** 文案（集中在便于调整/本地化） */
   texts: {
@@ -318,11 +331,12 @@ export const HOME_YARD_CONFIG = {
     pickBuildingTitle: '选一个建筑安装',
     noSeed: '背包里没有可种植的种子',
     noBuilding: '背包里没有可安装的建筑',
-    // 批量 / 拖拽刷选
-    batchOn: '✥ 批量',
-    batchOff: '退出批量',
-    batchHint: '开启后可在地块上按住拖动刷选，再一次性种下 / 收获 / 拆除',
-    batchEmpty: '批量：点或拖着刷过要操作的地块',
+    // 地块刷选：没有模式开关，手势本身就是入口
+    cropHint: '空地轻点选种子；按住格子拖动可连刷一片（触屏先按住不动再拖）',
+    buildingHint: '空地轻点选建筑，已安装的轻点可拆除；按住拖动可连刷一片（触屏先按住不动再拖）',
+    brushingHint: '刷选中：起笔在空格=加选，起笔在已选格=取消这一片',
+    /** 挂在区头提示的 title 上（桌面悬停可查）；正文短版已写明触屏要先按住，手机读不到 title */
+    brushGesture: '地块没有批量开关，手势本身就是入口：轻点 = 选种子 / 看详情；按住并拖动 = 连续刷选同状态的地块，松手后一次性种下 / 收获 / 拆除。起笔那一格决定这一笔的方向：落在空格上是加选，落在已选中的格上是取消（想扩大选区就从没选过的格起笔）。Shift 点击 = 单格加/减。触屏需先按住约 0.25 秒（会震一下）再拖，直接滑动仍然是滚页。',
     /** 全选空地：一次选中该区域全部已开垦空格，替代在几百格里按住拖 */
     selectAllEmpty: (kind, n) => `已选中 ${n} 块${kind === 'crop' ? '农田' : '建筑区'}空地`,
     noEmptyPlot: '这一区没有已开垦的空地了，用凭证或升级再开垦',
@@ -345,6 +359,13 @@ export const HOME_FRONTLINE_CONFIG = {
   refreshMs: 30000,
   /** 执行指令后重新拉取数据的延迟（毫秒），等后端写完再读 */
   refetchDelayMs: 500,
+  /**
+   * 进入前线页自动「前往前线」：布防 / 拆卸 / 战斗都要求人在前线，
+   * 检测到不在前线时自动补发一次「前往 家园名前线」。
+   * - enabled：总开关，关掉后回到纯手动
+   * - cooldownMs：自动补发冷却（毫秒），避免赶路中反复重发刷屏
+   */
+  autoEnter: { enabled: true, cooldownMs: 60000 },
   /** 防御建筑 / 武器 / 敌人的图标兜底与关键词匹配（自上而下首个命中生效） */
   icons: {
     building: [

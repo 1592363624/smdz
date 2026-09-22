@@ -1,19 +1,22 @@
 /**
  * Vite 前端构建配置
  * - 开发时代理 /api 和 /ws 到后端，避免跨域并支持热更新
- * - 端口 5173
+ * - 端口 5592（避开 Vite 默认 5173，防止与本机其他 Vite 项目抢端口）
  * - 后端目标可用环境变量 API_TARGET 覆盖（默认 http://localhost:3333），
  *   例如后端临时跑在 13443：API_TARGET=http://localhost:13443 npm run dev
+ * - 端口可用环境变量 VITE_PORT 覆盖，例如：VITE_PORT=5173 npm run dev
  */
 import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
 
 const apiTarget = process.env.API_TARGET || 'http://localhost:3333';
+/** 开发服务器端口：默认 5592（非 Vite 默认的 5173，避免与本机其他前端项目冲突） */
+const devPort = Number(process.env.VITE_PORT || 5592);
 
 export default defineConfig({
   plugins: [vue()],
   server: {
-    port: 5173,
+    port: devPort,
     // 关闭 HMR 错误浮窗(右下角那个"Send errors"按钮)
     hmr: {
       overlay: false,
