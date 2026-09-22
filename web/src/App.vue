@@ -21,20 +21,87 @@
     </div>
   </div>
 
-  <router-view />
+  <!--
+    游戏外壳：手机端在路由视图之外常驻两条「永不移动」的界面边栏 ——
+    顶部 HUD（头像/等级/血条/经验）与底部标签栏（公屏/家园/前线/竞技场/我的）。
+    这正是手游 UI 与网页 UI 最大的结构差异：HUD 与导航跨界面保持不变，
+    只有中间的内容区在换。桌面端不渲染它们，布局与之前完全一致。
+    keep-alive 让四个主页面切回来时不重建：秒开、不重新连 socket、不丢滚动位置。
+  -->
+  <div class="game-shell" :class="{ 'is-mobile': device.isMobile }">
+    <MobileHud v-if="showShell" />
+    <div class="game-stage">
+      <router-view v-slot="{ Component }">
+        <keep-alive :include="SHELL_VIEWS">
+          <component :is="Component" />
+        </keep-alive>
+      </router-view>
+    </div>
+    <MobileTabBar v-if="showShell" />
+  </div>
+  <!-- 手机端「我的」角色面板：挂在 App 级，家园/前线/竞技场任意一屏都能直接升起 -->
+  <MePanel v-if="device.isMobile" />
   <!-- 全局轻提示宿主：成功/错误/警告/信息统一反馈 -->
   <ToastHost />
 </template>
 
 <script setup>
 /**
- * 根组件：承载路由视图 + 全局轻提示宿主。
+ * 根组件：游戏外壳（HUD + 路由视图 + 底部标签栏）+ 全局轻提示宿主。
  * 附带手机 QQ 内置浏览器拦截：按 UA 特征命中内嵌 WebView（QQ/版本号段、V1_AND_SQ_）时渲染全屏拦截层，
  * 提供「右上角菜单→在浏览器打开」指引、intent 一键跳转与复制链接三种脱困方式。
  * 不提供任何"继续游玩"入口：QQ 内核下聊天/长连接表现不可控，必须离开。
  */
-import { ref, onUnmounted } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { useRoute } from 'vue-router';
 import ToastHost from './components/ToastHost.vue';
+import MobileHud from './components/mobile/MobileHud.vue';
+import MobileTabBar from './components/mobile/MobileTabBar.vue';
+import MePanel from './components/mobile/MePanel.vue';
+import { useDeviceStore } from './stores/device';
+import { useUiStore } from './stores/ui';
+
+const device = useDeviceStore();
+const ui = useUiStore();
+const route = useRoute();
+
+/** 参与 keep-alive 的主页面（组件名由文件名推断，见各 view 的 defineOptions） */
+const SHELL_VIEWS = ['ChatView', 'HomeView', 'FrontlineView', 'ArenaView'];
+
+/** 登录/开局引导/管理后台这几屏不套手机外壳：前两者是流程页，后台是桌面向的密集表格 */
+const showShell = computed(
+  () => device.isMobile && !['/login', '/onboard', '/admin'].includes(route.path),
+);
+
+/** 键盘弹起时收起 HUD 占位，把屏幕尽量让给输入区 */
+const shellPad = computed(() => device.isMobile && !['/login', '/onboard', '/admin'].includes(route.path));
+
+watch(
+  shellPad,
+  (on) => {
+    document.documentElement.classList.toggle('has-shell', on);
+    if (!on) ui.closeMe();
+  },
+  { immediate: true },
+);
+watch(
+  () => device.keyboardOpen,
+  (kb) => document.body.classList.toggle('kb-open', kb),
+);
+
+onMounted(() => {
+  device.init();
+  // 手机返回键：只要「我的」面板还开着就先收面板，而不是直接退出游戏页。
+  // 靶子条目由 ui store 统一管（见 stores/ui.js 的 openMe/afterMeClosed），这里只负责把
+  // 浏览器发起的 popstate 通报给它。Vue Router 的 popstate 监听注册得更早，会先按条目导航，
+  // 但靶子条目的 URL 与当前页相同，所以那一步是空操作。
+  window.addEventListener('popstate', onPopState);
+});
+onUnmounted(() => {
+  window.removeEventListener('popstate', onPopState);
+  device.teardown();
+});
+function onPopState() { ui.handlePopByBrowser(true); }
 
 /** 是否为手机 QQ 内置浏览器（UA 特征判定） */
 function isMobileQqWebview() {

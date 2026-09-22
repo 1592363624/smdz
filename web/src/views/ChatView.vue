@@ -78,7 +78,7 @@
       <div class="sidebar-content">
         <!-- 我的 Tab：玩家信息 + 快捷操作 -->
         <div v-show="sidebarTab === 'me'" class="tab-pane">
-          <!-- 玩家状态面板：桌面侧栏与手机抽屉共用组件（等级/血条/战斗力/任务/装备/增益实时展示）；@send 接武器列表「卸下」按钮指令 -->
+          <!-- 玩家状态面板：桌面侧栏与 App 级「我的」底部抽屉共用组件（等级/血条/战斗力/任务/装备/增益实时展示）；@send 接武器列表「卸下」按钮指令 -->
           <PlayerStatusPanel
             v-if="playerInfo"
             :info="playerInfo"
@@ -92,113 +92,8 @@
             </div>
           </div>
 
-          <!-- 我的常用指令：用户自定义，可编辑、可拖拽排序，点击直接发送 -->
-          <div class="fav-cmds">
-            <div class="fav-head">
-              <span class="fav-title">⭐ 我的常用</span>
-              <div class="fav-actions">
-                <!-- 分享：把当前常用列表生成分享码并复制到剪贴板，可在其他账号导入 -->
-                <button class="fav-mini-btn" title="复制分享码，可在其他账号导入" @click="exportFavorites">分享</button>
-                <!-- 导入：粘贴其他账号的分享码，合并进当前列表 -->
-                <button class="fav-mini-btn" title="粘贴分享码导入常用指令" @click="openFavImport">导入</button>
-                <button class="fav-edit-btn" @click="toggleFavEdit">{{ favEditing ? '完成' : '编辑' }}</button>
-              </div>
-            </div>
-            <div v-if="favoriteCommands.length || favEditing" class="fav-list">
-              <!-- 非编辑态也允许拖拽排序：HTML5 拖拽自带触发阈值，未实际拖动时 click 仍正常触发发送 -->
-              <span
-                v-for="(f, fi) in favoriteCommands"
-                :key="'fav-' + f.cmd"
-                class="fav-chip"
-                :class="{ editing: favEditing, dragging: dragIndex === fi, dragover: dragOverIndex === fi, 'edit-target': favEditTarget === f.cmd }"
-                :draggable="true"
-                @dragstart="onFavDragStart(fi)"
-                @dragover.prevent="onFavDragOver(fi)"
-                @drop="onFavDrop(fi)"
-                @click="onFavoriteClick(f, $event)"
-              >
-                <span v-if="favEditing" class="fav-grip" title="拖拽排序" @click.stop>⋮⋮</span>
-                <span class="fav-label" :title="favEditing ? '点击载入下方重新编辑' : f.label">{{ f.label }}</span>
-                <span v-if="favEditing" class="fav-del" title="删除" @click.stop="removeFavorite(f.cmd)">✕</span>
-              </span>
-              <span v-if="!favoriteCommands.length && favEditing" class="fav-empty">暂无常用，在下方添加任意内容</span>
-            </div>
-            <div v-if="favEditing" class="fav-add">
-              <div v-if="favEditTarget" class="fav-edit-tip">正在编辑「{{ favEditTip }}」，保存后覆盖原项</div>
-              <textarea
-                class="fav-add-input fav-add-textarea"
-                v-model="favAddInput"
-                rows="3"
-                placeholder="发送内容（每行一条，可组成指令集，点击后从上到下顺序执行；Ctrl+Enter 保存）"
-                @click.stop
-                @keydown.enter.ctrl.prevent="favAddInput.trim() ? addFavorite() : null"
-              ></textarea>
-              <input
-                class="fav-add-label"
-                v-model="favAddLabel"
-                placeholder="显示名（可选，留空用发送内容）"
-                @click.stop
-                @keyup.enter="favAddInput.trim() ? addFavorite() : null"
-              />
-              <div class="fav-add-actions">
-                <button class="fav-add-btn" :disabled="favBusy || !favAddInput.trim()" @click="addFavorite()">{{ favEditTarget ? '保存修改' : '+ 添加' }}</button>
-                <button v-if="favEditTarget" class="fav-cancel-btn" @click="resetFavForm()">取消编辑</button>
-              </div>
-              <div v-if="favAddCandidates.length" class="fav-candidates">
-                <span
-                  v-for="c in favAddCandidates"
-                  :key="'favc-' + c.name"
-                  class="fav-cand"
-                  @click="addFavorite(c.name)"
-                >{{ c.name }}</span>
-              </div>
-            </div>
-            <!-- 导入面板：粘贴其他账号的分享码，实时预览解析结果，确认后再合并进当前列表 -->
-            <div v-if="favImporting" class="fav-add fav-import">
-              <textarea
-                class="fav-add-input fav-add-textarea"
-                v-model="favImportText"
-                rows="4"
-                placeholder="粘贴分享码（在其他账号点「分享」复制的内容）"
-                @click.stop
-              ></textarea>
-              <!-- 预览区：解析失败提示原因，成功则列出「将新增」与「将跳过」的条目 -->
-              <div v-if="favImportPreview.error" class="fav-import-tip err">{{ favImportPreview.error }}</div>
-              <div v-else-if="favImportPreview.incoming.length" class="fav-import-preview">
-                <div class="fav-import-sum">
-                  共解析 {{ favImportPreview.incoming.length }} 条：
-                  <b class="ok">新增 {{ favImportPreview.added.length }} 条</b>
-                  <span v-if="favImportPreview.dup.length">，<span class="skip">跳过 {{ favImportPreview.dup.length }} 条重复</span></span>
-                </div>
-                <div v-if="favImportPreview.added.length" class="fav-list">
-                  <span
-                    v-for="p in favImportPreview.added"
-                    :key="'favp-' + p.cmd"
-                    class="fav-chip"
-                    :title="p.cmd"
-                  >{{ p.label }}</span>
-                </div>
-                <div v-else class="fav-import-sum">与当前列表完全相同，无需重复导入</div>
-                <details v-if="favImportPreview.dup.length" class="fav-import-dup">
-                  <summary>已存在、将跳过 {{ favImportPreview.dup.length }} 条</summary>
-                  <div class="fav-list">
-                    <span
-                      v-for="p in favImportPreview.dup"
-                      :key="'favd-' + p.cmd"
-                      class="fav-chip muted"
-                      :title="p.cmd"
-                    >{{ p.label }}</span>
-                  </div>
-                </details>
-              </div>
-              <div class="fav-add-actions">
-                <button class="fav-add-btn" :disabled="favBusy || !favImportPreview.added.length" @click="confirmFavImport()">确认导入{{ favImportPreview.added.length ? `（${favImportPreview.added.length} 条）` : '' }}</button>
-                <button class="fav-cancel-btn" @click="cancelFavImport()">取消</button>
-              </div>
-            </div>
-            <div v-if="!favEditing && !favoriteCommands.length" class="fav-hint">点「编辑」可添加常用指令</div>
-            <div v-if="favMsg" class="fav-msg">{{ favMsg }}</div>
-          </div>
+          <!-- 我的常用指令：用户自定义，可编辑、可拖拽排序，点击直接发送（实现见 components/FavoriteCommands.vue） -->
+          <FavoriteCommands ref="favRef" @send="onFavoriteSend" />
         </div>
       </div>
 
@@ -266,320 +161,13 @@
       </div>
     </aside>
 
-    <!-- 手机端遮罩层（点击关闭抽屉） -->
-    <div class="mobile-overlay" :class="{ open: mobileMenuOpen }" @click="mobileMenuOpen = false"></div>
-
-    <!-- 手机端抽屉菜单 -->
-    <aside class="mobile-drawer" :class="{ open: mobileMenuOpen }">
-      <!-- 顶部固定：用户卡片 + QQ 绑定 -->
-      <div class="sidebar-header">
-        <div class="user-card" :class="{ 'is-admin': isAdmin }" @click="onAvatarClick" :title="avatarTitle">
-          <div class="avatar">
-            <img v-if="user?.avatar" :src="user.avatar" class="avatar-img" />
-            <span v-else class="avatar-letter">{{ (user?.nickname || user?.username || '?')[0] }}</span>
-          </div>
-          <div class="user-info">
-            <div class="name-row">
-              <span class="name">{{ user?.nickname || user?.username }}</span>
-              <button v-if="!nicknameEditing" class="nickname-edit-btn" title="修改昵称" @click.stop="openNicknameEdit">✏️</button>
-              <!-- 当前使魔徽标：贴在昵称右侧，不单独占一行 -->
-              <span v-if="playerInfo?.type" class="user-marker" :title="'当前使魔：' + playerInfo.type">{{ playerInfo.type }}</span>
-            </div>
-            <!-- 昵称行内编辑 -->
-            <div v-if="nicknameEditing" class="nickname-edit-row">
-              <input v-model="nicknameInput" class="nickname-input" maxlength="20" placeholder="输入新昵称" @keyup.enter="saveNickname" @keyup.esc="nicknameEditing = false" />
-              <button class="qq-btn primary" :disabled="nicknameBusy" @click.stop="saveNickname">{{ nicknameBusy ? '…' : '保存' }}</button>
-              <button class="qq-btn" @click.stop="nicknameEditing = false">取消</button>
-            </div>
-            <div v-if="nicknameError" class="nickname-error">{{ nicknameError }}</div>
-            <!-- 次要信息单行：OpenID（点击复制）+ QQ 绑定状态，小字号贴着昵称下方 -->
-            <div v-if="!nicknameEditing" class="sub-row">
-              <span
-                class="sub-id"
-                :title="'点击复制 OpenID：' + (user?.externalId || '未登录')"
-                @click.stop="copyOpenId"
-              >ID {{ maskedOpenId }}</span>
-              <span v-if="user?.qqNumber && !isLegacyQqBind" class="sub-qq" title="已绑定真实 QQ 号">✅ QQ {{ user.qqNumber }}</span>
-              <button v-else class="sub-qq unbound" :title="bindHintTitle" @click.stop="bindHintOpen = !bindHintOpen">⚠️ 未绑定</button>
-              <span v-if="copyTip" class="sub-copy">{{ copyTip }}</span>
-            </div>
-          </div>
-          <span v-if="isAdmin" class="admin-badge">ADMIN</span>
-        </div>
-
-        <!-- 绑定引导：默认收起，点「未绑定」才展开，避免常驻占高 -->
-        <div v-if="bindHintOpen" class="bind-hint">
-          <span class="bind-hint-text">在 QQ 群发送：</span>
-          <code class="bind-cmd">使魔大战绑定QQ {{ user?.externalId || '你的OpenID' }}</code>
-          <button class="qq-btn" :disabled="!user?.externalId" @click.stop="copyOpenId">📋 复制</button>
-        </div>
-      </div>
-
-      <!-- Tab 切换 -->
-      <div class="sidebar-tabs">
-        <button class="sidebar-tab" :class="{ active: mobileTab === 'me' }" @click="mobileTab = 'me'">
-          <span class="tab-icon">👤</span>我的
-        </button>
-        <button class="sidebar-tab" :class="{ active: mobileTab === 'map' }" @click="mobileTab = 'map'">
-          <span class="tab-icon">🗺️</span>地图
-        </button>
-        <button
-          class="sidebar-tab"
-          title="打开家园院子（独立页面）"
-          @click="router.push('/home')"
-        >
-          <span class="tab-icon">🏠</span>家园
-        </button>
-        <!-- 竞技场：与桌面侧栏同一入口，手机抽屉也要能进天梯页 -->
-        <button
-          class="sidebar-tab"
-          title="打开使魔竞技场天梯（独立页面）"
-          @click="router.push('/arena')"
-        >
-          <span class="tab-icon">🏟️</span>竞技场
-        </button>
-      </div>
-
-      <div class="sidebar-content">
-        <!-- 我的 Tab -->
-        <div v-show="mobileTab === 'me'" class="tab-pane">
-          <!-- 玩家状态面板：桌面侧栏与手机抽屉共用组件（等级/血条/战斗力/任务/装备/增益实时展示）；@send 接武器列表「卸下」按钮指令 -->
-          <PlayerStatusPanel
-            v-if="playerInfo"
-            :info="playerInfo"
-            :nickname="user?.nickname || user?.username || ''"
-            @send="onRichCardSend"
-          />
-          <div class="player-info" v-else>
-            <div class="pi-row">
-              <span class="pi-label">状态</span>
-              <span class="pi-value" style="color: var(--muted); font-size: 12px;">未加载 信息 查看</span>
-            </div>
-          </div>
-
-          <!-- 我的常用指令：用户自定义，可编辑、可拖拽排序，点击直接发送 -->
-          <div class="fav-cmds">
-            <div class="fav-head">
-              <span class="fav-title">⭐ 我的常用</span>
-              <div class="fav-actions">
-                <!-- 分享：把当前常用列表生成分享码并复制到剪贴板，可在其他账号导入 -->
-                <button class="fav-mini-btn" title="复制分享码，可在其他账号导入" @click="exportFavorites">分享</button>
-                <!-- 导入：粘贴其他账号的分享码，合并进当前列表 -->
-                <button class="fav-mini-btn" title="粘贴分享码导入常用指令" @click="openFavImport">导入</button>
-                <button class="fav-edit-btn" @click="toggleFavEdit">{{ favEditing ? '完成' : '编辑' }}</button>
-              </div>
-            </div>
-            <div v-if="favoriteCommands.length || favEditing" class="fav-list">
-              <!-- 非编辑态也允许拖拽排序：HTML5 拖拽自带触发阈值，未实际拖动时 click 仍正常触发发送 -->
-              <span
-                v-for="(f, fi) in favoriteCommands"
-                :key="'mfav-' + f.cmd"
-                class="fav-chip"
-                :class="{ editing: favEditing, dragging: dragIndex === fi, dragover: dragOverIndex === fi, 'edit-target': favEditTarget === f.cmd }"
-                :draggable="true"
-                @dragstart="onFavDragStart(fi)"
-                @dragover.prevent="onFavDragOver(fi)"
-                @drop="onFavDrop(fi)"
-                @click="onMobileFavClick(f, $event)"
-              >
-                <span v-if="favEditing" class="fav-grip" title="拖拽排序" @click.stop>⋮⋮</span>
-                <span class="fav-label" :title="favEditing ? '点击载入下方重新编辑' : f.label">{{ f.label }}</span>
-                <span v-if="favEditing" class="fav-del" title="删除" @click.stop="removeFavorite(f.cmd)">✕</span>
-              </span>
-              <span v-if="!favoriteCommands.length && favEditing" class="fav-empty">暂无常用，在下方添加任意内容</span>
-            </div>
-            <div v-if="favEditing" class="fav-add">
-              <div v-if="favEditTarget" class="fav-edit-tip">正在编辑「{{ favEditTip }}」，保存后覆盖原项</div>
-              <textarea
-                class="fav-add-input fav-add-textarea"
-                v-model="favAddInput"
-                rows="3"
-                placeholder="发送内容（每行一条，可组成指令集，点击后从上到下顺序执行；Ctrl+Enter 保存）"
-                @click.stop
-                @keydown.enter.ctrl.prevent="favAddInput.trim() ? addFavorite() : null"
-              ></textarea>
-              <input
-                class="fav-add-label"
-                v-model="favAddLabel"
-                placeholder="显示名（可选，留空用发送内容）"
-                @click.stop
-                @keyup.enter="favAddInput.trim() ? addFavorite() : null"
-              />
-              <div class="fav-add-actions">
-                <button class="fav-add-btn" :disabled="favBusy || !favAddInput.trim()" @click="addFavorite()">{{ favEditTarget ? '保存修改' : '+ 添加' }}</button>
-                <button v-if="favEditTarget" class="fav-cancel-btn" @click="resetFavForm()">取消编辑</button>
-              </div>
-              <div v-if="favAddCandidates.length" class="fav-candidates">
-                <span
-                  v-for="c in favAddCandidates"
-                  :key="'mfavc-' + c.name"
-                  class="fav-cand"
-                  @click="addFavorite(c.name)"
-                >{{ c.name }}</span>
-              </div>
-            </div>
-            <!-- 导入面板：粘贴其他账号的分享码，实时预览解析结果，确认后再合并进当前列表 -->
-            <div v-if="favImporting" class="fav-add fav-import">
-              <textarea
-                class="fav-add-input fav-add-textarea"
-                v-model="favImportText"
-                rows="4"
-                placeholder="粘贴分享码（在其他账号点「分享」复制的内容）"
-                @click.stop
-              ></textarea>
-              <!-- 预览区：解析失败提示原因，成功则列出「将新增」与「将跳过」的条目 -->
-              <div v-if="favImportPreview.error" class="fav-import-tip err">{{ favImportPreview.error }}</div>
-              <div v-else-if="favImportPreview.incoming.length" class="fav-import-preview">
-                <div class="fav-import-sum">
-                  共解析 {{ favImportPreview.incoming.length }} 条：
-                  <b class="ok">新增 {{ favImportPreview.added.length }} 条</b>
-                  <span v-if="favImportPreview.dup.length">，<span class="skip">跳过 {{ favImportPreview.dup.length }} 条重复</span></span>
-                </div>
-                <div v-if="favImportPreview.added.length" class="fav-list">
-                  <span
-                    v-for="p in favImportPreview.added"
-                    :key="'favp-' + p.cmd"
-                    class="fav-chip"
-                    :title="p.cmd"
-                  >{{ p.label }}</span>
-                </div>
-                <div v-else class="fav-import-sum">与当前列表完全相同，无需重复导入</div>
-                <details v-if="favImportPreview.dup.length" class="fav-import-dup">
-                  <summary>已存在、将跳过 {{ favImportPreview.dup.length }} 条</summary>
-                  <div class="fav-list">
-                    <span
-                      v-for="p in favImportPreview.dup"
-                      :key="'favd-' + p.cmd"
-                      class="fav-chip muted"
-                      :title="p.cmd"
-                    >{{ p.label }}</span>
-                  </div>
-                </details>
-              </div>
-              <div class="fav-add-actions">
-                <button class="fav-add-btn" :disabled="favBusy || !favImportPreview.added.length" @click="confirmFavImport()">确认导入{{ favImportPreview.added.length ? `（${favImportPreview.added.length} 条）` : '' }}</button>
-                <button class="fav-cancel-btn" @click="cancelFavImport()">取消</button>
-              </div>
-            </div>
-            <div v-if="!favEditing && !favoriteCommands.length" class="fav-hint">点「编辑」可添加常用指令</div>
-            <div v-if="favMsg" class="fav-msg">{{ favMsg }}</div>
-          </div>
-        </div>
-
-        <!-- 地图 Tab：当前区域 / 子区域 / 全部地图 / 附近玩家 -->
-        <div v-show="mobileTab === 'map'" class="tab-pane">
-          <div class="map-connections" v-if="mapOverview">
-            <div class="mc-current">
-              📍 {{ mapOverview.currentMap.name }}
-              <span class="mc-detail" v-if="mapOverview.currentMap.monsters || mapOverview.currentMap.resources || mapOverview.currentMap.npcs">
-                怪{{ mapOverview.currentMap.monsters }} · 资{{ mapOverview.currentMap.resources }} · NPC{{ mapOverview.currentMap.npcs }}
-              </span>
-            </div>
-            <div class="mc-block" v-if="mapOverview.subMaps.length">
-              <div class="mc-block-title">子区域</div>
-              <div class="mc-grid">
-                <span v-for="mc in mapOverview.subMaps" :key="'msub-' + mc.name" class="mc-node" @click="mobileMenuOpen = false; quickAction('go ' + mc.name)">{{ mc.name }}</span>
-              </div>
-            </div>
-            <div class="mc-block">
-              <div class="mc-block-title mc-fold" @click="allMapsCollapsed = !allMapsCollapsed">
-                <span class="mc-caret">{{ allMapsCollapsed ? '▶' : '▼' }}</span>
-                全部地图（{{ mapOverview.allMaps.length }}）
-              </div>
-              <div class="mc-grid" v-show="!allMapsCollapsed">
-                <span v-for="mc in mapOverview.allMaps" :key="'mall-' + mc.name" class="mc-node" :class="{ current: mc.isCurrent, reachable: mc.isReachable }" @click="mobileMenuOpen = false; quickAction('go ' + mc.name)">{{ mc.name }}</span>
-              </div>
-            </div>
-          </div>
-
-          <div class="map-connections" v-if="nearbyPlayers.length || nearbyLoaded">
-            <div class="mc-block">
-              <div class="mc-block-title">👥 附近玩家（{{ nearbyPlayers.length }}）</div>
-              <div class="mc-grid" v-if="nearbyPlayers.length">
-                <span v-for="p in nearbyPlayers" :key="'mnp-' + p.userId" class="mc-node nearby-node" :class="{ online: p.online }" @click="mobileMenuOpen = false; atNearbyPlayer(p)">
-                  {{ p.nickname || p.username }}<em v-if="!p.online">·离线</em>
-                </span>
-              </div>
-              <div class="mc-block-title" v-else style="color: var(--muted); font-weight: 400;">当前区域暂无其他玩家</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 底部固定 -->
-      <div class="sidebar-footer">
-        <div class="sidebar-status">
-          <span class="ss-dot" :class="connected ? 'on' : 'off'"></span>
-          <span class="ss-text">
-            <span class="ss-conn" :class="connected ? 'on' : 'off'">{{ connected ? '已连接' : '未连接' }}</span>
-          </span>
-          <span class="ss-divider"></span>
-          <span class="ss-text">
-            <span class="ss-label">总人数</span>
-            <span class="ss-value">{{ serverStats.totalPlayers }}</span>
-          </span>
-          <span class="ss-divider"></span>
-          <!-- 在线：悬停展开在线玩家名单（与桌面端同一份 store 数据） -->
-          <div
-            class="ss-text ss-online-wrap"
-            title="悬停查看在线玩家名单"
-            @mouseenter="openOnlinePanel"
-            @mouseleave="scheduleCloseOnlinePanel"
-          >
-            <span class="ss-label">在线</span>
-            <span class="ss-value ss-online">{{ serverStats.onlinePlayers }}</span>
-            <div
-              v-if="onlinePanelOpen"
-              class="ss-popover"
-              @mouseenter="openOnlinePanel"
-              @mouseleave="scheduleCloseOnlinePanel"
-            >
-              <div class="ss-pop-head">
-                <span>当前在线</span>
-                <span class="ss-pop-count">{{ serverStats.onlinePlayers }}</span>
-              </div>
-              <ul v-if="serverStats.onlineList.length" class="ss-pop-list">
-                <li v-for="(name, i) in serverStats.onlineList" :key="name + '-' + i">
-                  <span class="ss-pop-dot"></span>
-                  <span class="ss-pop-name">{{ name }}</span>
-                </li>
-              </ul>
-              <div v-else class="ss-pop-empty">暂无在线玩家</div>
-              <div v-if="hiddenOnlineCount > 0" class="ss-pop-more">
-                另有 {{ hiddenOnlineCount }} 名玩家在线
-              </div>
-            </div>
-          </div>
-          <!-- 上下线提示：紧跟「在线」数字同一行只显示最新一条（1 分钟后自动消失，时长见 PRESENCE_CONFIG） -->
-          <div
-            v-if="presenceNotices.length"
-            :key="presenceNotices[0].id"
-            class="ss-presence"
-            :class="presenceNotices[0].type"
-          >
-            <span class="ss-presence-name">{{ presenceNotices[0].name }}</span>
-            <span class="ss-presence-text">{{ presenceNotices[0].type === 'online' ? '上线了' : '离线了' }}</span>
-          </div>
-        </div>
-        <div class="sidebar-footer-actions">
-          <button class="logout" title="个人设置" @click="settingsOpen = true">🔧 设置</button>
-          <button v-if="showAdminEntry" class="logout admin-entry" @click="mobileMenuOpen = false; router.push('/admin')">⚙️ 管理后台</button>
-          <button class="logout reset-data" @click="mobileMenuOpen = false; resetMyData()">清除数据</button>
-          <button class="logout" @click="logout">退出</button>
-        </div>
-      </div>
-    </aside>
 
     <!-- 右侧：公屏聊天 -->
-    <!-- header-hidden：手机端顶部操作栏已自动收起（仅 ≤768px 有对应样式），消息区因此顶到屏幕顶部 -->
-    <main class="chat-main" :class="{ 'header-hidden': mobileHeaderHidden }">
-      <!-- header-collapsed：手机端默认收起、滑动消息列表时滑出；桌面端无对应样式，不受影响 -->
-      <header ref="chatHeaderEl" class="chat-header" :class="{ 'header-collapsed': mobileHeaderHidden }">
-        <button class="mobile-menu-btn" @click="mobileMenuOpen = !mobileMenuOpen">
-          <span class="menu-bar"></span>
-          <span class="menu-bar"></span>
-          <span class="menu-bar"></span>
-        </button>
+    <main class="chat-main">
+      <!-- 桌面端顶栏：过滤 / 版本 / 指令面板 / 反馈 / 外链。
+           手机端整条隐藏（≤768px）：过滤与指令面板已下移到拇指区的快捷指令条，
+           版本与反馈进了「我的」面板，顶部由 App 级 HUD 接管。 -->
+      <header class="chat-header">
         <div class="header-right action-dock" :class="{ 'is-hidden': dockHidden }" @mouseenter="revealDock" @mouseleave="scheduleDockHide">
           <!-- 消息过滤切换：选择是否显示其他玩家的聊天与系统回复 -->
           <button
@@ -680,12 +268,42 @@
         @complete="onPendingComplete"
       />
 
-      <!-- 手机端浮动快捷操作栏 -->
-      <div class="mobile-float-actions">
-        <button class="mfa-bag" @click="quickAction('背包')">🎒</button>
-        <button class="mfa-info" @click="quickAction('信息')">📋</button>
-        <button class="mfa-map" @click="quickAction('地图')">🗺️</button>
-        <button class="mfa-attack" @click="quickAction('攻击')">⚔️</button>
+      <!-- 手机端快捷指令条（拇指区「技能栏」）：横向滑动，一屏拇指可及。
+           取代原来的 4 个 34px emoji 方块 + 顶栏的 ⌨️指令 / 👁显示他人 两个入口。 -->
+      <div class="m-skills">
+        <button class="msk msk-cmd" type="button" @click="ui.openPalette()">
+          <span class="msk-ico">⌨️</span><span class="msk-t">指令</span>
+        </button>
+        <!-- 世界聊天入口：手机端不再有右下角可拖的悬浮气泡（那是一件网页小工具），
+             改成与技能栏同级的一个键，未读数挂在角标上。面板本体仍是 FloatingChatWidget。 -->
+        <button class="msk" :class="{ on: floatingChat.open }" type="button" @click="toggleWorldChat()">
+          <span class="msk-ico">🌍<span v-if="floatingChat.unread > 0" class="msk-badge">{{ floatingChat.unread > 99 ? '99+' : floatingChat.unread }}</span></span>
+          <span class="msk-t">世界</span>
+        </button>
+        <button
+          class="msk"
+          :class="{ on: showOthersMsg }"
+          type="button"
+          :aria-pressed="showOthersMsg"
+          @click="toggleShowOthers"
+        >
+          <span class="msk-ico">{{ showOthersMsg ? '👁' : '🙈' }}</span><span class="msk-t">{{ showOthersMsg ? '他人' : '只看我' }}</span>
+        </button>
+        <button class="msk" type="button" @click="quickAction('背包')"><span class="msk-ico">🎒</span><span class="msk-t">背包</span></button>
+        <button class="msk" type="button" @click="quickAction('信息')"><span class="msk-ico">📋</span><span class="msk-t">信息</span></button>
+        <button class="msk" type="button" @click="quickAction('地图')"><span class="msk-ico">🗺️</span><span class="msk-t">地图</span></button>
+        <button class="msk atk" type="button" @click="quickAction('攻击')"><span class="msk-ico">⚔️</span><span class="msk-t">攻击</span></button>
+        <!-- 玩家自己的常用指令直接铺进技能栏：点一下就发，等价于桌面上的常用芯片 -->
+        <button
+          v-for="f in skillFavorites"
+          :key="'msk-' + f.cmd"
+          class="msk fav"
+          type="button"
+          @click="onFavoriteSend(f.cmd)"
+        >
+          <span class="msk-t">{{ f.label }}</span>
+        </button>
+        <span v-if="skillFavsHint" class="msk-more" @click="ui.openMe()">＋ 在「我的」里加常用</span>
       </div>
 
       <!-- 输入框 -->
@@ -1104,6 +722,9 @@
  * 公屏聊天页：Socket.IO 实时收发指令/系统消息 + 指令自动补全 +
  * 玩家状态侧栏、地图信息面板、常用指令、反馈工单、公告与部署更新弹窗。
  */
+// App.vue 的 keep-alive 按组件名匹配缓存（include: ['ChatView', ...]），名字必须显式声明
+defineOptions({ name: 'ChatView' });
+
 import { ref, onMounted, onUnmounted, nextTick, computed, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import PlayerStatusPanel from '../components/PlayerStatusPanel.vue';
@@ -1139,6 +760,8 @@ import RichSystemCard from '../components/RichSystemCard.vue';
 import HomeBuildGuide from '../components/HomeBuildGuide.vue';
 import BattleCard from '../components/BattleCard.vue';
 import CommandPalette from '../components/CommandPalette.vue';
+// 「我的常用指令」面板：桌面侧栏用实例，手机端编辑入口在 App 级「我的」抽屉里（状态与后端读写都在组件内）
+import FavoriteCommands from '../components/FavoriteCommands.vue';
 import { useUiStore } from '../stores/ui';
 import { useCommandStore } from '../stores/command';
 import { useConnectionStore } from '../stores/connection';
@@ -1149,6 +772,11 @@ import { parseHighlights, GAME_HIGHLIGHT_EVENT } from '../utils/gameHighlight';
 import { isBattleContent } from '../utils/battleText';
 // 指令检索：中文名/别名/拼音全拼/拼音首字母统一匹配，供自动补全、侧栏搜索、常用指令候选取用
 import { searchCommands, hitLabel } from '../utils/commandSearch';
+// App 级总线：手机 HUD / 底部标签栏 / 「我的」面板都常驻在 App 层，发指令与开弹窗都要借本页执行
+import { subscribeCommands, onChatAction } from '../utils/bus';
+import { onTabRetap } from '../composables/useTabRetap';
+// 触感反馈：主操作与芯片点击各一档震感，不支持 vibrate 的平台（iOS）自动静默
+import { tapMedium, tapLight } from '../utils/haptics';
 
 const router = useRouter();
 const ui = useUiStore();
@@ -1400,325 +1028,86 @@ let panelTimer = null;
 // 全部地图是否折叠（默认折叠，保持面板简洁）
 const allMapsCollapsed = ref(true);
 
-// 手机端菜单状态
-const mobileMenuOpen = ref(false);
-
 // 桌面端左侧栏 Tab 切换（me=个人）；地图信息统一在右侧信息面板，指令入口为 Ctrl+K / 顶栏 ⌨️
 const sidebarTab = ref('me');
-// 手机端抽屉 Tab 切换（与桌面端独立，避免互相干扰）
-const mobileTab = ref('me');
 
 const showScrollBtn = ref(false);
 // 是否「贴底跟随最新消息」（QQ 式滚动行为）：默认跟随，永远看着最新一条。
 // 只由用户真实滚动意图解除（滚轮/触摸/拖动滚动条），布局变化一律不算，详见 onMsgScroll
 let stickToBottom = true;
 
-// ---------- 我的常用指令（用户自定义，置顶展示、可编辑、可拖拽排序） ----------
-// 常用指令数组：每项 { cmd, label }。cmd 为实际发送内容（任意文本，模拟从输入框发送）；label 为按钮展示文字
-const favoriteCommands = ref([]);
-// 常用指令编辑态（true=进入编辑模式，显示删除按钮/添加框/拖拽手柄）
-const favEditing = ref(false);
-// 正在编辑的已有项原始 cmd（空字符串=新增模式）：点击常用项文字会把它「放下来」载入下方表单重新编辑，保存时原地覆盖
-const favEditTarget = ref('');
-// 编辑态表单顶部提示：取列表里的显示名（多行指令集的 cmd 会很长，不适合直接展示）
-const favEditTip = computed(() => {
-  if (!favEditTarget.value) return '';
-  const it = favoriteCommands.value.find((f) => f.cmd === favEditTarget.value);
-  return it ? it.label : favEditTarget.value;
-});
-// 添加常用指令：cmd 为发送内容（任意文本），label 为可选显示名
-const favAddInput = ref('');
-const favAddLabel = ref('');
-// 添加时的候选指令（基于 cmd 文本从全量指令过滤，仅作快速选择辅助；也可直接输入任意文本）
-const favAddCandidates = computed(() => {
-  // 多行输入时仅用第一行做候选匹配（候选只是快速选择辅助）
-  const q = (favAddInput.value.split(/\r?\n/)[0] || '').trim();
-  if (!q) return [];
-  // 已在常用列表里的指令不再重复作为候选
-  const rest = commands.value.filter((c) => !favoriteCommands.value.some((f) => f.cmd === c.name));
-  // 候选支持拼音检索：输入 "bb" 也能找到「背包」
-  return searchCommands(rest, q, { limit: COMMAND_SEARCH_CONFIG.limits.favoriteCandidate });
-});
-// 保存中/提示
-const favBusy = ref(false);
-const favMsg = ref('');
-let favMsgTimer = null;
-// 拖拽排序状态：当前拖拽项索引、拖拽经过项索引
-const dragIndex = ref(-1);
-const dragOverIndex = ref(-1);
+// ---------- 我的常用指令：FavoriteCommands 组件回传内容的落地 ----------
+// 常用指令的状态、后端读写、分享/导入、拖拽排序都已抽到 components/FavoriteCommands.vue，
+// 组件只负责「点了哪一条」，怎么发出去属于本页（要用到 socket / 输入框这些页面级状态）。
+// 组件实例引用：桌面侧栏 favRef（挂载时自取列表）
+const favRef = ref(null);
 
-async function loadFavorites() {
+/**
+ * 统一「发一条文本」的落点：有连接走统一发送入口（本地回显 + 回到底部），
+ * 未连接则降级为填入输入框并聚焦（让玩家能看到自己要发什么，而不是点了没反应）。
+ * 常用芯片点击与全局总线投递共用这一份，保证两条链路的降级行为一致。
+ */
+function sendTextOrFill(text) {
+  if (socket) {
+    sendChatMessage(text);
+  } else {
+    input.value = text;
+    nextTick(() => inputEl.value?.focus());
+  }
+}
+
+/** 技能栏「世界」键：开/收世界聊天面板（面板状态在 stores/floatingChat，跨路由保留） */
+function toggleWorldChat() {
+  tapLight();
+  floatingChat.setOpen(!floatingChat.open);
+}
+
+// 原 onFavoriteClick 非编辑态分支：桌面侧栏芯片、手机拇指区技能栏芯片共用
+function onFavoriteSend(text) {
+  tapLight(); // 芯片点中的轻触感（iOS 不支持 vibrate 时静默）
+  sendTextOrFill(text);
+}
+
+// ---------- 手机端拇指区技能栏：常用指令的只读镜像 ----------
+// 编辑仍在「我的」面板里的 FavoriteCommands（分享/导入/拖拽排序都在那边），这里只铺前 N 条：
+// 横向条一旦长到要翻页，后面的就等于不存在了。
+const SKILL_FAV_MAX = 8;
+const skillFavorites = ref([]);
+// 一条常用都还没有 → 把空位变成「去添加」的入口，而不是留一条空横条
+const skillFavsHint = computed(() => skillFavorites.value.length === 0);
+async function loadSkillFavorites() {
   try {
     const res = await userApi.getFavorites();
-    // 兼容后端可能返回的字符串数组格式，统一归一化成 { cmd, label }
+    // 与 FavoriteCommands 同一套解包/归一化：兼容后端可能返回的字符串数组格式
     const list = Array.isArray(res.data) ? res.data : [];
-    favoriteCommands.value = list.map((it) =>
-      typeof it === 'string' ? { cmd: it, label: it } : { cmd: it.cmd, label: it.label || it.cmd }
-    );
+    skillFavorites.value = list
+      .slice(0, SKILL_FAV_MAX)
+      .map((it) => (typeof it === 'string' ? { cmd: it, label: it } : { cmd: it.cmd, label: it.label || it.cmd }));
   } catch {
-    favoriteCommands.value = [];
+    skillFavorites.value = [];
   }
 }
+// 「我的」面板刚关掉 = 玩家可能在里面改过常用指令 → 重新拉一次（打开时拉会和面板自身加载抢跑）
+watch(
+  () => ui.meOpen,
+  (open, wasOpen) => {
+    if (wasOpen && !open) loadSkillFavorites();
+  },
+);
 
-function showFavMsg(text) {
-  favMsg.value = text;
-  if (favMsgTimer) clearTimeout(favMsgTimer);
-  favMsgTimer = setTimeout(() => (favMsg.value = ''), 1800);
-}
+// ---------- App 级总线：全局 HUD / 底部标签栏 / 「我的」面板借本页收发 ----------
+// 注册在 setup 顶层（不是 onMounted）：本页被 App keep-alive 后切走不销毁，
+// 整个会话只此一个订阅者；缓存期间从其它页投递的指令也仍由本页的 socket 发出。
+// 冷启动直达 /home 时本页还没挂载，bus 会把投递先攒进队列，注册瞬间一次性冲刷回来。
+const offBusCommand = subscribeCommands((text) => sendTextOrFill(text));
+const offBusAction = onChatAction((name) => {
+  // 设置与更新记录弹窗的实现（表单/接口/部署信息拉取）都留在本页，面板只发请求
+  if (name === 'settings') settingsOpen.value = true;
+  else if (name === 'updatelog') openUpdateLog();
+});
 
-// 提交整体列表到后端（全量覆盖，保留当前顺序）
-async function saveFavorites(next) {
-  favBusy.value = true;
-  try {
-    const res = await userApi.setFavorites(next);
-    favoriteCommands.value = Array.isArray(res.data) ? res.data : next;
-    return true;
-  } catch (e) {
-    showFavMsg(e?.response?.data?.message || '保存失败');
-    return false;
-  } finally {
-    favBusy.value = false;
-  }
-}
-
-// 由「发送内容 + 可选显示名」构造一条常用项；内容为空返回 null
-// 归一化：按行拆分、去首尾空白、过滤空行后重新拼接（单行文本行为不变）
-function buildFavorite(raw, labelInput) {
-  const lines = String(raw ?? '').split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
-  const cmd = lines.join('\n');
-  if (!cmd) return null;
-  // 多行指令集默认显示名：首行 + 条数，避免按钮上挤进整段多行文本
-  const label = (labelInput || '').trim() || (lines.length > 1 ? `${lines[0]}（${lines.length}条）` : cmd);
-  return { cmd, label };
-}
-
-// 提交常用指令表单：新增或覆盖保存修改（去重按 cmd，无数量上限）
-// - favEditTarget 为空 → 追加新项
-// - favEditTarget 有值 → 原地替换该项（保持原顺序），即「点击文字载入重新编辑」后的保存
-// 支持多行指令集：每行一条指令，点击按钮时由后端按行拆分、从上到下顺序执行（与发送窗口多行行为一致）
-async function addFavorite(cmdText) {
-  const raw = cmdText != null ? cmdText : favAddInput.value;
-  const built = buildFavorite(raw, favAddLabel.value);
-  if (!built) return;
-  const { cmd, label } = built;
-  const editing = favEditTarget.value;
-  // 去重校验：编辑态必须排除自身，否则原样保存会被误判为「已在常用列表中」
-  if (favoriteCommands.value.some((f) => f.cmd === cmd && f.cmd !== editing)) {
-    showFavMsg('已在常用列表中');
-    return;
-  }
-  const next = editing
-    ? favoriteCommands.value.map((f) => (f.cmd === editing ? { cmd, label } : f))
-    : [...favoriteCommands.value, { cmd, label }];
-  const ok = await saveFavorites(next);
-  if (ok) {
-    showFavMsg(editing ? '修改已保存' : '已添加');
-    resetFavForm();
-  }
-}
-
-// 退出「编辑已有项」状态并清空下方表单（取消编辑 / 保存成功后 / 退出编辑模式时调用）
-function resetFavForm() {
-  favAddInput.value = '';
-  favAddLabel.value = '';
-  favEditTarget.value = '';
-}
-
-// 点击常用项文字：把该项「放下来」载入下方表单重新编辑（此时列表不变，点「保存修改」才覆盖原项）
-function startFavEdit(item, evt) {
-  favEditTarget.value = item.cmd;
-  favAddInput.value = item.cmd;
-  // 仅当显示名是自定义的才回填；自动生成的显示名（多行指令集「首行（N条）」）留空以便按新内容重新生成
-  const autoLabel = buildFavorite(item.cmd, '')?.label || item.cmd;
-  favAddLabel.value = item.label && item.label !== autoLabel ? item.label : '';
-  favMsg.value = '';
-  // 载入后把光标落到同一个「我的常用」面板的输入框里，省去用户再点一次
-  nextTick(() => {
-    const scope = evt?.currentTarget?.closest?.('.fav-cmds');
-    const ta = scope?.querySelector?.('.fav-add-textarea');
-    if (ta) {
-      ta.focus();
-      ta.setSelectionRange?.(ta.value.length, ta.value.length);
-    }
-  });
-}
-
-// 删除一条常用指令（按 cmd 匹配，仅由 ✕ 按钮触发）
-async function removeFavorite(cmd) {
-  const next = favoriteCommands.value.filter((f) => f.cmd !== cmd);
-  const ok = await saveFavorites(next);
-  if (ok) {
-    // 若正在编辑的就是被删掉的那条，同步清空表单，避免保存时写回一条已删除的项
-    if (favEditTarget.value === cmd) resetFavForm();
-    showFavMsg('已删除');
-  }
-}
-
-function onFavDragStart(idx) {
-  dragIndex.value = idx;
-}
-function onFavDragOver(idx) {
-  dragOverIndex.value = idx;
-}
-async function onFavDrop(idx) {
-  const from = dragIndex.value;
-  dragIndex.value = -1;
-  dragOverIndex.value = -1;
-  if (from < 0 || from === idx) return;
-  const next = [...favoriteCommands.value];
-  const [moved] = next.splice(from, 1);
-  next.splice(idx, 0, moved);
-  await saveFavorites(next);
-  showFavMsg('顺序已保存');
-}
-
-// 进入/退出编辑模式：退出时清空表单与「正在编辑」状态，避免残留状态误保存
-function toggleFavEdit() {
-  favEditing.value = !favEditing.value;
-  resetFavForm();
-  // 切换编辑态时收起导入面板，避免两个面板同时展开互相干扰
-  favImporting.value = false;
-  dragIndex.value = -1;
-  dragOverIndex.value = -1;
-  if (!favEditing.value) favMsg.value = '';
-}
-
-// ---------- 常用指令 分享 / 导入（跨账号复用，纯前端实现） ----------
-// 分享码格式：{ v: 1, items: [{ cmd, label }] }，经 UTF-8 安全的 Base64 编码后输出
-// 导入面板开关与分享码输入内容
-const favImporting = ref(false);
-const favImportText = ref('');
-
-// 分享码编码：JSON → UTF-8 字节 → Base64（unescape/escape 兼容中文等多字节字符）
-function encodeFavCode(payload) {
-  return btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
-}
-// 分享码解码：先按 Base64 + UTF-8 还原 JSON；失败时兼容直接粘贴原始 JSON 的情况
-function decodeFavCode(code) {
-  try {
-    return JSON.parse(decodeURIComponent(escape(atob(code))));
-  } catch {
-    try {
-      return JSON.parse(code);
-    } catch {
-      return null;
-    }
-  }
-}
-
-// 分享：把当前常用列表编码成分享码并复制到剪贴板
-async function exportFavorites() {
-  if (!favoriteCommands.value.length) {
-    showFavMsg('暂无常用指令可分享');
-    return;
-  }
-  const code = encodeFavCode({ v: 1, items: favoriteCommands.value });
-  try {
-    // 优先用异步剪贴板 API（需 HTTPS 或 localhost 环境）
-    await navigator.clipboard.writeText(code);
-    showFavMsg('分享码已复制，去其他账号点「导入」粘贴即可');
-  } catch {
-    // 降级：老浏览器或非安全上下文用隐藏 textarea + execCommand 复制
-    const ta = document.createElement('textarea');
-    ta.value = code;
-    ta.style.position = 'fixed';
-    ta.style.opacity = '0';
-    document.body.appendChild(ta);
-    ta.select();
-    const ok = document.execCommand?.('copy');
-    document.body.removeChild(ta);
-    showFavMsg(ok ? '分享码已复制，去其他账号点「导入」粘贴即可' : '复制失败，请手动复制');
-  }
-}
-
-// 打开导入面板
-function openFavImport() {
-  favImporting.value = true;
-  favImportText.value = '';
-  favMsg.value = '';
-}
-
-// 取消导入：收起面板并清空输入
-function cancelFavImport() {
-  favImporting.value = false;
-  favImportText.value = '';
-}
-
-// 解析分享码（预览与正式导入共用，保证「看到的」和「导入的」完全一致）
-// 返回 { error, incoming, added, dup }：
-// - incoming：分享码中归一化后的全部条目
-// - added：与当前列表不重复、真正会新增的条目
-// - dup：当前列表已存在、会被跳过的条目
-function parseFavImport(raw) {
-  const empty = { error: '', incoming: [], added: [], dup: [] };
-  if (!raw) return empty;
-  const parsed = decodeFavCode(raw);
-  // 兼容裸数组或 { items: [...] } 两种结构
-  const items = Array.isArray(parsed) ? parsed : parsed?.items;
-  if (!Array.isArray(items)) return { ...empty, error: '分享码无效，请检查是否复制完整' };
-  // 归一化：只收有非空 cmd 的项，label 缺省用 cmd（与后端存储格式保持一致）
-  const incoming = items
-    .filter((it) => it && typeof it.cmd === 'string' && it.cmd.trim())
-    .map((it) => ({ cmd: it.cmd, label: (typeof it.label === 'string' && it.label.trim()) || it.cmd }));
-  if (!incoming.length) return { ...empty, error: '分享码中没有可导入的内容' };
-  // 按 cmd 与当前列表比对：重复的放进 dup 跳过，其余按序放入 added
-  const existing = new Set(favoriteCommands.value.map((f) => f.cmd));
-  const added = [];
-  const dup = [];
-  for (const it of incoming) {
-    if (existing.has(it.cmd)) {
-      dup.push(it);
-      continue;
-    }
-    existing.add(it.cmd);
-    added.push(it);
-  }
-  return { error: '', incoming, added, dup };
-}
-
-// 导入预览：随输入框内容实时刷新，粘贴后即可看到将新增/将跳过的条目
-const favImportPreview = computed(() => parseFavImport(favImportText.value.trim()));
-
-// 确认导入：直接复用预览的解析结果，追加新增条目并整体保存
-async function confirmFavImport() {
-  const { incoming, added, dup } = parseFavImport(favImportText.value.trim());
-  if (!incoming.length) {
-    showFavMsg('分享码无效或没有可导入的内容');
-    return;
-  }
-  if (!added.length) {
-    showFavMsg('分享内容已全部存在，无需导入');
-    return;
-  }
-  // 当前列表保持原顺序在前，新增项按分享码顺序追加在后
-  const ok = await saveFavorites([...favoriteCommands.value, ...added]);
-  if (ok) {
-    favImporting.value = false;
-    favImportText.value = '';
-    showFavMsg(`已导入 ${added.length} 条${dup.length ? `（跳过 ${dup.length} 条重复）` : ''}`);
-  }
-}
-
-// 手机抽屉内点击常用项：非编辑态先收起抽屉（避免遮挡聊天区），编辑态保留抽屉以便继续编辑
-function onMobileFavClick(item, evt) {
-  if (!favEditing.value) mobileMenuOpen.value = false;
-  onFavoriteClick(item, evt);
-}
-
-// 点击常用指令：编辑态→把该项载入下方表单重新编辑；非编辑态→直接模拟从输入框发送（任意文本）
-function onFavoriteClick(item, evt) {
-  if (favEditing.value) {
-    startFavEdit(item, evt);
-  } else {
-    // 直接走 socket 发送（与输入框发送完全一致，含本地回显），cmd 可为任意文本、未必是指令
-    if (socket) {
-      sendChatMessage(item.cmd);
-    } else {
-      input.value = item.cmd;
-      nextTick(() => inputEl.value?.focus());
-    }
-  }
-}
+/* 再点一次「公屏」标签：像所有信息流 App 那样回到最新消息，而不是没反应 */
+onTabRetap('/chat', () => scrollToBottom());
 
 // 自动补全状态
 const showAutocomplete = ref(false);
@@ -2189,6 +1578,7 @@ function quickSend(name) {
 // 快捷操作按钮 — 直接发送对应指令（走统一入口：本地回显 + 回到底部）
 function quickAction(action) {
   if (!socket) return;
+  tapMedium(); // 拇指区技能栏的「出手」确认感
   sendChatMessage(action);
 }
 
@@ -2545,6 +1935,7 @@ async function sendMessage() {
   // 限流/未连接时 sendChatMessage 返回 false：保留输入框内容，避免“发出去了但屏幕没反应”。
   const ok = sendChatMessage(content);
   if (!ok) return;
+  tapMedium(); // 发送成功才震（被限流/未连接时不震，手感与结果一致）
   input.value = '';
   showAutocomplete.value = false;
   closeAtAutocomplete();
@@ -2635,10 +2026,6 @@ function formatTime(ts) {
   return `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${time}`;
 }
 
-// 时间戳窗口：程序化滚动（自动到底）与布局补偿引起的 scroll 事件不唤起手机端头部。
-// 声明必须早于 scrollToBottom 的调用点（其在 onMounted 之后才会执行）
-let suppressHeaderRevealUntil = 0;
-
 // ===== 贴底跟随（QQ 式滚动）：默认永远看着最新一条 =====
 // 背景：历史消息带 content-visibility:auto（高度按 contain-intrinsic-size 估算），
 // 图片/战斗卡/字体又常在消息上屏后若干帧才完成布局 → scrollHeight「迟到增长」，
@@ -2657,8 +2044,6 @@ let lastFollowScrollHeight = 0; // 贴底守护已补滚到的高度基准（内
 /** 登记用户滚动意图（模板 @pointerdown 等调用）：只有用户亲手滚才允许解除贴底 */
 function markUserScrollIntent() {
   userScrollIntentAt = performance.now();
-  // 用户上手即时恢复「滑动唤出手机端头部」的判定，避免被程序化滚动的抑制窗口压住
-  suppressHeaderRevealUntil = 0;
 }
 
 /** 立即解除贴底（用户主动向上翻历史时调用）。
@@ -2715,7 +2100,6 @@ function startBottomFollow() {
     lastFollowScrollHeight = h;
     // 用户刚上手（滚轮/触摸/拖动滚动条）的短时间内延迟补滚，避免"手指一放就弹到底"
     if (performance.now() - userScrollIntentAt < USER_SCROLL_INTENT_MS) return;
-    suppressHeaderRevealUntil = performance.now() + 160; // 程序化滚动不算用户滑动
     el.scrollTop = el.scrollHeight;
   }, 120);
 }
@@ -2723,8 +2107,6 @@ function startBottomFollow() {
 function scrollToBottom() {
   showScrollBtn.value = false;
   stickToBottom = true;
-  // 程序化滚到底不算「用户滑动」，不唤起手机端顶部操作栏（否则每条新消息都会闪一次头部）
-  suppressHeaderRevealUntil = performance.now() + 160;
   nextTick(() => {
     if (msgList.value) {
       msgList.value.scrollTop = msgList.value.scrollHeight;
@@ -2734,7 +2116,7 @@ function scrollToBottom() {
 }
 
 // ===== 首次加载/刷新贴底 =====
-// 字体加载、战斗卡/公告配图渲染、移动端头部收起、--vh 重算都会让 scrollHeight 迟到增长，
+// 字体加载、战斗卡/公告配图渲染、--vh 重算都会让 scrollHeight 迟到增长，
 // 单次滚底会停在"中间"；内容高度再变化就继续滚到底，直到用户主动滚动接管（stickToBottom=false）。
 let pinBottomResizeObs = null;
 function pinBottomOnLoad() {
@@ -2781,8 +2163,6 @@ function onMsgScroll() {
       startBottomFollow();
     }
   }
-  // 用户滑动 → 滑出顶部操作栏（布局补偿/程序化滚动引起的 scroll 事件跳过，避免抖动）
-  if (performance.now() >= suppressHeaderRevealUntil) revealMobileHeader();
   // 仅向上翻历史时短暂显示操作坞；向下滚/贴底不出现
   const delta = el.scrollTop - lastMsgScrollTop;
   lastMsgScrollTop = el.scrollTop;
@@ -2793,24 +2173,7 @@ function onMsgScroll() {
   }
 }
 
-// ===== 手机端顶部操作栏：默认收起，滑动消息列表时滑出 =====
-// 设计取舍：
-// 1) 头部收起会「让出」整块高度给消息区 → 属于布局变化，必须同步补偿 scrollTop，
-//    否则正在阅读的正文会整体跳动（收起时上跳、展开时下跳）。
-// 2) 汉堡按钮是侧边栏的唯一入口，因此：消息太少不可滚动时**禁止收起**，
-//    避免出现"没有滚动 → 头部不出现 → 打不开侧边栏"的死角。
-// 3) 只在贴底（实时消息流）状态下自动收起；用户上滑看历史时保持展开，
-//    否则 2.6s 后头部收回会连带正文跳一下。
-// 4) 仅 ≤768px 生效（CSS 规则在媒体查询内，桌面端类名无任何效果）。
-const MOBILE_HEADER_MQ = '(max-width: 768px)';
-const HEADER_AUTO_HIDE_MS = 2600; // 停止滑动后多久自动收回
-const HEADER_INITIAL_PEEK_MS = 2000; // 进入页面先展示一次（让用户知道顶部入口存在），再自动收起
-const chatHeaderEl = ref(null);
-const mobileHeaderHidden = ref(false);
-let headerHideTimer = null;
-let headerResizeObserver = null;
-
-/** 顶部操作坞：滚动/进入时短暂显示，几秒后自动隐藏 */
+/** 顶部操作坞（桌面端顶栏那排入口）：滚动/悬停时短暂显示，几秒后自动隐藏 */
 const DOCK_HIDE_MS = 3000;
 const dockHidden = ref(false);
 let dockHideTimer = null;
@@ -2842,138 +2205,10 @@ function hideDockNow() {
   dockHidden.value = true;
 }
 
-function isMobileViewport() {
-  return typeof window !== 'undefined' && window.matchMedia(MOBILE_HEADER_MQ).matches;
-}
-
-// 消息列表是否真的能滚动：不能滚动时不允许收起头部（保底侧边栏入口）
+// 消息列表是否真的能滚动：不可滚动时不弹「回到底部」按钮（点了也没用的按钮不该占位）
 function isMessageListScrollable() {
   const el = msgList.value;
   return !!el && el.scrollHeight - el.clientHeight > 8;
-}
-
-function isMsgListAtBottom(el = msgList.value) {
-  return !el || el.scrollHeight - el.scrollTop - el.clientHeight < 24;
-}
-
-// 头部真实高度写进 CSS 变量，供收起时的负 margin 使用
-// （高度随 1~2 行与安全区变化，不能写死）
-function syncHeaderHeightVar() {
-  const el = chatHeaderEl.value;
-  if (el) el.style.setProperty('--header-h', `${el.offsetHeight}px`);
-}
-
-function clearHeaderHideTimer() {
-  if (headerHideTimer) {
-    clearTimeout(headerHideTimer);
-    headerHideTimer = null;
-  }
-}
-
-// 切换收起态：布局瞬时生效（CSS 只过渡 transform），同一帧内补偿滚动锚点
-function setMobileHeaderHidden(hidden) {
-  if (mobileHeaderHidden.value === hidden) return;
-  const el = msgList.value;
-  const h = chatHeaderEl.value ? chatHeaderEl.value.offsetHeight : 0;
-  const atBottom = isMsgListAtBottom(el);
-  mobileHeaderHidden.value = hidden;
-  if (!el || !h) return;
-  suppressHeaderRevealUntil = performance.now() + 200;
-  // 等 Vue 把 class 刷进 DOM 后再补偿，确保读到新的可视高度
-  nextTick(() => {
-    if (hidden) {
-      // 收起：消息区顶边上移 h。贴底时直接吸附到底部（实时流语义）；
-      // 否则把阅读位置原地按住（scrollTop 同步减少 h）
-      el.scrollTop = atBottom ? el.scrollHeight : Math.max(0, el.scrollTop - h);
-    } else if (atBottom) {
-      // 展开：贴底时保持吸附底部；否则把阅读位置往下补回 h
-      el.scrollTop = el.scrollHeight;
-    } else {
-      el.scrollTop = Math.min(el.scrollHeight - el.clientHeight, el.scrollTop + h);
-    }
-    suppressHeaderRevealUntil = performance.now() + 200;
-  });
-}
-
-// 滑出头部，并在停止滑动 HEADER_AUTO_HIDE_MS 后自动收回
-function revealMobileHeader() {
-  if (!isMobileViewport()) return;
-  clearHeaderHideTimer();
-  setMobileHeaderHidden(false);
-  if (!isMessageListScrollable()) return;
-  headerHideTimer = setTimeout(() => {
-    headerHideTimer = null;
-    if (mobileMenuOpen.value) return; // 抽屉打开时不收回
-    if (isMsgListAtBottom()) setMobileHeaderHidden(true);
-  }, HEADER_AUTO_HIDE_MS);
-}
-
-// 视口尺寸/断点变化：重新量高；回到桌面端宽度时强制展开
-function onHeaderViewportResize() {
-  syncHeaderHeightVar();
-  if (!isMobileViewport() && mobileHeaderHidden.value) {
-    clearHeaderHideTimer();
-    setMobileHeaderHidden(false);
-  }
-}
-
-// 抽屉开合联动：打开时固定展开；关闭后短暂展示再自动收回
-watch(mobileMenuOpen, (open) => {
-  if (open) {
-    clearHeaderHideTimer();
-    setMobileHeaderHidden(false);
-  } else {
-    revealMobileHeader();
-  }
-});
-
-// 消息条数变化：重算头部高度；消息少到不可滚动时强制展开（保底入口）；补上首次展示排期
-watch(() => messageViews.value.length, () => {
-  nextTick(() => {
-    syncHeaderHeightVar();
-    maybeScheduleInitialPeek();
-    if (mobileHeaderHidden.value && !isMessageListScrollable()) {
-      clearHeaderHideTimer();
-      setMobileHeaderHidden(false);
-    }
-  });
-});
-
-// 首次进入先展示一次（学习成本：让用户知道顶部入口存在），随后进入"默认收起"状态。
-// 挂载时消息还没拉到、列表不可滚动，所以此处只做登记，等列表真的能滚动了再排期。
-let headerInitialPeekPending = true;
-function maybeScheduleInitialPeek() {
-  if (!headerInitialPeekPending || !isMobileViewport()) return;
-  if (!isMessageListScrollable()) return;
-  headerInitialPeekPending = false;
-  clearHeaderHideTimer();
-  headerHideTimer = setTimeout(() => {
-    headerHideTimer = null;
-    if (!mobileMenuOpen.value) setMobileHeaderHidden(true);
-  }, HEADER_INITIAL_PEEK_MS);
-}
-
-function setupMobileHeaderAutoHide() {
-  syncHeaderHeightVar();
-  // 操作坞：进入后短暂展示一次再隐藏；之后仅上滑时出现
-  dockHidden.value = false;
-  scheduleDockHide();
-  if (!isMobileViewport()) return;
-  const el = chatHeaderEl.value;
-  if (el && typeof ResizeObserver !== 'undefined') {
-    headerResizeObserver = new ResizeObserver(() => syncHeaderHeightVar());
-    headerResizeObserver.observe(el);
-  }
-  maybeScheduleInitialPeek();
-}
-
-function teardownMobileHeaderAutoHide() {
-  clearHeaderHideTimer();
-  clearDockHideTimer();
-  if (headerResizeObserver) {
-    headerResizeObserver.disconnect();
-    headerResizeObserver = null;
-  }
 }
 
 function logout() {
@@ -3619,11 +2854,10 @@ onMounted(async () => {
   bootReady.value = true;
   await nextTick();
 
-  // 手机端顶部操作栏自动收起：初始化量高、首次展示排期、视口变化重算
-  setupMobileHeaderAutoHide();
-  window.addEventListener('resize', onHeaderViewportResize);
+  // 拇指区技能栏的常用指令镜像：与桌面侧栏面板各拉一份（编辑入口仍在「我的」面板）
+  loadSkillFavorites();
 
-  // 消息区容器高度变化（键盘弹出、头部收起、--vh 重算）时保持贴底：
+  // 消息区容器高度变化（键盘弹出、--vh 重算）时保持贴底：
   // 仅在 stickToBottom 仍为真时补滚，用户已接管就绝不抢滚动条
   if (msgList.value && 'ResizeObserver' in window) {
     pinBottomResizeObs = new ResizeObserver(() => {
@@ -3700,7 +2934,8 @@ onMounted(async () => {
     // 扫描历史中的未读系统公告 → 弹窗补展示（离线期间错过的公告上线后仍会弹出）
     scanHistoryAnnouncements(historyGame);
     await commandStore.loadCommands();
-    await loadFavorites();
+    // 常用指令列表由 FavoriteCommands 组件自己读写，这里在指令全量列表就绪后再刷新一次面板
+    await favRef.value?.loadFavorites();
     await Promise.allSettled([
       loadPlayerInfo(),
       loadMapOverview(),
@@ -3877,8 +3112,10 @@ onUnmounted(() => {
   pinBottomResizeObs = null;
   window.removeEventListener('resize', setViewportHeight);
   window.visualViewport?.removeEventListener('resize', setViewportHeight);
-  teardownMobileHeaderAutoHide();
-  window.removeEventListener('resize', onHeaderViewportResize);
+  // 总线订阅随组件销毁一并摘掉（keep-alive 缓存期间故意保留，见 setup 顶层注册处）
+  offBusCommand();
+  offBusAction();
+  clearDockHideTimer();
   if (statsTimer) clearInterval(statsTimer);
   if (nearbyTimer) clearInterval(nearbyTimer);
   if (atPlayersTimer) clearInterval(atPlayersTimer);
@@ -5078,5 +4315,275 @@ onUnmounted(() => {
 .set-option-desc {
   font-size: 11px;
   color: var(--muted);
+}
+
+/* ============================================================
+ * 手机端游戏手感（≤768px）
+ *
+ * 顶部 web 栏整条下线（App 级 HUD 接管），本页只留两块游戏区：
+ * 拇指区技能栏 .m-skills（横滑，一眼可及的主操作）+ 输入行动条 .input-bar。
+ * 特异度说明：scoped 编译后自带 [data-v-*] 属性选择器，这里 <768px 的规则
+ * 一律压得住 styles.css 里给 .chat-header / .input-bar 写的旧手机规则。
+ * ============================================================ */
+/* 拇指区技能栏是手机端专属：模板里没有按视口 v-if 网关（SSR 无关、也不该跟随
+   一次性的 JS 判定），所以桌面端靠这条基础规则整体藏起来，下面 768px 里再点亮。 */
+.m-skills {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  /* ===== 顶栏：手机端不显示（过滤/指令已下移到技能栏，版本号与反馈在「我的」面板里） ===== */
+  .chat-header {
+    display: none;
+  }
+  /* 顶栏里剩的「网页味」元素（版本号 / GitHub 反馈 / 外链推广）桌面端专属，
+     显式写死，避免以后有人把顶栏调回可见时又漏出来 */
+  .chat-header .version-tag,
+  .chat-header .github-issue-btn,
+  .chat-header .reborn-link {
+    display: none;
+  }
+
+  /* ===== 拇指区技能栏：横向滑动的一排「技能按钮」 ===== */
+  .m-skills {
+    display: flex;
+    align-items: stretch;
+    flex-shrink: 0;
+    gap: 6px;
+    padding: 6px 10px;
+    border-top: 1px solid var(--glass-border);
+    background: rgba(10, 10, 26, 0.55);
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x proximity;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+  .m-skills::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* 单个技能：图标在上、文字在下的竖排小块，拇指能稳点到的最小尺寸 */
+  .msk {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1px;
+    flex: 0 0 auto;
+    min-width: 54px;
+    min-height: 46px;
+    padding: 4px 9px;
+    border-radius: 12px;
+    border: 1px solid rgba(139, 92, 246, 0.4);
+    background: linear-gradient(160deg, rgba(41, 32, 80, 0.92), rgba(14, 12, 34, 0.92));
+    color: var(--text-secondary);
+    font-family: inherit;
+    cursor: pointer;
+    scroll-snap-align: start;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    transition: transform 0.12s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  .msk-ico {
+    font-size: 17px;
+    line-height: 1.15;
+  }
+  .msk-t {
+    font-size: 10.5px;
+    line-height: 1.25;
+    white-space: nowrap;
+    color: var(--text);
+  }
+  /* 按下即缩：手机端没有 hover，:active 是唯一能给的「按到了」反馈 */
+  .msk:active {
+    transform: scale(0.93);
+  }
+  /* 过滤开关的开启态：填成主色渐变，一眼看出现在处于哪个过滤档 */
+  .msk.on {
+    border-color: rgba(139, 92, 246, 0.85);
+    background: var(--accent-gradient);
+    box-shadow: 0 0 12px rgba(139, 92, 246, 0.3);
+  }
+  .msk.on .msk-t {
+    color: #fff;
+  }
+  /* 攻击：暖红金渐变，整条技能栏里唯一的高对比块 = 主战斗动作 */
+  .msk.atk {
+    border-color: rgba(251, 191, 36, 0.6);
+    background: linear-gradient(160deg, #f59e0b, #dc2626 62%, #7f1d1d);
+    box-shadow: 0 2px 10px rgba(220, 38, 38, 0.32);
+  }
+  .msk.atk .msk-t {
+    color: #fff;
+    font-weight: 700;
+  }
+  /* 常用指令芯片：纯文案、无图标，视觉上矮一档，和技能按钮区分开 */
+  .msk.fav {
+    flex-direction: row;
+    min-width: 0;
+    padding: 0 12px;
+    border-color: var(--glass-border);
+    background: rgba(139, 92, 246, 0.1);
+  }
+  .msk.fav .msk-t {
+    color: var(--text-secondary);
+    max-width: 108px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* 空态提示：点它直接开「我的」面板去加常用（虚线框 = 还能往里放东西） */
+  .msk-more {
+    display: inline-flex;
+    align-items: center;
+    flex: 0 0 auto;
+    align-self: center;
+    padding: 6px 10px;
+    border: 1px dashed rgba(139, 92, 246, 0.45);
+    border-radius: 12px;
+    color: var(--muted);
+    font-size: 11px;
+    white-space: nowrap;
+    scroll-snap-align: start;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .msk-more:active {
+    color: var(--text-secondary);
+    border-color: var(--accent);
+  }
+
+  /* ===== 输入栏 = 行动条：紧凑、按钮够大、字号防 iOS 放大 ===== */
+  .input-bar {
+    align-items: flex-end;
+    flex-shrink: 0;
+    gap: 8px;
+    padding: 6px 10px;
+    padding-bottom: calc(8px + var(--safe-bottom));
+    border-top: 1px solid var(--glass-border);
+    background: rgba(10, 10, 26, 0.72);
+  }
+  .input-wrapper {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  /* 16px 是硬要求：小于它 iOS Safari 聚焦会自动放大整个页面且回不去 */
+  .input-wrapper textarea.cmd-input {
+    min-height: 44px;
+    padding: 10px 12px;
+    font-size: 16px;
+    line-height: 1.45;
+    border-radius: 12px;
+    font-family: inherit;
+  }
+  /* 发送键：48px 的圆角大块，拇指落点，和技能栏同一条横轴上 */
+  .input-bar > button {
+    flex: 0 0 auto;
+    min-width: 56px;
+    height: 48px;
+    padding: 0 16px;
+    border-radius: 16px;
+    background: var(--accent-gradient-full);
+    background-size: 200% auto;
+    color: #fff;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    box-shadow: 0 3px 12px rgba(139, 92, 246, 0.34);
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    transition: transform 0.12s ease, background-position 0.3s ease, box-shadow 0.2s ease;
+  }
+  .input-bar > button:active:not(:disabled) {
+    transform: scale(0.94);
+    background-position: right center;
+  }
+  .input-bar > button:disabled {
+    opacity: 0.45;
+    box-shadow: none;
+  }
+
+  /* 键盘弹起：技能栏收起，把纵向空间全让给正文（body.kb-open 由本页 visualViewport 测高逻辑维护） */
+  body.kb-open .m-skills {
+    display: none;
+  }
+}
+
+/* 小屏（≤480px）：只收内边距与字号，芯片最小尺寸保持不动（拇指区不能再小） */
+@media (max-width: 480px) {
+  .m-skills {
+    gap: 5px;
+    padding: 5px 8px;
+  }
+  .msk {
+    padding: 4px 8px;
+    border-radius: 11px;
+  }
+  .msk-t {
+    font-size: 10px;
+  }
+  .msk.fav .msk-t {
+    max-width: 88px;
+  }
+  .input-bar {
+    padding: 5px 8px;
+    padding-bottom: calc(6px + var(--safe-bottom));
+  }
+  .input-wrapper textarea.cmd-input {
+    padding: 9px 11px;
+  }
+}
+
+/* 手机端：消息行与技能栏角标的补充规则（写在最后，靠源码顺序压过上面的历史规则） */
+@media (max-width: 768px) {
+  /* 「世界」键的未读角标 */
+  .msk-ico {
+    position: relative;
+  }
+  .msk-badge {
+    position: absolute;
+    top: -5px;
+    right: -9px;
+    min-width: 14px;
+    height: 14px;
+    padding: 0 3px;
+    border-radius: 999px;
+    background: var(--danger, #ef4444);
+    color: #fff;
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 14px;
+    text-align: center;
+    box-shadow: 0 0 0 1.5px rgba(10, 10, 26, 0.9);
+  }
+
+  /* 一条消息原本排成「正文 + 右侧时间戳」一行：手机上秒级时间戳约 103px 且 nowrap，
+     会把正文挤到 0 宽、时间戳溢出视口（自己发的指令消息整条只剩个被裁掉的时间）。
+     手游的聊天流本来就是正文一屏、时间戳当配角，所以改成上下两行。 */
+  .msg {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+  }
+  .msg-body {
+    width: 100%;
+    min-width: 0;
+  }
+  .msg-time {
+    flex: 0 0 auto;
+    margin-top: 1px;
+    font-size: 9.5px;
+    line-height: 1.2;
+    opacity: 0.5;
+    text-align: right;
+    white-space: normal;
+  }
+  /* 居中系的系统/战斗消息保持居中，不让时间戳跑到右边去压排版 */
+  .msg.system .msg-time,
+  .msg.info .msg-time {
+    text-align: center;
+  }
 }
 </style>

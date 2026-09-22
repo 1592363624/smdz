@@ -214,6 +214,19 @@ vite-plugin-checker-error-overlay,
   box-shadow: var(--glass-shadow), var(--shadow-glow);
 }
 
+/* 标题屏徽记：手机端第一眼是「游戏启动画面」而不是一张表单，
+   所以把应用图标直接放大摆在标题上方，与加到主屏幕后的图标保持一致 */
+.login-crest {
+  display: block;
+  width: 76px;
+  height: 76px;
+  margin: 0 auto 14px;
+  border-radius: 20px;
+  object-fit: cover;
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(139, 92, 246, 0.35);
+  animation: float 6s ease-in-out infinite;
+}
+
 .game-title {
   font-size: 24px;
   text-align: center;
@@ -1587,8 +1600,7 @@ vite-plugin-checker-error-overlay,
 /* 操作坞隐藏时顶栏收成一条缝，避免空条占高。
    根因：.action-dock.is-hidden 用 visibility:hidden 淡出，仍保留文档流占位；
    顶栏若继续铺半透明底，会在消息区顶部残留一条空黑条（看起来像遮罩）。
-   坞自身已压到 height:0，这里只需去掉顶栏内边距/底色/描边，高度会随内容自然塌掉；
-   不要在这里写死 height:0——手机端 header-collapsed 靠负 margin 补偿，强制 0 高会双重扣高度。 */
+   坞自身已压到 height:0，这里只需去掉顶栏内边距/底色/描边，高度会随内容自然塌掉。 */
 .chat-header:has(.action-dock.is-hidden) {
   padding-top: 0;
   padding-bottom: 0;
@@ -1596,17 +1608,6 @@ vite-plugin-checker-error-overlay,
   background: transparent;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
-}
-/* 手机端顶栏内还有汉堡入口：坞隐藏时仍保留汉堡所需内边距与底色 */
-@media (max-width: 768px) {
-  .chat-header:has(.action-dock.is-hidden):not(.header-collapsed) {
-    padding-top: calc(4px + var(--safe-top));
-    padding-bottom: 4px;
-    background: rgba(10, 10, 26, 0.6);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    border-bottom: 1px solid var(--glass-border);
-  }
 }
 .chat-header h2 {
   font-size: 16px;
@@ -3569,114 +3570,12 @@ body.smdz-hp-dead .chat-main { box-shadow: inset 0 0 90px rgba(140, 10, 10, 0.12
  * ============================================================ */
 
 /* 遮罩层 */
-.mobile-overlay {
-  display: none;
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
-  z-index: 100;
-  opacity: 0;
-  transition: opacity 0.3s ease;
-  pointer-events: none; /* 关闭时不允许拦截点击，避免遮挡页面操作 */
-}
-.mobile-overlay.open {
-  opacity: 1;
-  pointer-events: auto; /* 打开抽屉时才能点击遮罩关闭 */
-}
 
 /* 抽屉菜单（仅在手机端可见） */
-.mobile-drawer {
-  display: none;
-  position: fixed;
-  top: 0;
-  left: 0;
-  bottom: 0;
-  width: 280px;
-  max-width: 80vw;
-  background: var(--bg2);
-  border-right: 1px solid var(--glass-border);
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  z-index: 101;
-  transform: translateX(-105%);
-  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 4px 0 32px rgba(0, 0, 0, 0.5);
-  pointer-events: none; /* 关闭(滑出屏幕)时禁止拦截点击 */
-}
-.mobile-drawer.open {
-  transform: translateX(0);
-  pointer-events: auto; /* 打开时恢复交互 */
-}
 
 /* 手机端浮动快捷操作栏 */
-.mobile-float-actions {
-  display: none;
-  padding: 8px 16px;
-  gap: 6px;
-  border-top: 1px solid var(--glass-border);
-  background: rgba(10, 10, 26, 0.7);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-}
-.mobile-float-actions button {
-  flex: 1;
-  padding: 10px 4px;
-  background: rgba(10, 10, 26, 0.6);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  color: var(--text);
-  cursor: pointer;
-  font-size: 18px;
-  transition: all 0.2s ease;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 44px;
-  -webkit-tap-highlight-color: transparent;
-}
-.mobile-float-actions button:active {
-  transform: scale(0.95);
-}
-.mobile-float-actions .mfa-bag {
-  border-color: rgba(234, 179, 8, 0.4);
-}
-.mobile-float-actions .mfa-info {
-  border-color: rgba(139, 92, 246, 0.4);
-}
-.mobile-float-actions .mfa-map {
-  border-color: rgba(6, 182, 212, 0.4);
-}
-.mobile-float-actions .mfa-attack {
-  border-color: rgba(239, 68, 68, 0.4);
-}
 
 /* 手机端汉堡菜单按钮 */
-.mobile-menu-btn {
-  display: none;
-  flex-direction: column;
-  gap: 4px;
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 4px;
-  -webkit-tap-highlight-color: transparent;
-  /* 头部按钮组空间不足时不允许被压缩：否则汉堡按钮会被挤成 0 宽，
-     其菜单条溢出后被「显示他人」按钮遮住，导致侧边栏入口点不到 */
-  flex-shrink: 0;
-  align-self: center;
-}
-.mobile-menu-btn .menu-bar {
-  display: block;
-  width: 20px;
-  height: 2px;
-  background: var(--text-secondary);
-  border-radius: 2px;
-  transition: all 0.2s ease;
-}
 
 /* ============================================================
  * 响应式布局
@@ -3716,18 +3615,6 @@ body.smdz-hp-dead .chat-main { box-shadow: inset 0 0 90px rgba(140, 10, 10, 0.12
 /* 手机端 (≤768px) */
 @media (max-width: 768px) {
   /* 显示手机端元素 */
-  .mobile-menu-btn {
-    display: flex;
-  }
-  .mobile-overlay {
-    display: block;
-  }
-  .mobile-drawer {
-    display: flex;
-  }
-  .mobile-float-actions {
-    display: flex;
-  }
 
   /* 隐藏桌面端侧边栏 */
   .sidebar {
@@ -3742,60 +3629,8 @@ body.smdz-hp-dead .chat-main { box-shadow: inset 0 0 90px rgba(140, 10, 10, 0.12
     min-height: 0; /* 防止 flex 溢出 */
   }
 
-  /* 手机端顶栏：仅保留汉堡菜单（操作组已迁到右下角坞） */
-  .chat-header {
-    display: flex;
-    padding: 8px 12px;
-    padding-top: calc(8px + var(--safe-top));
-    gap: 6px 8px;
-    flex-wrap: wrap;
-    align-content: center;
-  }
-  .chat-header h2 {
-    font-size: 14px;
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  /* 手机端：操作坞在顶栏内，仍保持单行、允许略紧 */
-  .action-dock {
-    width: max-content;
-    max-width: calc(100% - 4px);
-    flex-wrap: nowrap;
-    gap: 5px;
-  }
-  .action-dock .header-action-btn,
-  .action-dock .github-issue-btn,
-  .action-dock .version-tag,
-  .action-dock .reborn-link {
-    font-size: 11px;
-    padding: 4px 8px;
-  }
-  .reborn-link {
-    margin-left: 0;
-    padding: 3px 10px;
-    font-size: 12px;
-  }
-
-  /* ===== 顶部操作栏自动收起（手机端默认隐藏，滑动消息列表时滑出） =====
-     只过渡 transform：布局用的负 margin 必须「瞬时」切换——若一起过渡，
-     消息区高度会逐帧变化而 JS 只在切换时补偿一次 scrollTop，阅读位置就会漂移。
-     --header-h 由 ChatView 用 ResizeObserver 实测写入（头部在 1~2 行间变化）。 */
-  .chat-header {
-    transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
-  }
-  .chat-header.header-collapsed {
-    transform: translateY(-100%);
-    margin-bottom: calc(-1 * var(--header-h, 0px));
-    pointer-events: none;
-  }
-  /* 收起后消息列表顶到屏幕顶部，补上安全区，避免正文压到刘海/状态栏 */
-  .chat-main.header-hidden .messages {
-    padding-top: calc(10px + var(--safe-top));
-  }
-  /* 注：「减少动态效果」无需在此另行处理——文件末尾的全局
-     @media (prefers-reduced-motion: reduce) 已把所有 transition 压到 0.001ms */
+  /* 手机端顶栏（原汉堡 + 操作坞那套）已整体移除：≤768px 时顶栏不再渲染，
+     顶部交给 App 级 HUD，过滤与指令入口下移到公屏页的拇指区技能栏。 */
 
   /* 消息区域 - 确保可滚动且不溢出 */
   .messages {
@@ -3820,22 +3655,6 @@ body.smdz-hp-dead .chat-main { box-shadow: inset 0 0 90px rgba(140, 10, 10, 0.12
   }
 
   /* 快捷操作栏 - 更紧凑 */
-  .mobile-float-actions {
-    padding: 6px 12px;
-    gap: 5px;
-    flex-shrink: 0;
-  }
-  .mobile-float-actions button {
-    min-height: 38px;
-    font-size: 16px;
-    padding: 6px 4px;
-    border-radius: 6px;
-    touch-action: manipulation;
-  }
-  .mobile-float-actions button:active {
-    transform: scale(0.92);
-    opacity: 0.8;
-  }
 
   /* 输入框 - 固定在底部，带安全区域 */
   .input-bar {
@@ -3952,37 +3771,6 @@ body.smdz-hp-dead .chat-main { box-shadow: inset 0 0 90px rgba(140, 10, 10, 0.12
   }
 
   /* 手机端抽屉菜单 - 安全区域适配 */
-  .mobile-drawer {
-    padding: 0;
-  }
-  .mobile-drawer .sidebar-header {
-    padding: 16px 14px 10px;
-    padding-top: calc(16px + var(--safe-top));
-  }
-  .mobile-drawer .sidebar-content {
-    padding: 10px 12px 0;
-  }
-  .mobile-drawer .sidebar-footer {
-    padding: 8px 14px 10px;
-    padding-bottom: calc(10px + var(--safe-bottom));
-  }
-  .mobile-drawer .tab-pane-cmd .cmd-list {
-    min-height: 150px;
-  }
-  .mobile-drawer .cmd-search {
-    font-size: 14px;
-    padding: 10px 12px;
-    padding-right: 36px;
-  }
-  .mobile-drawer .cmd-name {
-    font-size: 13px;
-  }
-  .mobile-drawer .cmd-desc {
-    font-size: 12px;
-  }
-  .mobile-drawer .cmd-list li {
-    padding: 8px 10px;
-  }
 
   /* ===== 移动端性能优化：降低 GPU 负担，缓解低端机卡顿 ===== */
   /* backdrop-filter 在手机上是渲染/滚动卡顿的主要来源，移动端改为半透底即可 */
@@ -3991,7 +3779,6 @@ body.smdz-hp-dead .chat-main { box-shadow: inset 0 0 90px rgba(140, 10, 10, 0.12
   .sidebar-footer,
   .info-panel,
   .msg,
-  .mobile-float-actions,
   .player-info,
   .autocomplete-list,
   .panel-header,
@@ -4044,21 +3831,6 @@ body.smdz-hp-dead .chat-main { box-shadow: inset 0 0 90px rgba(140, 10, 10, 0.12
   .input-bar button {
     padding: 8px 12px;
     font-size: 12px;
-  }
-  .mobile-float-actions {
-    padding: 4px 10px;
-    gap: 4px;
-  }
-  .mobile-float-actions button {
-    min-height: 34px;
-    font-size: 15px;
-    padding: 6px 2px;
-  }
-  .mobile-drawer {
-    width: 260px;
-    padding: 16px 12px;
-    padding-top: calc(16px + var(--safe-top));
-    padding-bottom: calc(16px + var(--safe-bottom));
   }
   .stat-cards {
     grid-template-columns: 1fr 1fr;
@@ -4191,6 +3963,249 @@ textarea:focus:not(:focus-visible) {
   .version-tag-sha {
     margin-left: 3px;
     padding: 1px 4px;
+  }
+}
+
+/* ============================================================
+ * 手机端游戏外壳（跨路由常驻的顶部 HUD + 底部标签栏）
+ *
+ * 结构在 App.vue：.game-shell 是纵向 flex，HUD 在流内、.game-stage 吃剩余高度、
+ * 标签栏 fixed 在底部。这里只做两件事：
+ * 1) 给 .game-stage 让出底栏空间；
+ * 2) 把各页面根节点从「自己算 100vh」改成「填满外壳给它的高度」。
+ *    根节点写死 100vh 的页面（.chat-page/.yd-page/.ar-page/.fl-page）里，
+ *    后三个是 scoped 样式，用元素选择器抢不过，故用 html.has-shell 前缀提权，
+ *    不用 !important。has-shell 仅在手机端且非登录/开局/后台路由时由 App.vue 加上。
+ * ============================================================ */
+:root {
+  /** 顶部 HUD 高度（不含刘海安全区） */
+  --hud-h: 52px;
+  /** 底部标签栏高度（不含横条安全区） */
+  --mtb-h: 58px;
+  /** visualViewport 实测高度，由 stores/device.js 写入，如 "844px" */
+  --vvh: 100dvh;
+}
+
+/* 横屏矮屏（手机躺平玩 / 折叠屏外屏）：把两条常驻边压扁，尽量把高度留给内容 */
+@media (max-width: 900px) and (max-height: 520px) {
+  :root {
+    --hud-h: 40px;
+    --mtb-h: 46px;
+  }
+}
+
+.game-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+  /* --vvh 是 JS 实测的可视高度（键盘弹起时会变小），但它可能滞后于真实视口，
+     所以再用 100dvh 兜一层上限：宁可少让一点，也不能把底部操作条顶出屏幕。
+     viewport meta 里的 interactive-widget=resizes-content 已让安卓键盘直接压缩布局视口，
+     这里只是给 iOS 与「resize 事件没来」的浏览器留后路。 */
+  height: min(var(--vvh, 100dvh), 100dvh);
+  /* 外壳本身绝不产生页面级滚动，滚动只发生在各页内部的列表容器里 */
+  overflow: hidden;
+}
+.game-stage {
+  flex: 1 1 auto;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+@media (max-width: 768px) {
+  /* 常驻底栏占掉的可视高度：用 padding 从 .game-stage 里扣，页面根节点改填满内容盒 */
+  html.has-shell .game-stage {
+    padding-bottom: calc(var(--mtb-h) + var(--safe-bottom));
+  }
+  html.has-shell .game-stage > * {
+    height: 100%;
+    min-height: 0;
+  }
+
+  /* ===== 触屏手感：这组规则是「像原生 App」的地基 =====
+     1) overscroll-behavior: none —— 禁掉下拉刷新与整页橡皮筋，
+        浏览器一给下拉回弹，玩家第一反应就是「这是个网页」；
+     2) text-size-adjust —— 禁掉横屏时 Chrome 自作主张放大字号；
+     3) tap-highlight-color —— 去掉点按钮时那层灰蓝色方块；
+     4) touch-action: manipulation —— 干掉 300ms 双击缩放判定延迟，点击立刻响应。 */
+  html,
+  body {
+    overscroll-behavior: none;
+    overscroll-behavior-y: none;
+  }
+  body {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+  button,
+  a,
+  [role='button'],
+  .mtb,
+  .hud,
+  .me-sheet,
+  .fav-chip,
+  .mc-node {
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+  /* 界面外壳类元素不可长按选中（消息正文仍然可选，玩家要复制） */
+  .hud,
+  .mtb,
+  .me-head,
+  .me-seg,
+  .me-foot,
+  .chat-header,
+
+  /* 切页时内容区整体上浮一格：keep-alive 重新插入 DOM 会重放该动画，
+     所以标签页来回切也有一次极短的「翻页」确认感，而不是硬切。 */
+  html.has-shell .game-stage > * {
+    animation: pageRise 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+}
+
+@keyframes pageRise {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* 键盘弹起：底栏藏起来（否则输入框被顶到键盘上方后又凭空多出一截空底栏） */
+body.kb-open .game-stage {
+  padding-bottom: 0 !important;
+}
+
+/* 公屏页那几个全屏弹窗的层级写于「页面底部什么都没有」的年代（100~300），
+   现在 HUD(481) 与底部标签栏(480) 常驻，遮罩会被这两条压住，
+   出现「弹窗还开着、底栏还亮着可以乱点」的穿帮。集中在这里抬一层，
+   不再逐个去改各弹窗自己的 scoped 层级。 */
+@media (max-width: 768px) {
+  html.has-shell :is(
+    .announcement-overlay,
+    .ann-img-preview-overlay,
+    .panel-overlay,
+    .update-modal-overlay,
+    .settings-overlay
+  ) {
+    z-index: 660;
+  }
+  /* iOS Safari 的 100vh 是「工具栏收起时」的最大视口，比实际能看到的还高一截：
+     弹窗若按 80~90vh 设上限，底部那排「确认/关闭」就会落到看不见的地方，
+     玩家只会觉得按钮点不到。统一按真正的可视高度（再扣掉 HUD 与底栏）重算上限。 */
+  html.has-shell :is(.announcement-modal, .update-modal, .settings-modal, .side-panel) {
+    max-height: calc(
+      100dvh - var(--hud-h, 52px) - var(--safe-top, 0px)
+      - var(--mtb-h, 58px) - var(--safe-bottom, 0px) - 12px
+    );
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  /* 血量预警红边与受击闪光是「整块屏幕」的效果：它们原本只有 150/180 层，
+     现在会被常驻 HUD 与底栏挖掉上下两条，危险提示反而在手机上最不明显。
+     抬到 650——压过外壳（480/481），但仍低于各类弹窗（660+），
+     两层都是 pointer-events: none，不影响任何点击。 */
+  html.has-shell :is(.hv-root, .gh-layer) {
+    z-index: 650;
+  }
+}
+
+/* ============================================================
+ * 全局触屏手感层（手机端）
+ *
+ * 一律用 :where() 包起来 —— :where() 的特异度为 0，任何组件里自己写过的
+ * :active / height / font-size 规则都能原样盖住这一层。
+ * 这样做的目的：把「手指能点得着、点了有反应」这类跨页面共性一次性兜住，
+ * 又不会把各页面已经调好的细节压平。只作用于外壳路由（/admin /login /onboard 除外）。
+ * ============================================================ */
+@media (max-width: 768px) {
+  /* 最小可点高度 40px：44px 是 iOS HIG 的推荐值，但本项目的紧凑行较多，
+     40px 是「拇指不误触相邻键」与「不把每行都撑高一截」之间的折中。 */
+  :where(html.has-shell) :where(button, [role='button'], summary) {
+    min-height: 40px;
+  }
+  /* 通用按压反馈：只有 hover 态、没写 :active 的地方（本项目里非常多）统一有「按下去」的手感 */
+  :where(html.has-shell) :where(button, [role='button'], a, .fav-chip, .mc-node, .cmd-clickable):active {
+    transform: scale(0.965);
+    filter: brightness(1.12);
+  }
+  /* 触屏没有 hover：只靠 hover 变色来提示可点的元素，常驻一点点高亮，
+     否则手机上看起来像纯文本。（用 media query 判定不可悬停，桌面端完全不受影响） */
+  :where(html.has-shell) :where(.cmd-clickable, .mention-highlight) {
+    text-decoration-thickness: 1px;
+  }
+  /* 文本类输入控件一律 16px 起：小于 16px 时 iOS Safari 聚焦会自动把整页放大 1.2 倍，
+     而且不会自己缩回去 —— 这是「像网页」最明显的一个破绽。 */
+  :where(html.has-shell) :where(
+    input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']),
+    textarea,
+    select
+  ) {
+    font-size: 16px;
+    min-height: 42px;
+  }
+  /* 所有滚动容器：禁掉穿透到页面的橡皮筋与下拉刷新 */
+  :where(html.has-shell) :where(div, section, main) {
+    overscroll-behavior: contain;
+  }
+  /* 手机端的滚动条不该占宽，也不该看起来像桌面端的细线 */
+  :where(html.has-shell) ::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+  }
+}
+
+/* ============================================================
+ * 标题屏（登录）与开局引导屏的手机端化
+ * 这两屏不在游戏外壳里（没有 HUD 与底栏），所以单独处理：
+ * 全屏、可上下滚、主按钮做成手游那种「点击进入游戏」的大发光按钮。
+ * ============================================================ */
+@media (max-width: 768px) {
+  .login-page {
+    height: var(--vvh, 100dvh);
+    padding: calc(18px + var(--safe-top)) 16px calc(18px + var(--safe-bottom));
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
+  .login-card {
+    width: 100%;
+    max-width: 420px;
+    padding: 26px 20px;
+  }
+  .game-title {
+    font-size: 25px;
+    letter-spacing: 1.5px;
+  }
+  .subtitle {
+    font-size: 12px;
+    margin: 8px 0 22px;
+  }
+  .qq-login-btn {
+    min-height: 52px;
+    font-size: 16px;
+    font-weight: 700;
+    border-radius: 14px;
+    letter-spacing: 1px;
+  }
+  /* 可用状态才上色：把「能点了」这件事用颜色直接说出来，而不是靠 hover */
+  .qq-login-btn.is-ready:not(:disabled) {
+    color: #fff;
+    border-color: transparent;
+    background: var(--accent-gradient);
+    background-size: 200% auto;
+    box-shadow: 0 6px 22px rgba(139, 92, 246, 0.42);
+    animation: glowPulse 2.6s ease-in-out infinite;
+  }
+  .qq-login-btn:active:not(:disabled) {
+    transform: scale(0.975);
+  }
+  .dev-input,
+  .dev-btn {
+    min-height: 44px;
+    font-size: 16px;
+  }
+  .dev-btn:active:not(:disabled) {
+    transform: scale(0.96);
   }
 }
 

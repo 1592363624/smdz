@@ -1,12 +1,15 @@
 <template>
   <div class="login-page">
     <div class="login-card">
+      <!-- 游戏徽记：与「添加到主屏幕」的应用图标同一张图，登录屏即游戏标题屏 -->
+      <img class="login-crest" src="/icons/icon-1024.png" alt="" />
       <h1 class="game-title">使魔大战3 · 网页版</h1>
       <p class="subtitle">公屏群聊文字游戏 · 提供API支持对接机器人</p>
 
       <!-- QQ 登录入口 -->
       <button
         class="qq-login-btn"
+        :class="{ 'is-ready': qqConfigured && !qqLoading }"
         :disabled="qqLoading || !qqConfigured"
         @click="qqLogin"
         :title="qqConfigured ? '使用QQ账号登录' : 'QQ登录未配置（需设置 QQ_APP_ID）'"

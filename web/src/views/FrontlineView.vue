@@ -148,6 +148,8 @@
 </template>
 
 <script setup>
+/** 组件名供 App.vue 的 keep-alive include 使用 */
+defineOptions({ name: 'FrontlineView' });
 /**
  * 家园前线面板（只读视图 + 统一指令通道写操作）。
  *
@@ -156,11 +158,12 @@
  * 发送与 QQ 端逐字相同的文本指令（config.HOME_FRONTLINE_CONFIG.commands），
  * 没有第二条写路径，结算口径不会双轨。
  */
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { commandApi, homeApi } from '../api';
 import { HOME_FRONTLINE_CONFIG as C } from '../config';
 import { useUiStore } from '../stores/ui';
+import { onTabRetap, scrollTopWithin } from '../composables/useTabRetap';
 
 const router = useRouter();
 const ui = useUiStore();
@@ -202,6 +205,19 @@ async function refresh() {
 onMounted(() => {
   refresh();
   timer = setInterval(refresh, C.refreshMs);
+});
+/* 再点一次「前线」标签：回到阵地顶部，不用玩家自己往上拖 */
+onTabRetap('/frontline', () => scrollTopWithin('.fl-body'));
+
+/* keep-alive 配套：失活时停表，切回来立刻补一次刷新。
+   不这么做的话，本在前线之后被缓存的页面会一直在后台拉接口。 */
+onActivated(() => {
+  if (timer) return;
+  refresh();
+  timer = setInterval(refresh, C.refreshMs);
+});
+onDeactivated(() => {
+  if (timer) { clearInterval(timer); timer = null; }
 });
 onBeforeUnmount(() => {
   if (timer) clearInterval(timer);
@@ -333,6 +349,11 @@ function startBattle() {
 .fl-back:hover {
   filter: brightness(1.2);
 }
+/* 触屏没有 hover，只有 hover 态的键按下去必须另有反馈，否则点上去像没反应 */
+.fl-back:active {
+  filter: brightness(1.5);
+  transform: scale(0.9);
+}
 /* ---------- 家园 ↔ 前线 面板切换 ---------- */
 .fl-switch {
   display: flex;
@@ -359,6 +380,11 @@ button.fl-switch-btn {
 button.fl-switch-btn:hover {
   color: var(--text, #e5e7eb);
   background: rgba(255, 255, 255, 0.06);
+}
+/* 分段控件的未选中一半：手机上它是唯一的页内导航，按下要有"陷进去"的手感 */
+button.fl-switch-btn:active {
+  transform: scale(0.96);
+  filter: brightness(1.35);
 }
 .fl-switch-btn.on {
   color: var(--text, #e5e7eb);
@@ -495,6 +521,10 @@ button.fl-switch-btn:hover {
 }
 .fl-block:hover {
   box-shadow: 0 10px 26px rgba(0, 0, 0, 0.38);
+}
+/* 按住卡片里的格子时，:active 会连带冒到祖先卡片上：把投影收回一格，读作"这块受力了" */
+.fl-block:active {
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
 }
 .fl-block-head {
   display: flex;
@@ -818,6 +848,231 @@ button.fl-switch-btn:hover {
   }
   .fl-grid {
     grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  }
+}
+
+/* ============================================================
+ * 手机端（游戏外壳）适配
+ *
+ * 一律追加在样式表末尾，靠源码顺序盖住上面的桌面规则，桌面端逐像素不变。
+ * 上下两条常驻边的空间都是外壳给的：顶部 HUD 自带刘海内缩（.fl-top 这里再叠一次
+ * --safe-top 就会出现两段空白），底部标签栏由 .game-stage 用 padding 预留
+ * （本页根节点也不加 padding-bottom，否则滚动区凭空矮一截）。
+ * ============================================================ */
+@media (max-width: 768px) {
+  /* 跨页导航已经归底栏，再留一个"返回聊天"会和「公屏」重复并挤掉标题宽度；
+     只在挂了外壳时隐藏，窄窗口的桌面浏览器仍然要点它 */
+  html.has-shell .fl-back {
+    display: none;
+  }
+
+  .fl-top {
+    padding: 8px 12px;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .fl-house {
+    font-size: 15px;
+  }
+
+  /* 家园 ↔ 前线：本页唯一的导航，换成手游常见的整行分段控件。
+     独占一行放在标题下方，拇指的落点才不会压到右侧的"在前线"徽标和刷新键 */
+  .fl-switch {
+    order: 3;
+    flex: 1 0 100%;
+    gap: 4px;
+    padding: 4px;
+    border-radius: 13px;
+  }
+  .fl-switch-btn {
+    flex: 1;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 6px;
+    border-radius: 10px;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--muted);
+    background: rgba(255, 255, 255, 0.04);
+    transition: transform 0.12s ease, filter 0.15s ease, background 0.2s ease;
+  }
+  /* 触屏没有 hover 可依赖：当前页整块填主题渐变，另一半留暗底，一眼能看出在哪 */
+  .fl-switch-btn.on {
+    background: var(--accent-gradient, linear-gradient(90deg, #8b5cf6, #06b6d4));
+    color: #fff;
+    box-shadow: 0 4px 14px rgba(139, 92, 246, 0.38);
+  }
+
+  .fl-body {
+    padding: 12px 10px 14px;
+  }
+  .fl-block {
+    padding: 12px 10px;
+  }
+  .fl-block-head {
+    font-size: 15px;
+    margin-bottom: 12px;
+  }
+  .fl-b-chip {
+    width: 34px;
+    height: 34px;
+    font-size: 17px;
+    border-radius: 10px;
+  }
+
+  /* 状态三格：min-width 是唯一保险——净宽不够时整行折成 2+1，
+     而不是把 20px 的数字压到换行、三格高度参差 */
+  .fl-status-row {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .fl-stat {
+    flex: 1 1 40%;
+    min-width: 96px;
+    padding: 12px 4px;
+  }
+  .fl-stat-val {
+    font-size: 22px;
+  }
+
+  /* 建筑格：390px 下净宽约 346px → 3 列、每格约 108px，装得下四字词又足够宽热点中 */
+  .fl-grid {
+    grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+    gap: 10px;
+  }
+  .fl-cell {
+    min-height: 88px;
+    padding: 12px 6px;
+  }
+
+  .fl-btn {
+    min-height: 44px;
+    padding: 10px 16px;
+    font-size: 14px;
+  }
+
+  /* 主行动按钮：滚动容器是 .fl-body（根节点 overflow:hidden），
+     所以 sticky 的下沿天然停在底栏上沿，这里只需要把按钮撑成通栏大CTA */
+  .fl-actions {
+    padding: 12px 0 10px;
+  }
+  .fl-actions .fl-btn.big {
+    flex: 1 1 100%;
+    min-height: 50px;
+    font-size: 16px;
+    font-weight: 800;
+    letter-spacing: 1px;
+    border-radius: 14px;
+  }
+  .fl-actions .fl-btn.primary {
+    box-shadow: 0 8px 22px rgba(59, 130, 246, 0.4);
+  }
+  .fl-actions .fl-btn.danger {
+    box-shadow: 0 8px 22px rgba(239, 68, 68, 0.42);
+  }
+  /* 通栏大按钮若不"沉"下去，玩家分不清是按钮还是一块色条 */
+  .fl-actions .fl-btn.big:active:not(:disabled) {
+    transform: scale(0.98) translateY(2px);
+    filter: brightness(0.93);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+  }
+
+  /* 拆卸确认：居中弹窗的按钮在手机上够不着，改成贴着底栏上沿升起的抽屉；
+     z-index 必须高过底栏的 480，否则抽屉会被自己的导航条盖住一半 */
+  .fl-mask {
+    align-items: flex-end;
+    z-index: 500;
+    padding: 16px 0 calc(var(--mtb-h, 58px) + var(--safe-bottom, 0px));
+  }
+  .fl-modal {
+    width: 100%;
+    max-width: none;
+    border-radius: 18px 18px 0 0;
+    padding: 18px 16px 22px;
+    /* 高度上限按外壳实测的可视高度扣掉 HUD 与底栏，键盘/横屏下也不会顶穿屏幕 */
+    max-height: calc(var(--vvh, 100dvh) - var(--hud-h, 52px) - var(--mtb-h, 58px) - var(--safe-bottom, 0px) - 24px);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    animation: fl-sheet 0.26s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  /* 抽屉顶那道小横杠：暗示这块可以往下拖掉 */
+  .fl-modal::before {
+    content: '';
+    display: block;
+    width: 38px;
+    height: 4px;
+    margin: -6px auto 12px;
+    border-radius: 2px;
+    background: rgba(255, 255, 255, 0.24);
+  }
+  .fl-modal-title {
+    text-align: center;
+    font-size: 16px;
+  }
+  .fl-modal-desc {
+    margin-bottom: 18px;
+    line-height: 1.7;
+  }
+  /* 抽屉里的两个键拉平成左右各半：单手拇指够不到右下角那对右对齐的小按钮 */
+  .fl-modal-btns .fl-btn {
+    flex: 1;
+    min-height: 46px;
+    font-size: 15px;
+    font-weight: 700;
+  }
+  @keyframes fl-sheet {
+    from { transform: translateY(100%); }
+    to { transform: none; }
+  }
+}
+
+/* 手机竖屏（≤480，与 stores/device.js 的 isPhone 同断点）：仓库改成 4 列图标墙 */
+@media (max-width: 480px) {
+  /* 346px 净宽放 4 列时单格仍有 ~80px，缩略图+名称+数量的点卡够拇指按，
+     密度更接近常见手游的背包，也让一屏能看全库存不用滚 */
+  .fl-grid {
+    grid-template-columns: repeat(auto-fill, minmax(78px, 1fr));
+    gap: 8px;
+  }
+  .fl-cell {
+    min-height: 84px;
+    padding: 10px 4px;
+  }
+  .fl-cell-icon {
+    font-size: 28px;
+  }
+  .fl-top {
+    padding: 8px 10px;
+  }
+  .fl-switch-btn {
+    font-size: 14px;
+  }
+  /* 320px 老机型净宽只有 ~280px，沿用 96px 下限会折成 2+1 让第三格孤零零占半行，
+     收到 88px 就仍然是一排三格 */
+  .fl-stat {
+    min-width: 88px;
+    padding: 10px 2px;
+  }
+  .fl-stat-val {
+    font-size: 20px;
+  }
+  .fl-enemy,
+  .fl-weapon {
+    padding: 10px;
+  }
+  .fl-enemy-icon {
+    font-size: 28px;
+  }
+  .fl-cta-card {
+    padding: 24px 18px 20px;
+  }
+  .fl-cta-icon {
+    font-size: 38px;
+  }
+  .fl-cta-title {
+    font-size: 17px;
   }
 }
 </style>

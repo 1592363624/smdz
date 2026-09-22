@@ -178,6 +178,11 @@ function onLeave(id) {
     align-items: stretch;
   }
 }
+/* 有游戏外壳（顶部 HUD）的手机上，提示要落在 HUD 下方，
+   否则一有反馈就把头像/血条整条盖掉，玩家看不到自己掉血 */
+html.has-shell .toast-host {
+  top: calc(var(--hud-h, 52px) + var(--safe-top, 0px) + 8px);
+}
 
 @media (prefers-reduced-motion: reduce) {
   .toast-enter-active,

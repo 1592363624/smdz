@@ -1,0 +1,29 @@
+{
+  "name": "使魔大战3 · 逆流次元",
+  "short_name": "使魔大战3",
+  "description": "逆流次元文字MMORPG：公屏指令、家园经营、镜像天梯。添加到主屏幕后全屏运行，没有浏览器地址栏。",
+  "id": "/chat",
+  "start_url": "/chat",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["standalone", "fullscreen", "minimal-ui"],
+  "orientation": "portrait",
+  "background_color": "#0a0a1a",
+  "theme_color": "#0a0a1a",
+  "lang": "zh-CN",
+  "categories": ["games"],
+  "icons": [
+    {
+      "src": "/icons/icon-1024.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-1024.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

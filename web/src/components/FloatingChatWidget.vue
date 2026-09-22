@@ -1175,6 +1175,12 @@ function onKeydown(e) {
 
 // ---------- 气泡拖拽 ----------
 function onBubblePointerDown(e) {
+  // 手机端不给自由拖拽：悬浮气泡随便放是网页小工具的习惯，手游的入口位置必须固定，
+  // 否则玩家一拖就把世界聊天塞到底栏/输入框下面，再也找不回来。
+  if (window.matchMedia('(max-width: 768px)').matches) {
+    chat.setOpen(true);
+    return;
+  }
   const el = e.currentTarget;
   const startX = e.clientX;
   const startY = e.clientY;
@@ -2035,20 +2041,34 @@ onUnmounted(() => {
   font-weight: 800;
 }
 
-/* 移动端：略缩小，避开底部快捷栏 */
+/* 手机端：世界聊天不再是「可拖动的悬浮小球」，而是从底部升起的聊天面板。
+   入口改成公屏页拇指区技能栏里的「世界」键（FloatingChatWidget 的 open 状态在
+   stores/floatingChat 里，公屏页直接切换），所以这里把 FAB 收起。
+   72px 这类硬编码是给已删除的旧底部快捷栏让位的，现在统一按外壳的 --mtb-h 计算。 */
 @media (max-width: 768px) {
+  .fc-fab {
+    display: none;
+  }
   .fc-panel {
-    right: 10px;
-    bottom: 72px;
-    width: calc(100vw - 20px);
-    height: min(50vh, 360px);
+    left: 6px;
+    right: 6px;
+    bottom: calc(var(--mtb-h, 58px) + var(--safe-bottom) + 6px);
+    width: auto;
+    height: min(58dvh, 460px);
+    border-radius: 14px 14px 10px 10px;
   }
   .fc-panel.fullscreen {
-    width: calc(100vw - 16px);
-    height: calc(100vh - 40px);
-  }
-  .fc-fab {
-    bottom: 72px !important;
+    /* 伪全屏：从 HUD 下方一直铺到底栏上方，不再用 top:50% 居中缩放 */
+    top: calc(var(--hud-h, 52px) + var(--safe-top) + 6px);
+    left: 0;
+    right: 0;
+    bottom: calc(var(--mtb-h, 58px) + var(--safe-bottom));
+    transform: none;
+    width: auto;
+    height: auto;
+    max-width: none;
+    max-height: none;
+    border-radius: 14px 14px 0 0;
   }
 }
 </style>

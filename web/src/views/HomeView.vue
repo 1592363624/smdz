@@ -429,12 +429,17 @@
 
 <script setup>
 /**
+ * 显式声明组件名：App.vue 的 keep-alive 用 include 按名字缓存主页面，
+ * 依赖文件名自动推断在个别构建配置下会失效，写死更稳。
+ */
+defineOptions({ name: 'HomeView' });
+/**
  * 家园院子（QQ 农场式格子视图）独立页面，数据来自 GET /api/game/home/yard（只读，不结算、不领取）。
  * 写操作约定：种植/收获/安装/拆除/领取一律用 commandApi.execute 发送与 QQ 端逐字相同的文本指令，
  * 与聊天输入框、AstrBot 同一条路径——不存在第二条写路径，结算口径不会双轨。
  * 批量：刷选模式按住拖动选同状态地块，指令沿用原版「名称+数量」写法（parseCountedAction），超单条上限自动拆多条。
  */
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { io } from 'socket.io-client';
 import { commandApi, gameApi, homeApi } from '../api';
@@ -444,6 +449,7 @@ import HomeBuildGuide from '../components/HomeBuildGuide.vue';
 import { useUiStore } from '../stores/ui';
 import { usePlayerStore } from '../stores/player';
 import { syncServerClock, serverNow } from '../utils/serverClock';
+import { onTabRetap, scrollTopWithin } from '../composables/useTabRetap';
 
 const router = useRouter();
 const ui = useUiStore();
@@ -837,6 +843,24 @@ onMounted(() => {
   setTimeout(() => { tryDrainIdleQueue(); }, 600);
 });
 
+/* 再点一次「家园」标签：整页滚回院子顶部 */
+onTabRetap('/home', () => scrollTopWithin('.yd-page'));
+
+/* keep-alive 配套：本页被缓存后，切去别的标签页只会 deactivate，setInterval 并不会自己停，
+   家园 + 前线 + 竞技场同时在后台轮询就是白耗流量与电量（手机玩家的痛点）。
+   所以失活即停表、回到前台立刻补一次刷新，看到的永远不会是离开那一刻的旧数据。
+   首次激活时 onMounted 刚建好定时器，用 timer 非空跳过，避免重复起表。 */
+onActivated(() => {
+  if (timer) return;
+  refresh();
+  timer = setInterval(refresh, C.refreshMs);
+  clockTimer = setInterval(() => { clockTick.value = serverNow(); }, 250);
+});
+onDeactivated(() => {
+  if (timer) { clearInterval(timer); timer = null; }
+  if (clockTimer) { clearInterval(clockTimer); clockTimer = null; }
+});
+
 /** 空闲且队列有货：调服务端接龙（无读条时开挖下一条） */
 async function tryDrainIdleQueue() {
   if (drainGuard || running.value) return;
@@ -1129,6 +1153,29 @@ function selectAllEmpty(kind) {
 let brushing = false;
 /** 本次刷选的基准状态：只刷同状态地块，避免空地与作物混选 */
 let brushState = '';
+/** 刷选期间代为翻页的滚动容器（刷选态网格挂着 touch-action:none，手指拖不动页面） */
+let brushScrollBox = null;
+
+/**
+ * 指针停在滚动容器上下边缘附近时自动翻页。
+ * 选区始终由 elementFromPoint 按当前视口坐标重新判定，因此不需要任何坐标换算。
+ */
+function brushEdgeScroll(event) {
+  const box = brushScrollBox;
+  if (!box || box.scrollHeight - box.clientHeight <= 4) return;
+  const rect = box.getBoundingClientRect();
+  const edge = 48;
+  if (rect.height <= edge * 2) return;
+  if (event.clientY > rect.top + edge && event.clientY < rect.bottom - edge) return;
+  box.scrollTop += event.clientY <= rect.top + edge ? -12 : 12;
+}
+
+/** 往上找真正能滚的祖先：桌面是 .yd-yard，手机整页滚的是 .yd-page */
+function findBrushScroller(target) {
+  let box = target?.parentElement;
+  while (box && box.scrollHeight <= box.clientHeight + 4) box = box.parentElement;
+  return box && box !== document.body && box !== document.documentElement ? box : null;
+}
 
 /**
  * 批量模式下按下地块开始刷选（非批量模式完全不介入，交给 click 处理）。
@@ -1147,6 +1194,7 @@ function onPlotDown(event, kind, plot) {
   // Shift 点击 = 反选，方便微调
   if (event.shiftKey) toggleSelectionKey(key);
   else addSelectionKey(key);
+  brushScrollBox = findBrushScroller(event.target);
   window.addEventListener('pointermove', onBrushMove);
   window.addEventListener('pointerup', endBrush);
   window.addEventListener('pointercancel', endBrush);
@@ -1155,6 +1203,7 @@ function onPlotDown(event, kind, plot) {
 /** 拖动刷过其它地块：只加不选，且只收同状态的地块 */
 function onBrushMove(event) {
   if (!brushing) return;
+  brushEdgeScroll(event);
   const el = document.elementFromPoint(event.clientX, event.clientY);
   const host = el?.closest?.('.yd-plot');
   const key = host?.getAttribute?.('data-sel-key');
@@ -1169,6 +1218,7 @@ function onBrushMove(event) {
 
 function endBrush() {
   brushing = false;
+  brushScrollBox = null;
   window.removeEventListener('pointermove', onBrushMove);
   window.removeEventListener('pointerup', endBrush);
   window.removeEventListener('pointercancel', endBrush);
@@ -1579,7 +1629,9 @@ function clearObstacle(obstacle) {
 .yd-page {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  /* 100vh 在有地址栏的浏览器里比可视区高出一截，底部操作条会被推到屏外；
+     外壳挂载时全局规则会整条替换掉这个高度 */
+  height: 100dvh;
   background: var(--bg2, #0f1116);
   color: var(--text, #e5e7eb);
   font-size: 13px;
@@ -1609,6 +1661,10 @@ function clearObstacle(obstacle) {
 .yd-back:hover {
   filter: brightness(1.2);
 }
+/* 触屏无 hover，按下要有东西在动，否则只点得到一次才知道它是按钮 */
+.yd-back:active {
+  transform: scale(0.94);
+}
 /* ---------- 家园 ↔ 前线 面板切换 ---------- */
 .yd-switch {
   display: flex;
@@ -1635,6 +1691,11 @@ button.yd-switch-btn {
 button.yd-switch-btn:hover {
   color: var(--text, #e5e7eb);
   background: rgba(255, 255, 255, 0.06);
+}
+/* 未选中态没有底色，靠按下反馈告诉用户这一下切到了另一页 */
+button.yd-switch-btn:active {
+  transform: scale(0.96);
+  background: rgba(255, 255, 255, 0.12);
 }
 .yd-switch-btn.on {
   color: var(--text, #e5e7eb);
@@ -1686,7 +1747,8 @@ button.yd-switch-btn:hover {
   cursor: pointer;
   animation: yd-ripe-pulse 2.4s ease-in-out infinite;
 }
-.yd-meta-btn:hover:not(:disabled) {
+.yd-meta-btn:hover:not(:disabled),
+.yd-meta-btn:active:not(:disabled) {
   filter: brightness(1.2);
 }
 .yd-meta-btn:disabled {
@@ -2184,6 +2246,11 @@ button.yd-switch-btn:hover {
   cursor: pointer;
   font-size: 12px;
 }
+/* 种子 / 建筑两个页签长得一样，没有按下反馈就分不清刚点了哪一个 */
+.yd-tab:active:not(:disabled) {
+  transform: scale(0.97);
+  background: rgba(255, 255, 255, 0.06);
+}
 .yd-tab.on {
   color: var(--text, #e5e7eb);
   border-color: var(--accent, #8b5cf6);
@@ -2211,7 +2278,8 @@ button.yd-switch-btn:hover {
   color: #fb923c;
   border-color: rgba(251, 146, 60, 0.4);
 }
-.yd-chip.obstacle:hover:not(:disabled) {
+.yd-chip.obstacle:hover:not(:disabled),
+.yd-chip.obstacle:active:not(:disabled) {
   filter: brightness(1.2);
 }
 .yd-chip-go {
@@ -2252,6 +2320,11 @@ button.yd-switch-btn:hover {
 }
 .yd-stock:hover:not(:disabled) {
   border-color: var(--accent, #8b5cf6);
+}
+/* 仓库行整行都是热区（选中/直接用），按下不塌一下认不出点中了哪一行 */
+.yd-stock:active:not(:disabled) {
+  transform: scale(0.99);
+  background: rgba(139, 92, 246, 0.12);
 }
 .yd-stock:disabled {
   opacity: 0.5;
@@ -2446,13 +2519,15 @@ button.yd-switch-btn:hover {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 50;
+  /* 这层遮罩盖满整屏（手机上含底部标签栏），层级要压住标签栏，否则会漏出一条还能点的底栏 */
+  z-index: 52;
   padding: 20px;
   animation: yd-fade-in 0.18s ease-out;
 }
 .yd-modal {
   width: min(420px, 100%);
-  max-height: 70vh;
+  /* 70vh 按布局视口算：地址栏收起时模态底边会落到可视区之外，最后几行怎么滚都出不来 */
+  max-height: min(70dvh, 560px);
   display: flex;
   flex-direction: column;
   border-radius: 12px;
@@ -2489,6 +2564,9 @@ button.yd-switch-btn:hover {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  /* 弹性项默认 min-height:auto 会拒绝收缩，列表一长就被模态的 overflow:hidden 裁掉而不是滚动 */
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 /* ---------- 移动端 ---------- */
@@ -2507,6 +2585,128 @@ button.yd-switch-btn:hover {
   }
   .yd-meta {
     font-size: 10px;
+  }
+}
+
+/*
+ * 手机形态（App 的 HUD + 底部标签栏已接管翻页导航）：
+ * 根容器高度交给全局 .game-stage > * 规则，这里只把桌面「左右分栏 + 独立滚动」
+ * 改成「单列整页滚动」，并把点按控件放大到戴手套也按得中的尺寸。
+ */
+@media (max-width: 768px) {
+  .yd-page {
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    /* 上沿不留白：App 的 HUD 已经把刘海让开，页内顶部再撑一段会像第二条状态栏 */
+    padding: 0 0 8px;
+  }
+  /* 建造引导整页交给子组件，只有本页能滚才不会把它的指令面板顶出可视区 */
+  .yd-page-building {
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* 顶栏降格为 HUD 之下的一条次级工具条 */
+  .yd-top {
+    padding: 8px 10px;
+    row-gap: 6px;
+  }
+  /* 回公屏由底部「公屏」标签承担，留着只会抢家园名的位置 */
+  .yd-back {
+    display: none;
+  }
+  .yd-head-main {
+    order: 1;
+    flex: 1 1 auto;
+  }
+  .yd-head-ops {
+    order: 2;
+  }
+  /* 家园 ↔ 前线与底部标签栏同族，独占一行拉满才认得出是可切换的页签 */
+  .yd-switch {
+    order: 3;
+    width: 100%;
+  }
+  .yd-switch-btn {
+    flex: 1 1 0;
+    min-height: 36px;
+    font-size: 13px;
+  }
+  .yd-meta {
+    gap: 6px 8px;
+  }
+  /* 「可收获」徽标就是手机端唯一的一键收获入口，徽标尺寸点不动 */
+  .yd-meta-btn {
+    min-height: 34px;
+    padding: 0 12px;
+    font-size: 12px;
+  }
+  /* 体力条要一眼读出，11px 会糊成一片 */
+  .yd-pill {
+    padding: 5px 10px;
+    font-size: 12px;
+  }
+
+  /* 全局触屏层给的是 40px 兜底，本页按钮承担发指令，要再高一档 */
+  .yd-btn {
+    min-height: 38px;
+    padding: 8px 14px;
+    font-size: 12px;
+  }
+  .yd-btn.tiny {
+    min-height: 34px;
+    padding: 6px 12px;
+    font-size: 12px;
+  }
+  /* 仓库列表自带 320px 滚动区，嵌进整页滚动里会吃掉手指的滑动 */
+  .yd-stock-list {
+    max-height: none;
+  }
+
+  /* 数量选择器改成底部抽屉：拇指够得到，也让开上方被 HUD 占住的区域 */
+  .yd-mask {
+    align-items: flex-end;
+    padding: 0;
+    /* 必须盖过 App 级底栏（480）：抽屉本身贴到视口底，压不住就会被底栏挡掉最后一排按钮 */
+    z-index: 620;
+  }
+  .yd-modal {
+    width: 100%;
+    max-width: 520px;
+    /* 上沿不越过 HUD，否则抽屉标题会和状态条叠成一条 */
+    max-height: min(72dvh, calc(var(--vvh, 100dvh) - var(--hud-h, 52px) - 32px));
+    margin: 0 auto;
+    border-bottom: none;
+    border-radius: 18px 18px 0 0;
+  }
+  .yd-m-head {
+    padding: 14px 16px;
+  }
+  .yd-m-list {
+    padding: 10px 16px calc(18px + var(--safe-bottom, 0px));
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* 窄屏再收一档：桌面留白在手机上换不成内容，只会把地块挤小 */
+@media (max-width: 480px) {
+  /* --yd-min 由 gridStyle 写成行内值，只有 !important 能压过它；
+     96px 在 320px 一级的小屏只排得下两列，收成 88px 才够三列 */
+  .yd-grid {
+    --yd-min: 88px !important;
+    --yd-gap: 8px !important;
+  }
+  .yd-body {
+    padding: 8px;
+  }
+  /* 标题与操作组并排会互相挤压，宁可让操作另起一行左对齐 */
+  .yd-b-ops {
+    margin-left: 0;
+    width: 100%;
+  }
+  /* 详情条里的动作各占一整行：窄屏上并排按钮会挤成两行错位的文字，读不出主操作 */
+  .yd-d-ops .yd-btn {
+    flex: 1 1 100%;
   }
 }
 </style>

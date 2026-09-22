@@ -500,7 +500,7 @@ function dmgSize(seg) {
   70% { opacity: 1; transform: scale(0.92) rotate(-3deg); filter: none; }
   100% { transform: scale(1) rotate(-3deg); }
 }
-.bc-kill-name { color: #fecaca; font-weight: 800; font-size: 14px; }
+.bc-kill-name { color: #fecaca; font-weight: 800; font-size: 14px; min-width: 0; }
 .bc-kill-word { color: #f87171; font-size: 12px; letter-spacing: 2px; }
 
 /* ================= 掉落 / 经验 / 偷取 ================= */
@@ -609,6 +609,47 @@ function dmgSize(seg) {
 .bc-rally-icon { margin-right: 4px; }
 .bc-status { font-size: 11.5px; color: #fcd34d; margin: 3px 0; opacity: 0.9; }
 .bc-raw { font-size: 12px; color: #94a3b8; margin: 2px 0; white-space: pre-line; }
+
+/* ================= 手机端：结算卡是玩家逐条回看的输出 ================= */
+@media (max-width: 768px) {
+  /* 徽章/三池分项/统计全是数字，等宽后同一张卡里上下行才对得齐（默认比例字体里 1 比 0 窄） */
+  .bc-badge,
+  .bc-pool,
+  .bc-rating,
+  .bc-stat,
+  .bc-capture {
+    font-variant-numeric: tabular-nums;
+  }
+  .bc-htitle {
+    letter-spacing: 1.5px;
+  }
+  /* 小节标题强制单行 + 2px 字距，长标题会把两侧的分割线挤成 0 宽，看起来像普通文本 */
+  .bc-divider-title {
+    white-space: normal;
+    letter-spacing: 1px;
+    text-align: center;
+    overflow-wrap: anywhere;
+  }
+  /* 击杀行是 flex 且默认不换行：长怪名（带品质前缀）会把「已被击杀」顶出卡片裁切区 */
+  .bc-kill {
+    flex-wrap: wrap;
+    row-gap: 2px;
+  }
+  .bc-kill-name {
+    overflow-wrap: anywhere;
+  }
+  .bc-kill-word {
+    letter-spacing: 1px;
+  }
+  /* 命中行自带 overflow:hidden（剑光扫过要裁切），所以长文本要先允许断词，不能被切掉 */
+  .bc-hit-text,
+  .bc-extra,
+  .bc-raw,
+  .bc-death,
+  .bc-status {
+    overflow-wrap: anywhere;
+  }
+}
 
 /* ================= 无障碍：减少动态效果 ================= */
 @media (prefers-reduced-motion: reduce) {

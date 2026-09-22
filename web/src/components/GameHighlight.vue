@@ -502,7 +502,9 @@ defineExpose({ push });
 /* ===== 手机端：整体收紧，避免遮挡聊天区 ===== */
 @media (max-width: 640px) {
   .gh-stack {
-    top: calc(50px + var(--safe-top, 0px));
+    /* 写死 50px 会比外壳 HUD（--hud-h 52px，横屏 40px）高 2px、矮 10px：
+       高光卡的图层只有 180 层，顶边会被 HUD 直接削掉一个圆角。改用同一个变量对齐。 */
+    top: calc(var(--hud-h, 52px) + var(--safe-top, 0px) + 2px);
     gap: 8px;
   }
   .gh-card {

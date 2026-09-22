@@ -71,7 +71,7 @@
               class="ar-tier"
               :class="[toneClass(t), { on: t.key === myTier?.key }]"
               :title="`赛季末排进第 ${t.rankFrom} ~ ${t.rankTo || '∞'} 名即为本段位`"
-            >{{ t.name }} {{ tierRangeText(t) }}</span>
+            >{{ t.name }} <em>{{ tierRangeText(t) }}</em></span>
           </div>
 
           <!-- 镜像状态：冻结快照不会随主人变强，所以提交时间与新鲜度必须摆在台面上 -->
@@ -122,7 +122,8 @@
         <div v-if="!ladderRows.length" class="ar-empty">
           {{ loading ? '榜单加载中…' : (ladderFilter ? `没有主人名含「${ladderFilter}」的镜像，换个关键词或清除搜索` : '本赛季还没有镜像，先「提交镜像」成为第一个上榜的人') }}
         </div>
-        <div v-else class="ar-table-wrap">
+        <!-- .ladder 只是手机端「按列裁剪 + 首列钉住」的钩子，桌面端没有任何规则命中它 -->
+        <div v-else class="ar-table-wrap ladder">
           <table class="ar-table">
             <thead>
               <tr>
@@ -313,10 +314,11 @@
             </thead>
             <tbody>
               <tr v-for="(h, hi) in holderRows" :key="h.userId + '-' + hi">
-                <td class="num">{{ h.userId }}</td>
-                <td>{{ h.expiresAt ? fmtDateTime(h.expiresAt) : '永久' }}</td>
-                <td class="name" :title="h.reason">{{ h.reason || '—' }}</td>
-                <td><button class="ar-btn tiny danger ghost" :disabled="adminBusy" @click="adminRevoke(h)">撤销</button></td>
+                <!-- data-label 只在手机端行转卡片时由 td::before 取用，桌面端的表格不读它 -->
+                <td class="num" data-label="玩家 ID">{{ h.userId }}</td>
+                <td data-label="到期">{{ h.expiresAt ? fmtDateTime(h.expiresAt) : '永久' }}</td>
+                <td class="name" :title="h.reason" data-label="理由">{{ h.reason || '—' }}</td>
+                <td data-label="操作"><button class="ar-btn tiny danger ghost" :disabled="adminBusy" @click="adminRevoke(h)">撤销</button></td>
               </tr>
             </tbody>
           </table>
@@ -373,12 +375,13 @@
                 </thead>
                 <tbody>
                   <tr v-for="(r, ri) in reportRounds" :key="ri" :class="{ crit: r.crit, miss: r.miss }">
-                    <td class="num">{{ r.t }}s</td>
-                    <td>{{ r.side }}</td>
-                    <td class="name">{{ r.weapon }}</td>
-                    <td>{{ r.verdict }}</td>
-                    <td class="num">{{ r.damage }}<em v-if="r.split"> {{ r.split }}</em><em v-if="r.leech"> {{ r.leech }}</em></td>
-                    <td class="num pools">{{ r.pools }}</td>
+                    <!-- 回合明细在手机上是「一条流水」而不是表格：列头看不见，字段名靠 data-label 自带 -->
+                    <td class="num" data-label="时刻">{{ r.t }}s</td>
+                    <td data-label="出手">{{ r.side }}</td>
+                    <td class="name" data-label="武器">{{ r.weapon }}</td>
+                    <td data-label="判定">{{ r.verdict }}</td>
+                    <td class="num" data-label="伤害">{{ r.damage }}<em v-if="r.split"> {{ r.split }}</em><em v-if="r.leech"> {{ r.leech }}</em></td>
+                    <td class="num pools" data-label="余量">{{ r.pools }}</td>
                   </tr>
                 </tbody>
               </table>
@@ -482,6 +485,8 @@
 </template>
 
 <script setup>
+/** 组件名供 App.vue 的 keep-alive include 使用 */
+defineOptions({ name: 'ArenaView' });
 /**
  * 使魔竞技场 · 镜像天梯（异步 PVP）网页面板。
  *
@@ -492,10 +497,13 @@
  * 管理（ADMIN/SUPER_ADMIN）：adminArenaApi，后台动作走 HTTP 是指令侧之外的另一条运维入口，
  *     服务端两边收敛到 ArenaSeasonService 同一批方法。
  */
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { adminArenaApi, arenaApi, commandApi } from '../api';
 import { useUiStore } from '../stores/ui';
+import { onTabRetap, scrollTopWithin } from '../composables/useTabRetap';
+/* 再点一次「竞技场」标签：回到榜单顶部 */
+onTabRetap('/arena', () => scrollTopWithin('.ar-body'));
 
 const router = useRouter();
 const ui = useUiStore();
@@ -848,18 +856,29 @@ const winnerText = computed(() => {
   return `${name}（${r.winner === 'attacker' ? '攻方' : '守方'}）`;
 });
 
-onMounted(() => {
-  refresh();
-  loadHoldersIfNeeded();
+/** 起停本页的轮询/时钟与 Esc 监听；keep-alive 失活时必须停，否则后台白耗请求，
+ *  而且 window 上的 Esc 监听会跨页面把本页的抽屉关掉（玩家在公屏按 Esc 却收了战报）。 */
+function startPageTimers() {
+  if (timer) return;
   timer = setInterval(refresh, REFRESH_MS);
   clockTimer = setInterval(() => { nowTick.value = Date.now(); }, 1000);
   window.addEventListener('keydown', onKeydown);
-});
-onBeforeUnmount(() => {
-  if (timer) clearInterval(timer);
-  if (clockTimer) clearInterval(clockTimer);
+}
+function stopPageTimers() {
+  if (timer) { clearInterval(timer); timer = null; }
+  if (clockTimer) { clearInterval(clockTimer); clockTimer = null; }
   window.removeEventListener('keydown', onKeydown);
+}
+
+onMounted(() => {
+  refresh();
+  loadHoldersIfNeeded();
+  startPageTimers();
 });
+/* 从别的标签页切回来：立即补一次刷新，看到的不是离开那一刻的旧榜单 */
+onActivated(startPageTimers);
+onDeactivated(stopPageTimers);
+onBeforeUnmount(stopPageTimers);
 
 /** Esc 关掉当前最上层的浮层（确认面板优先于战报抽屉） */
 function onKeydown(event) {
@@ -1399,7 +1418,8 @@ function readStoredUser() {
 .ar-page {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  /* dvh：手机浏览器的地址栏收展会让 100vh 比可视区高出一截，整页被顶出一段点不到的空白 */
+  height: 100dvh;
   background: var(--bg2, #14102a);
   color: var(--text, #f1f1f9);
   font-size: 13px;
@@ -1428,6 +1448,11 @@ function readStoredUser() {
 }
 .ar-back:hover {
   filter: brightness(1.2);
+}
+/* 这个按钮原本只有 hover 态，桌面端点下去没有任何反馈，补一个和 .ar-btn 同规格的按压 */
+.ar-back:active:not(:disabled) {
+  transform: scale(0.94);
+  filter: brightness(1.25);
 }
 .ar-head-main {
   min-width: 0;
@@ -1614,6 +1639,10 @@ function readStoredUser() {
 .ar-tier.on {
   background: var(--ar-tone-soft, rgba(139, 92, 246, 0.18));
   box-shadow: 0 0 10px var(--ar-tone-soft, rgba(139, 92, 246, 0.3));
+}
+/* em 只是为了让名次区间能在手机上单独换行；桌面端保持与普通文本完全一致 */
+.ar-scale .ar-tier em {
+  font-style: normal;
 }
 .ar-mirror {
   display: flex;
@@ -2202,7 +2231,7 @@ function readStoredUser() {
 /* ---------- 侦察 / 开战确认 ---------- */
 .ar-ask {
   width: min(560px, 100%);
-  max-height: 86vh;
+  max-height: 86dvh;
   margin: auto;
   display: flex;
   flex-direction: column;
@@ -2451,5 +2480,369 @@ function readStoredUser() {
     padding-left: 10px;
     padding-right: 10px;
   }
+}
+
+/* ============================================================
+ * 手机端（有游戏外壳的这一档）：把「能看的网页表格」变成「单手能打的界面」
+ *
+ * 为什么不并进上面那个 640 块：768 是 App.vue 里 device.isMobile / has-shell
+ * 判定外壳存不存在用的同一个断点，凡是涉及给 HUD 与底栏让位的规则（抽屉、返回键）
+ * 只在有外壳时成立；640 那批是无外壳也要生效的老窄屏兜底。两块同特异度，
+ * 靠源码顺序决胜，且桌面端（>768）完全不会进到这里。
+ * ============================================================ */
+@media (max-width: 768px) {
+  /* ---------- 归属外壳的两件事 ---------- */
+  /* 导航已经由底栏五个标签接管，页内「返回聊天」在手机上没有对手势的解释权，还占掉顶栏一格；
+     用 html.has-shell 收口，是为了让「没有外壳的窄窗口」仍然留着一个能回家的出口 */
+  html.has-shell .ar-back {
+    display: none;
+  }
+  /* 浮层不铺满整个浏览器：上让 HUD、下让底栏都留出实高，
+     底栏保持可点（玩家会一边看战报一边切回公屏吹一把），浮层自己的滚动也不会把按钮藏进底栏 */
+  html.has-shell .ar-mask {
+    top: calc(var(--safe-top) + var(--hud-h));
+    right: 0;
+    bottom: calc(var(--mtb-h) + var(--safe-bottom));
+    left: 0;
+    z-index: 60;
+  }
+  /* 键盘顶起时底栏是收起来的（styles.css 的 body.kb-open .mtb），这里跟着放回去，否则白留一条 */
+  html.has-shell body.kb-open .ar-mask {
+    bottom: 0;
+  }
+
+  /* ---------- 顶栏：HUD 已经管住「我是谁」，这里只留赛季与刷新 ---------- */
+  .ar-top {
+    gap: 8px;
+    padding: 5px 10px;
+  }
+  .ar-title {
+    font-size: 14px;
+  }
+  .ar-meta {
+    gap: 4px 8px;
+    margin-top: 1px;
+    font-size: 10px;
+  }
+  .ar-head-ops {
+    gap: 6px;
+  }
+  /* 「更新于」在 30s 轮询里几乎不动，却和段位徽标、刷新键抢同一格；它的信息在页面里不唯一 */
+  .ar-updated {
+    display: none;
+  }
+  .ar-top .ar-tier {
+    padding: 3px 8px;
+  }
+  .ar-top .ar-btn {
+    padding: 6px 12px;
+  }
+  .ar-body {
+    padding: 8px;
+    gap: 10px;
+  }
+  .ar-block {
+    padding: 10px;
+  }
+
+  /* ---------- 我的天梯：紧凑 2×2 战果屏 ---------- */
+  .ar-stat {
+    padding: 8px 6px;
+  }
+  .ar-stat-val {
+    font-size: 18px;
+  }
+  .ar-stat-label {
+    font-size: 10px;
+    line-height: 1.45;
+  }
+  /* 触屏没有 tooltip：把 title 里的名次区间摊成徽标第二行，段位自己就把话说完 */
+  .ar-scale {
+    gap: 5px;
+  }
+  .ar-scale .ar-tier {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 3px 8px;
+    line-height: 1.3;
+    white-space: normal;
+  }
+  .ar-scale .ar-tier em {
+    font-size: 9px;
+    opacity: 0.78;
+  }
+  .ar-mirror {
+    padding: 9px;
+  }
+
+  /* ---------- 表格：先拆掉「必须横向拖」这件事 ---------- */
+  .ar-table {
+    min-width: 0;
+    font-size: 12px;
+  }
+  .ar-table th,
+  .ar-table td {
+    padding: 6px 5px;
+  }
+  /* 天梯榜：等级由战力隐含、镜像版本/提交时间在侦察弹窗里是主角，
+     列表上只留「第几名 / 谁 / 多强 / 打不打」，四列在 390px 里不用横拖 */
+  .ar-table-wrap.ladder .ar-table th:nth-child(4),
+  .ar-table-wrap.ladder .ar-table td:nth-child(4),
+  .ar-table-wrap.ladder .ar-table th:nth-child(6),
+  .ar-table-wrap.ladder .ar-table td:nth-child(6) {
+    display: none;
+  }
+  /* 「下一档」标签整页只出现一次，却会把名次列永久撑宽：让它竖挂在数字下面 */
+  .ar-next-tag {
+    display: block;
+    margin-left: 0;
+    padding: 0 3px;
+    font-size: 9px;
+    line-height: 1.5;
+  }
+  /* 首列钉住：万一玩家自己把字号放大、或屏幕窄到 320px 仍需横拖，
+     滚到哪一行都还记得名次（操作列的 sticky 右边在上面的 640 块里已经有了） */
+  .ar-table-wrap.ladder .ar-table td.rank {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    width: 34px;
+    padding-right: 8px;
+    background: var(--bg3, #1e1a3a);
+    box-shadow: inset -1px 0 0 rgba(42, 31, 94, 0.9);
+  }
+  .ar-table-wrap.ladder .ar-table td.name {
+    max-width: 130px;
+  }
+  .ar-table-wrap.ladder .ar-table td.ops {
+    padding-right: 6px;
+  }
+  .ar-table-wrap.ladder .ar-btn.icon {
+    margin-right: 5px;
+  }
+
+  /* 回合流水与后台在册表：这两张表列数少、字段长短悬殊，横向对齐本来就没意义，
+     直接摊成「字段名+值」的紧凑流水行，字段名由 td 上的 data-label 自带 */
+  .ar-table-wrap.round .ar-table thead,
+  .ar-block.admin .ar-table thead {
+    display: none;
+  }
+  .ar-table-wrap.round .ar-table tr,
+  .ar-block.admin .ar-table tr {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px 10px;
+    padding: 7px 8px;
+    border-bottom: 1px solid rgba(42, 31, 94, 0.6);
+  }
+  .ar-table-wrap.round .ar-table tr:last-child,
+  .ar-block.admin .ar-table tr:last-child {
+    border-bottom: none;
+  }
+  .ar-table-wrap.round .ar-table td,
+  .ar-block.admin .ar-table td {
+    display: flex;
+    flex: 0 1 auto;
+    gap: 4px;
+    max-width: none;
+    padding: 0;
+    border-bottom: none;
+    text-align: left;
+    white-space: normal;
+  }
+  .ar-table-wrap.round .ar-table td::before,
+  .ar-block.admin .ar-table td::before {
+    content: attr(data-label);
+    flex-shrink: 0;
+    color: var(--muted);
+    font-size: 10px;
+  }
+  /* 值要能吃掉剩余宽度并自己折行（后台的「理由」是长句，截断后手机上没有 tooltip 可看） */
+  .ar-table-wrap.round .ar-table td > *,
+  .ar-block.admin .ar-table td > * {
+    min-width: 0;
+  }
+
+  /* ---------- 分页 ---------- */
+  .ar-pager {
+    gap: 6px;
+  }
+
+  /* ---------- 赛季奖励 ---------- */
+  .ar-chip {
+    padding: 6px 9px;
+    font-size: 12px;
+  }
+
+  /* ---------- 装扮：两列收集册 ---------- */
+  .ar-frames {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+  /* 一行一框会把描述挤成一竖条，也看不出「这是一排可收集的框」；竖排卡片才是收集册的读法 */
+  .ar-frame {
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 8px;
+    text-align: center;
+  }
+  .ar-frame-main {
+    width: 100%;
+  }
+  .ar-frame-name {
+    font-size: 12px;
+    white-space: normal;
+  }
+  .ar-frame-desc {
+    font-size: 10px;
+    line-height: 1.45;
+    max-height: 44px;
+    overflow: hidden;
+  }
+  .ar-frame .ar-btn {
+    width: 100%;
+  }
+  .ar-priv {
+    flex-wrap: wrap;
+    gap: 4px 8px;
+  }
+
+  /* ---------- 控件：全局触屏层只兜高度，宽度与字号要在这里自己抬 ---------- */
+  .ar-btn {
+    padding: 9px 14px;
+  }
+  .ar-btn.tiny {
+    padding: 8px 12px;
+  }
+  /* 侦察是这页真正的核心动作，一个 24px 的放大镜小方块配不上它 */
+  .ar-btn.icon {
+    min-width: 44px;
+    padding: 8px 6px;
+  }
+  .ar-btn.page {
+    min-width: 44px;
+    padding: 8px 4px;
+  }
+  .ar-btn.primary,
+  .ar-btn.danger {
+    min-height: 44px;
+  }
+  /* 全局层给 input 的 16px 特异度为 0，被上面的 .ar-input:12px 压住了，
+     必须在这里抬回来：小于 16px 的输入框一聚焦，iOS 就把整页放大 1.2 倍且不缩回 */
+  .ar-input,
+  .ar-input.tiny,
+  .ar-input.short {
+    min-height: 42px;
+    padding: 8px 10px;
+    font-size: 16px;
+  }
+  .ar-input.tiny {
+    flex: 1 1 150px;
+    width: auto;
+  }
+  .ar-input.short {
+    flex: 0 0 108px;
+    width: 108px;
+  }
+  .ar-admin-row {
+    gap: 6px;
+  }
+  /* 后台授予那一行有 5 个输入框：不给自己一个像样的 flex-basis，它们会挤成一排细条而谁也填不进 */
+  .ar-admin-row .ar-input {
+    flex: 1 1 150px;
+  }
+  .ar-admin-row .ar-btn {
+    flex: 1 1 100%;
+  }
+
+  /* ---------- 战报抽屉 / 确认浮层 ---------- */
+  .ar-drawer {
+    width: 100%;
+    border-left: 0;
+    box-shadow: 0 -20px 50px rgba(0, 0, 0, 0.55);
+    animation: ar-sheet-up 0.24s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .ar-drawer-head {
+    gap: 8px;
+    padding: 8px 10px;
+  }
+  .ar-drawer-body {
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 6px;
+  }
+  .ar-drawer-nav {
+    gap: 8px;
+  }
+  .ar-drawer-nav .ar-btn {
+    flex: 1;
+  }
+  /* .ar-dim 的 margin-left:auto 是自动边界，会把 flex:1 想分的富余空间全吃掉，这里改用 space-between */
+  .ar-drawer-nav .ar-dim {
+    margin-left: 0;
+  }
+  .ar-table-wrap.round {
+    margin-top: 10px;
+  }
+  /* 正文是等宽的服务端文本，12px 在 390px 上会折成一团，压一档并留出边距 */
+  .ar-lines {
+    margin: 10px 10px 14px;
+    padding: 10px;
+    font-size: 11px;
+    line-height: 1.6;
+  }
+  .ar-ask {
+    width: 100%;
+    max-height: 100%;
+    border-radius: 14px;
+  }
+  .ar-ask-head,
+  .ar-ask-body {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+  .ar-ask-foot {
+    flex-wrap: wrap;
+    padding: 10px;
+  }
+  /* 开战是不可回退的：确认键给满拇指热区，别让它在最后一步点滑 */
+  .ar-ask-foot .ar-btn {
+    flex: 1 1 46%;
+    min-height: 44px;
+  }
+}
+
+/* 小屏手机（≤480，主流机型竖屏）：再让一档，只处理「还是挤」的部分 */
+@media (max-width: 480px) {
+  /* 段位本来就是名次的派生值，兜不住宽度时最先该让的是它 */
+  .ar-table-wrap.ladder .ar-table th:nth-child(2),
+  .ar-table-wrap.ladder .ar-table td:nth-child(2) {
+    display: none;
+  }
+  .ar-table-wrap.ladder .ar-table td.name {
+    max-width: 42vw;
+  }
+  .ar-title {
+    font-size: 13px;
+  }
+  .ar-stat-val {
+    font-size: 17px;
+  }
+  .ar-ask-title b {
+    font-size: 13px;
+  }
+  .ar-frames {
+    gap: 5px;
+  }
+  .ar-frame {
+    padding: 9px 6px;
+  }
+}
+
+@keyframes ar-sheet-up {
+  from { transform: translateY(18px); opacity: 0.5; }
+  to { transform: none; opacity: 1; }
 }
 </style>

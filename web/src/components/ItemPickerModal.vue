@@ -206,6 +206,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
   background: rgba(248, 113, 113, 0.1);
   border-color: rgba(248, 113, 113, 0.3);
 }
+/* 触屏没有 hover：只靠 hover 变色的话，按下去那一刻没有任何反馈 */
+.ipm-close:active {
+  transform: scale(0.92);
+}
 /* ===== 搜索框 ===== */
 .ipm-search {
   display: flex;
@@ -272,6 +276,11 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
   background: rgba(139, 92, 246, 0.1);
   border-color: rgba(139, 92, 246, 0.25);
 }
+/* 行本身是 <div> 不是 <button>，全局触屏按压层管不到它，而「点一行＝提交」正是本弹窗唯一的操作 */
+.ipm-item:active {
+  background: rgba(139, 92, 246, 0.22);
+  border-color: rgba(139, 92, 246, 0.5);
+}
 .ipm-dot {
   width: 9px;
   height: 9px;
@@ -316,5 +325,61 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
 .ipm-empty span {
   font-size: 11.5px;
   opacity: 0.8;
+}
+
+/* ===== 手机端：居中弹窗 → 底部抽屉 =====
+   本弹窗没有「确定」按钮，点某一行就是提交，所以操作目标就是整张列表；
+   居中形态会把列表上半截顶到拇指够不着的位置，越靠下的项越难点中，
+   而抽屉让列表从屏幕下沿往上排，拇指天然落在前几行上。 */
+@media (max-width: 768px) {
+  .ipm-mask {
+    align-items: flex-end;
+    padding: 0;
+  }
+  .ipm-box {
+    position: relative; /* 抽屉握把用 ::before 画，不改模板结构 */
+    flex: 0 0 auto;
+    width: 100%;
+    /* 管理后台路由不套游戏外壳（没有 HUD 也没有底栏），所以这里只按视口收一寸留出场感，
+       不必再去减 --hud-h / --mtb-h，否则白丢 110px 列表高度。 */
+    max-height: min(var(--vvh, 100dvh), 88dvh);
+    padding: 10px 14px calc(12px + var(--safe-bottom, 0px));
+    border-bottom: 0;
+    border-radius: 18px 18px 0 0;
+    box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.55);
+    gap: 8px;
+  }
+  /* 没有握把的底部面板看起来像被裁掉一半的桌面弹窗 */
+  .ipm-box::before {
+    content: '';
+    flex: 0 0 auto;
+    width: 40px;
+    height: 4px;
+    margin: 0 auto 2px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.22);
+  }
+  .ipm-close {
+    /* 手机上没有 has-shell，全局 40px 触屏层够不到这里，只能自己撑大命中区 */
+    width: 40px;
+    height: 40px;
+    margin: -6px -8px -6px 0;
+    font-size: 22px;
+  }
+  .ipm-list {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
+  /* 行高是「点中哪一项」唯一的成本，44px 以下误触相邻行很明显 */
+  .ipm-item {
+    min-height: 46px;
+    padding: 10px 12px;
+  }
+  .ipm-name {
+    font-size: 14px;
+  }
+  .ipm-cat {
+    font-size: 12px;
+  }
 }
 </style>

@@ -835,6 +835,8 @@ onBeforeUnmount(() => {
   transition: transform 0.15s ease, background 0.2s ease, border-color 0.2s ease;
 }
 .hbg-btn:hover:not(:disabled) { transform: translateY(-1px); background: rgba(255, 255, 255, 0.12); }
+/* hover 位移在触屏上会「粘住」，且全局零特异度按压层被这条 hover 盖过，故显式补一个按下态 */
+.hbg-btn:active:not(:disabled) { transform: translateY(0) scale(0.97); background: rgba(255, 255, 255, 0.2); }
 .hbg-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .hbg-btn:focus-visible {
   outline: 2px solid rgba(78, 163, 255, 0.7);
@@ -2109,6 +2111,10 @@ onBeforeUnmount(() => {
   background: rgba(20, 32, 52, 0.75);
   transform: translateX(-1px);
 }
+.hbg-back:active:not(:disabled) {
+  background: rgba(30, 48, 76, 0.9);
+  transform: translateX(0) scale(0.96);
+}
 .hbg-back:disabled { opacity: 0.5; cursor: not-allowed; }
 .hbg-back:focus-visible {
   outline: 2px solid rgba(78, 163, 255, 0.7);
@@ -2244,6 +2250,10 @@ onBeforeUnmount(() => {
   transform: translateY(-2px);
   box-shadow: 0 10px 26px rgba(255, 160, 60, 0.45);
 }
+.hbg-panel .hbg-btn.primary.big:active:not(:disabled) {
+  transform: translateY(0) scale(0.98);
+  box-shadow: 0 4px 16px rgba(255, 160, 60, 0.5);
+}
 .hbg-panel .hbg-btn.primary.big:disabled {
   opacity: 0.55;
   animation: none;
@@ -2349,6 +2359,10 @@ onBeforeUnmount(() => {
 .hbg-clear-all:hover:not(:disabled) {
   transform: translateY(-1px);
   box-shadow: 0 4px 14px rgba(255, 160, 60, 0.25);
+}
+.hbg-clear-all:active:not(:disabled) {
+  transform: translateY(0) scale(0.97);
+  box-shadow: 0 2px 8px rgba(255, 160, 60, 0.3);
 }
 .hbg-clear:disabled,
 .hbg-clear-all:disabled {
@@ -2491,6 +2505,64 @@ onBeforeUnmount(() => {
   box-shadow:
     inset 0 8px 22px rgba(0, 0, 0, 0.12),
     0 18px 50px rgba(0, 0, 0, 0.35);
+}
+
+/* ---- 手机形态（家园页 HUD + 底栏已经把可用高度压掉 110px）----
+   .hbg-full 本身 overflow:hidden 且内容垂直居中：内容一超高，面板上半截和
+   底部主按钮会被同时裁掉，而且居中裁切出来的部分滚不回来——新手在第一步
+   就会看到「没有按钮的建造页」。这里把滚动收到 stage 自己手里，并改为顶部对齐。 */
+@media (max-width: 768px) {
+  .hbg-full {
+    /* 原来 .hbg-full 的 padding-top 与 .hbg-stage 的 padding-top 各留 48px 给返回条，
+       叠了近 100px 死区；返回条是绝对定位的，一条留白就够。 */
+    padding: 54px 10px 0;
+  }
+  .hbg-stage {
+    justify-content: flex-start;
+    padding-top: 0;
+    padding-bottom: calc(12px + var(--safe-bottom, 0px));
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
+  /* 面板压在一片循环动画（太阳呼吸 / 云 / 飞鸟 / 浮尘）之上，再做一次 backdrop blur，等于每帧重采样一次背景；
+     面板底色已有 0.9~0.94 不透明度，手机上用更实的底色换掉模糊。 */
+  .hbg-panel {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: linear-gradient(165deg, rgba(14, 24, 42, 0.97), rgba(10, 16, 30, 0.99));
+  }
+  /* 主按钮是全页唯一的推进动作，46px 以下戴手套按不中 */
+  .hbg-btn.big {
+    min-height: 48px;
+    font-size: 15px;
+  }
+  .hbg-btn.tiny {
+    min-height: 40px;
+  }
+  .hbg-mat {
+    font-size: 13px;
+    padding: 7px 12px 7px 9px;
+  }
+  .hbg-clear {
+    padding: 10px 14px;
+  }
+  .hbg-clear-track {
+    height: 20px;
+  }
+  .hbg-clear-track span {
+    font-size: 11px;
+  }
+  /* 四步名（开挖地基/建造地基）在 390px 上是 nowrap 且各占 1/4 宽，字号先收一档 */
+  .hbg-name {
+    font-size: 11px;
+  }
+  .hbg-count,
+  .hbg-mat b,
+  .hbg-mat em,
+  .hbg-clear-left {
+    font-variant-numeric: tabular-nums;
+  }
 }
 
 /* 移动端：场景压扁、面板更贴近底部；前院用独立 scale 属性，避免盖掉入场 transform */

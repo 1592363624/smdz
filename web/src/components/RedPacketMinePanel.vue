@@ -236,6 +236,10 @@ onMounted(() => {
   background: rgba(139, 92, 246, 0.15);
   color: var(--text);
 }
+.rpm-icon-btn:active:not(:disabled) {
+  background: rgba(139, 92, 246, 0.28);
+  transform: scale(0.9);
+}
 .rpm-icon-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
@@ -374,5 +378,72 @@ onMounted(() => {
   font-size: 11px;
   color: var(--muted);
   word-break: break-all;
+}
+
+/* ===== 手机端：红包记录改底部抽屉 =====
+   这是个「翻记录」的面板，正文就是一长条列表：居中弹窗在手机上会把头尾都裁进
+   拇指够不到的位置，贴底抽屉则能单手滚到底，也不会挡住正在聊天的上半屏。 */
+@media (max-width: 768px) {
+  .rpm-overlay {
+    align-items: flex-end;
+    padding: 0;
+  }
+  .rpm-modal {
+    position: relative;
+    width: 100%;
+    max-width: none;
+    /* 顶栏 HUD（等级/资源）要留着可见：玩家边抽红包边看余量。
+       --vvh 由 JS 写入、可能滞后于真实视口，故再与 100dvh 取小。 */
+    max-height: calc(min(var(--vvh, 100dvh), 100dvh) - var(--hud-h, 52px) - var(--safe-top, 0px));
+    border-radius: 18px 18px 0 0;
+    border-bottom: 0;
+    box-shadow: 0 -14px 44px rgba(0, 0, 0, 0.6);
+  }
+  /* 抽屉握把：没有它看着像被裁掉一半的桌面弹窗 */
+  .rpm-modal::before {
+    content: '';
+    flex: 0 0 auto;
+    width: 40px;
+    height: 4px;
+    margin: 8px auto 0;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.22);
+  }
+  /* 三个页签是本面板唯一的导航，30px 高在手机上点不准，也看不出当前停在哪一页 */
+  .rpm-tab {
+    height: 44px;
+    font-size: 13px;
+  }
+  .rpm-tab-count {
+    font-size: 11px;
+  }
+  .rpm-icon-btn {
+    width: 40px;
+    height: 40px;
+  }
+  .rpm-body {
+    /* 最后一条记录不能压在 iPhone 横条下面 */
+    padding: 12px 14px calc(14px + var(--safe-bottom, 0px));
+    -webkit-overflow-scrolling: touch;
+  }
+  .rpm-card {
+    padding: 12px;
+  }
+  /* break-all 会把「能量块LV3 ×2」这类带拉丁/数字的道具串从中间劈开，
+     手机上改成只在必要处断行。 */
+  .rpm-sub,
+  .rpm-greeting,
+  .rpm-refund,
+  .rpm-remain {
+    word-break: normal;
+    overflow-wrap: anywhere;
+  }
+  .rpm-meta {
+    font-variant-numeric: tabular-nums;
+  }
+  .rpm-picked {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
 }
 </style>

@@ -1444,4 +1444,69 @@ onUnmounted(() => {
     animation: none !important;
   }
 }
+
+/* ===== 手机端（≤768px）：让「契约引导」这块最像游戏的屏也有手游手感 =====
+   这一屏原本只在 1024/720 两档做过布局收敛，交互反馈全部挂在 hover 上：
+   触屏既不会 hover，手指点 30px 高的元素也点不准，所以这里补齐触控与按压反馈。 */
+@media (max-width: 768px) {
+  /* 刘海与底部横条：整屏是 fixed + 自滚动，安全区只能在这里补 */
+  .ob-root {
+    padding-top: var(--safe-top);
+    padding-bottom: var(--safe-bottom);
+    overscroll-behavior: contain;
+  }
+  .ob-search {
+    /* 小于 16px 时 iOS 聚焦会把整页放大且不自动还原 */
+    font-size: 16px;
+    min-height: 44px;
+  }
+  .ob-chip {
+    min-height: 38px;
+    padding: 8px 14px;
+    font-size: 13px;
+  }
+  .ob-card {
+    min-height: 92px;
+    padding: 14px 12px 12px;
+  }
+  .ob-cta {
+    min-height: 50px;
+    font-size: 15px;
+  }
+  .ob-cta--block {
+    width: 100%;
+  }
+  .ob-detail-close {
+    min-width: 40px;
+    min-height: 40px;
+  }
+  /* 详情抽屉：用可视高度算死高度，避免 iOS 上 82vh 把「契约为证」按钮顶到键盘/横条后面 */
+  .ob-detail {
+    max-height: calc(var(--vvh, 100dvh) * 0.84);
+    padding-bottom: calc(18px + var(--safe-bottom));
+  }
+  .ob-confirm-actions {
+    flex-wrap: wrap;
+  }
+  .ob-confirm-actions .ob-cta {
+    flex: 1 1 46%;
+  }
+
+  /* 触屏反馈：原本只有 :hover 的地方，按下要有明确回应 */
+  .ob-card:active {
+    transform: translateY(1px) scale(0.982);
+    border-color: var(--accent, #8b5cf6);
+  }
+  .ob-cta:active {
+    transform: translateY(1px) scale(0.985);
+    filter: brightness(1.1);
+  }
+  .ob-chip:active {
+    transform: scale(0.94);
+  }
+  .ob-feature:active {
+    transform: scale(0.99);
+    background: rgba(139, 92, 246, 0.12);
+  }
+}
 </style>

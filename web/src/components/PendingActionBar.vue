@@ -293,6 +293,20 @@ watch(activeActions, (list, prev) => {
   }
   .pa-line {
     font-size: 11px;
+    /* 读条行原本整行 nowrap：手机上「名称+剩余+完成按钮」一定超 390px 被裁掉，
+       宁可换行也不能看不到剩余时间 */
+    white-space: normal;
+    flex-wrap: wrap;
+    gap: 3px 6px;
+  }
+  .pa-complete {
+    min-height: 30px;
+    padding: 4px 10px;
+    font-size: 12px;
+  }
+  .pa-complete:active {
+    transform: scale(0.94);
+    background: rgba(139, 92, 246, 0.3);
   }
 }
 </style>

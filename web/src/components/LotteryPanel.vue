@@ -268,6 +268,11 @@ async function onDraw() {
   color: #fff;
 }
 
+.lt-icon-btn:active:not(:disabled) {
+  transform: scale(0.9);
+  background: rgba(255, 255, 255, 0.2);
+}
+
 .lt-status {
   display: flex;
   flex-wrap: wrap;
@@ -328,7 +333,10 @@ async function onDraw() {
   text-shadow: 0 0 12px rgba(255, 215, 100, 0.55);
 }
 
+/* 长道具名（「★传说级·等离子光刃」）在 390px 屏上必须能缩，
+   否则跑马灯行会把右侧的 ×数量 挤出 .lt-reel-frame 的裁切区 */
 .lt-reel-name {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -434,5 +442,84 @@ async function onDraw() {
 
 .lt-btn:not(.ghost):hover:not(:disabled) {
   filter: brightness(1.06);
+}
+
+.lt-btn:not(.ghost):active:not(:disabled) {
+  transform: scale(0.98);
+  filter: brightness(1.14);
+}
+
+/* ===== 手机端：抽卡面板改底部抽屉 =====
+   抽卡是「看一眼结果 → 再按一次」的高频循环，主按钮必须一直停在拇指区里，
+   所以抽屉贴底 + 操作条 sticky 在底沿：中部内容再多也不会把按钮顶出屏幕。 */
+@media (max-width: 768px) {
+  .lt-overlay {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .lt-modal {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    /* HUD（等级/资源）在抽卡时仍需可见，抽屉只吃到 HUD 以下；
+       --vvh 是 JS 实测值可能滞后，再套一层 100dvh 兜底。 */
+    max-height: calc(min(var(--vvh, 100dvh), 100dvh) - var(--hud-h, 52px) - var(--safe-top, 0px));
+    padding: 6px 16px 0;
+    border-radius: 18px 18px 0 0;
+    border-bottom: 0;
+    box-shadow: 0 -14px 44px rgba(0, 0, 0, 0.6);
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
+
+  /* 抽屉握把：没有它看着像被裁掉一半的桌面弹窗 */
+  .lt-modal::before {
+    content: '';
+    flex: 0 0 auto;
+    width: 40px;
+    height: 4px;
+    margin: 0 auto 6px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.22);
+  }
+
+  .lt-head {
+    margin-bottom: 8px;
+  }
+
+  .lt-icon-btn {
+    width: 40px;
+    height: 40px;
+    margin: -4px -8px 0 0;
+    font-size: 17px;
+  }
+
+  .lt-chip {
+    font-size: 12.5px;
+    padding: 5px 11px;
+  }
+
+  .lt-result-name {
+    font-size: 20px;
+    overflow-wrap: anywhere;
+  }
+
+  /* 操作条钉在抽屉底沿：底色取面板渐变末端色，避免滚动内容从按钮缝里透出来 */
+  .lt-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 1;
+    margin-top: auto;
+    padding: 8px 0 calc(14px + var(--safe-bottom, 0px));
+    background: #121624;
+  }
+
+  .lt-btn {
+    min-height: 48px;
+    font-size: 15px;
+  }
 }
 </style>

@@ -706,6 +706,10 @@ function parseLayout(text) {
     background: rgba(255, 255, 255, 0.04);
     border-color: rgba(139, 92, 246, 0.12);
   }
+  /* 这类格子不能「穿上」，但点了会出图鉴：没有按下态就像点了没反应 */
+  .rc-cell-item.rc-cell-use:active {
+    background: rgba(139, 92, 246, 0.12);
+  }
 
 /* ===== 系统横幅展示位（属性左栏底部，可开关） ===== */
 .rc-banner-wrap {
@@ -810,6 +814,11 @@ function parseLayout(text) {
   background: rgba(139, 92, 246, 0.16);
   border-color: rgba(139, 92, 246, 0.5);
 }
+/* 展开/收起是这条长列表唯一的操作，按下时没有反馈会被当成没点到而连击 */
+.rc-bag-toggle:active {
+  background: rgba(139, 92, 246, 0.26);
+  transform: scale(0.99);
+}
 
 /* ===== 背包卡片末尾备注区（宠物搜索「白发现了…」/功能提示等，绝不丢弃原文） ===== */
 .rc-bag-notes {
@@ -880,5 +889,78 @@ function parseLayout(text) {
 @media (max-width: 640px) {
   /* 窄屏：两栏坍缩为单列（属性在上、装备在下），各自仍为单列竖条 */
   .rc-cols { grid-template-columns: 1fr; }
+}
+@media (max-width: 768px) {
+  /* 装备名原本强制单行（对齐桌面侧栏的观感）：一件带属性串的装备名实测 1415px，
+     在手机上整条被裁掉，玩家看不到自己穿的是什么。手机上让它换行，宁可占两行。 */
+  .rc-eq-name {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    line-height: 1.45;
+  }
+}
+
+/* ===== 手机端：背包格子是「点了就发指令」的操作件，不是文字 ===== */
+@media (max-width: 768px) {
+  .rc-cell {
+    /* 26px 高的格子在公屏列表里等于逼玩家用指甲盖点对准；点击还会顺带触发图鉴 */
+    min-height: 44px;
+    align-items: center;
+    padding: 6px 10px;
+    max-width: 100%;
+    font-size: 13px;
+  }
+  /* 数字一律等宽：背包 ×数量、属性值上下两行的位数不同，非等宽时整列会左右跳 */
+  .rc-idx,
+  .rc-count,
+  .rc-value {
+    font-variant-numeric: tabular-nums;
+  }
+  /* 属性值带 nowrap：真遇到「1,234,567/9,999,999」这类长串时会顶穿 .rc-stat，
+     手机上放开断行（数字本身没有断点，不会被从中间劈开）。 */
+  .rc-value {
+    min-width: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-align: right;
+  }
+  .rc-bag-toggle {
+    min-height: 44px;
+    font-size: 13px;
+  }
+  .rc-eqcell {
+    padding: 6px 8px;
+    min-height: 40px;
+  }
+  /* 单行标签遇到超长物品名会整条溢出卡片（.rc-grid 是换行流，不是裁切容器），
+     手机上让它折行，格子宽度由 max-width:100% 兜住不越界。 */
+  .rc-name {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+}
+
+/*
+ * 悬浮图鉴：桌面的「贴着格子浮出」在这里不成立。
+ * 弹层位置由 JS 用 window.innerHeight 预算，而手机上 innerHeight 含地址栏与常驻底栏，
+ * 弹层下半截会落到看不见的地方；它又是 pointer-events:none，既滚不动也关不掉。
+ * 触屏没有 hover，这层本质是「点一下弹出的说明」，所以直接固定成底栏之上的一条信息带。
+ * left/top 是内联样式，只能用 !important 收回；桌面端不受影响（此块之外没有改动）。
+ */
+@media (max-width: 768px) and (hover: none) {
+  .rc-handbook {
+    left: 8px !important;
+    right: 8px;
+    top: auto !important;
+    bottom: calc(var(--mtb-h, 58px) + var(--safe-bottom, 0px) + 10px) !important;
+    width: auto;
+    min-width: 0;
+    max-width: none;
+    max-height: min(46dvh, 340px);
+    border-radius: 10px;
+  }
+  .rc-hb-body {
+    font-size: 13px;
+  }
 }
 </style>

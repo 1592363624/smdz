@@ -308,7 +308,40 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer); });
 .we-foot-hint { font-size: 11px; color: var(--muted); }
 
 @media (max-width: 640px) {
-  .we-modal { width: 100vw; max-height: 100dvh; border-radius: 0; }
-  .we-strip-name { max-width: 26vw; }
+  .we-modal {
+    width: 100vw;
+    max-height: 100dvh;
+    border-radius: 0;
+    /* 全屏弹层要自己躲刘海与底部横条：内容顶到 0 会被状态栏吃掉一行 */
+    padding-top: var(--safe-top, 0px);
+    padding-bottom: var(--safe-bottom, 0px);
+  }
+  .we-strip {
+    /* 常驻条是打开全服事件的唯一入口，手机上要按得住也要按得准 */
+    min-height: 38px;
+    padding: 8px 12px;
+  }
+  .we-strip:active {
+    transform: scale(0.995);
+    background: linear-gradient(90deg, rgba(139, 92, 246, 0.28), rgba(6, 182, 212, 0.16));
+  }
+  .we-strip-name {
+    max-width: 26vw;
+  }
+  .we-icon-btn {
+    width: 40px;
+    height: 40px;
+  }
+  .we-icon-btn:active {
+    transform: scale(0.9);
+    color: var(--text);
+    background: rgba(255, 255, 255, 0.12);
+  }
+  .we-milestones {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .we-claim-btn {
+    min-height: 44px;
+  }
 }
 </style>
