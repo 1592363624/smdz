@@ -459,9 +459,11 @@ export class DungeonChallengeService {
     // ========== 使魔专属分支（原版 L580-632） ==========
     const aff = Number(player.affinity || 0);
     const seq = Number(player.specialSeq || 0);
+    let gardenCatStrike = false; // 原版 b=-1：花园猫这条已用掉「闪避击」，不再叠加超频
     if (seq === 1) {
       // #花园猫（原版 @Constant 花园猫="1"；L580-585）：好感≥100 → 啾啾猫猫增益 + 闪避击熟练度
       if (aff >= 100) {
+        gardenCatStrike = true;
         this.support.setMarkers2(markers2, '啾啾猫猫', nowSec + 3);
         await this.achievementService.addAchievement(player, '闪避击', 1);
         player.markers2 = markers2; // Json 列直接写数组
@@ -505,6 +507,24 @@ export class DungeonChallengeService {
           w += '\n火力压制1.5%';
         }
         player.markers2 = markers2; // Json 列直接写数组
+      }
+    }
+
+    // 超频连接(装备 49)（原版 使魔技能.ecode L625-631）：这次释放闪避后记一层「闪避击2」，
+    // 下一击必中（消费端在 CombatSystemService 攻击入口），冷却 60 秒。
+    // 原版用 `b != -1` 排除"花园猫好感≥100 已用掉 闪避击"的那条分支，此处同口径。
+    if (!gardenCatStrike) {
+      const ocEquips = asJsonValue<any[]>(player.equipment, []);
+      const wearsOverclock = Array.isArray(ocEquips) && ocEquips.some((e: any) =>
+        Number(e?.specialSeq ?? NaN) === 49 || String(e?.name ?? '').includes('超频连接'));
+      if (wearsOverclock) {
+        const ocCd = markers2.find((m: any) => m && m.name === '超频冷却');
+        if (!ocCd || !ocCd.expireAt || Number(ocCd.expireAt) <= nowSec) {
+          this.support.setMarkers2(markers2, '超频冷却', nowSec + 60);
+          player.markers2 = markers2; // Json 列直接写数组
+          await this.achievementService.addAchievement(player, '闪避击2', 1);
+          w += '(超频)';
+        }
       }
     }
 

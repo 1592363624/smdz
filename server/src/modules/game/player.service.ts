@@ -17,7 +17,7 @@ import {
 import { deriveDisplayName } from './display-name.util';
 import { asJsonValue } from '../../common/utils/json-value.util';
 import { roundItemQuantity } from '../../common/utils/game-text.util';
-import { canonicalizeBackpack, lookupFromStaticData, mergeBackpackItem } from './item-normalize.util';
+import { backfillSpecialSeq, canonicalizeBackpack, lookupFromStaticData, mergeBackpackItem } from './item-normalize.util';
 // 字段规范契约（唯一别名映射表）：读档/落库两个边界统一收敛字段名；
 // 标记读/写/存在性判定统一走这里的唯一口径（数组 { name, value } / 字典按键）
 import { normalizePlayerRow, normalizeEntryList, readMarkerValue, writeMarkerValue } from './field-contract.util';
@@ -541,9 +541,10 @@ export class PlayerService {
     // 物品身份自愈：背包内同名非装备合并、type 收敛到
     // 静态定义（equipments.json/items.json 为唯一真源），保证同一物品无论从
     // 什么渠道获得身份一致。详见 item-normalize.util.ts。
+    const staticLookup = lookupFromStaticData(this.staticData);
     player.backpack = canonicalizeBackpack(
       asJsonValue<any[]>(player.backpack, []),
-      lookupFromStaticData(this.staticData),
+      staticLookup,
     );
 
     // BigInt 字段（lastOpTime/readTime 为 schema BigInt，远程库个别列亦可能为
@@ -565,13 +566,31 @@ export class PlayerService {
     // 后续的业务保存一并落库（与上方活力标记兜底同一策略，只读指令不落库）。
     const equipment = asJsonValue<any[]>(player.equipment, []);
     this.ensureImplantEquipment(equipment);
+    // 好感度权威源是 标记["<使魔名>好感"]（`addAchievement` 写入：巧克力、任务奖励、行商等），
+    // 而 `player.affinity` 这一列只在「更换使魔」时同步过一次（familiar-system L346）。
+    // 不同步的后果：战斗里所有「好感≥20/40/60/80/100 才解锁」的使魔与装备描述，对好感早就涨上去
+    // 的玩家仍按换使魔那一刻的旧值判定（通常是 0），表现为"描述写了、实际永远不触发"。
+    // 读档闸统一把列刷成 max(列, 标记)，面板/战斗/商店因此看到的是同一个数（与活力标记、植入体
+    // 保底同一策略：只兜内存态，随本次快照后续的业务保存落库）。
+    if (player.type) {
+      const affinityMarker = Number(markers?.[`${player.type}好感`] ?? 0);
+      if (Number.isFinite(affinityMarker) && affinityMarker > Number(player.affinity ?? 0)) {
+        player.affinity = affinityMarker;
+      }
+    }
+    // 特殊序号补齐（读档闸）：存量装备/武器条目不带 specialSeq，而战斗与加成里
+    // 「按 特殊序号 判定」的装备效果（棒棒糖97、射爆核心29、叹息之墙12…）远多于
+    // 按名称判定的那几条。在这里统一补齐，展示层/攻击链/防御链/属性面板看到的
+    // 才是同一份带序号的权威态；补齐细节与理由见 item-normalize.backfillSpecialSeq。
+    backfillSpecialSeq(equipment, staticLookup);
+    const weapons = backfillSpecialSeq(asJsonValue<any[]>(player.weapons, []), staticLookup);
 
     const result: any = {
       player,
       // Prisma Json 列读出的是对象；asJsonValue 兼容对象/历史字符串两种形态
       backpack: asJsonValue<any[]>(player.backpack, []),
       equipment,
-      weapons: asJsonValue<any[]>(player.weapons, []),
+      weapons,
       markers,
       markers2: asJsonValue<any[]>(player.markers2, []),
       // 增益：读取即剔除已过期条目（时间口径秒/毫秒混用由 filterActive 统一归一化），
@@ -1863,6 +1882,25 @@ export class PlayerService {
       };
     }
 
+    // 灵魂石（装备 70；原版 战斗相关.ecode L3798-3805）：能量满 100%（击杀储 4 层，每层 25%）
+    // 时死亡 → 三池回满并清零能量。层数由 CombatSystemService 的击杀结算写入（同一标记键）。
+    // 放在 军姬/死亡行者/石中剑 之前：原版这段就在 造成伤害 的死亡处理里，早于 玩家死亡 级联，
+    // 且它是"满血复活"，与后面几个半血复活互斥（先命中即返回，不会双重回血）。
+    if (ownsSpecialSeq(70)) {
+      const soulMarkers = this.safeJsonParse<Record<string, any>>(player.markers ?? {}, {});
+      const soulStacks = Number(soulMarkers?.['灵魂石'] ?? 0);
+      if (soulStacks >= 4) {
+        player.hp = maxHp;
+        if ('currentHp' in player) player.currentHp = maxHp;
+        player.shield = Number(player.maxShield ?? player.shield ?? 0);
+        player.armor = Number(player.maxArmor ?? player.armor ?? 0);
+        soulMarkers['灵魂石'] = 0;
+        player.markers = soulMarkers; // Json 列直接写对象
+        this.logger.log(`玩家 ${player.userId ?? ''} 死亡状态下被「灵魂石」复活（三池回满）`);
+        return { dead: false, reviveText: appendExtra('被灵魂石复活'), deathText: '' };
+      }
+    }
+
     // 军姬（原版 L5185-5199）：有存活宠物且 sf 冷却就绪才复活，否则继续往下判
     if (Number(player.specialSeq ?? 0) === 16 || player.type === '军姬') {
       const summons = this.safeJsonParse<any[]>(playerData?.map?.summons, []);
@@ -1881,9 +1919,10 @@ export class PlayerService {
     }
 
     // 石中剑（原版 L5214-5222）：武器序号 -35（原版 装备要求(..., 真) = 含武器）
+    // 冷却按描述取 60 秒（描述「恢复50%生命，冷却60秒」；原版此处置 90）。
     if (ownsSpecialSeq(-35)) {
       if (cdActive('石中剑')) return { dead: true, reviveText: '', deathText };
-      return revive('石中剑', '石中剑', 90);
+      return revive('石中剑', '石中剑', 60);
     }
 
     return { dead: true, reviveText: '', deathText };

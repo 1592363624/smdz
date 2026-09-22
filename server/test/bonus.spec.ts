@@ -228,7 +228,8 @@ describe('计算增益 (加成计算.ecode L81-L575)', () => {
       ],
     }, 1000);
     expect(bonus.冰伤2).toBe(30 + 4 + 10);
-    expect(bonus.生命穿透).toBe(10);
+    // 原版 加成计算 L160：增加穿透(玩家.加成, 15)（四糸乃好感3 文案同为「穿透+15%」）
+    expect(bonus.生命穿透).toBe(15);
     expect(bonus.攻击2).toBe(45);
     expect(bonus.暴击).toBe(9);
     expect(bonus.暴击伤害).toBe(45);

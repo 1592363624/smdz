@@ -203,7 +203,9 @@ describe('使魔技能第三批：啾啾猫猫/银龙附体/光翼/炮冠/日轮
       player: makePlayer({
         type: '绝灭天使', affinity: 80,
         markers: JSON.stringify({ 绝灭天使好感: 80 }),
-        markers2: JSON.stringify([{ name: '光盾', expireAt: Date.now() + 100 * 1000 }]),
+        // 光盾 是「增益」条目（原版 战斗相关 L2504 写入 / L2534 读取 / 使魔技能 L1864 前移），
+        // 早先的桩把它放在 标记2 里，等于固化了"炮冠清零光盾"从不生效的 bug。
+        buffs: JSON.stringify([{ name: '光盾', expireAt: Date.now() + 100 * 1000, strength: 2 }]),
       }),
       feathers: 30,
     });
@@ -212,11 +214,35 @@ describe('使魔技能第三批：啾啾猫猫/银龙附体/光翼/炮冠/日轮
     expect(result).toContain('个羽毛进入了准备状态');
     const buffs = parseJson(player.buffs, []);
     expect(buffs.find((b: any) => b.name === '炮冠').expireAt - Date.now() / 1000).toBeLessThanOrEqual(5);
-    const markers2 = parseJson(player.markers2, []);
-    // 光盾有效期前移 30 秒
-    const lightShield = markers2.find((m: any) => m.name === '光盾');
+    // 光盾有效期前移 30 秒（描述"光盾清零"）
+    const lightShield = buffs.find((b: any) => b.name === '光盾');
     expect(lightShield.expireAt - Date.now()).toBeLessThanOrEqual(70 * 1000);
+    const markers2 = parseJson(player.markers2, []);
     expect(markers2.find((m: any) => m.name === 'hd')).toBeTruthy();
+  });
+
+  // 「炮冠！」的 30 秒冷却：原版 战斗相关 L2186 用 时间间隔要求(“炮冠冷却”,30,攻击方.标记2) 写在
+  // **标记2**（条目带毫秒 expireAt），使魔技能 L1859 也从 标记2 读。移植的写入端原本落在
+  // player.markers（秒级时间戳对象）里，与读取端两头对不上 → 冷却永远不成立，
+  // "光盾清零并冷却" 可以无限刷。现按同一容器落，这里锁住读取端真的能拦住。
+  it('炮冠：冷却标记写在 markers2（毫秒），冷却中拒绝施放且不动光盾', async () => {
+    const { service, player } = makeSkillsService({
+      player: makePlayer({
+        type: '绝灭天使', affinity: 80,
+        markers: JSON.stringify({ 绝灭天使好感: 80 }),
+        buffs: JSON.stringify([{ name: '光盾', expireAt: Date.now() + 100 * 1000, strength: 2 }]),
+        markers2: JSON.stringify([{ name: '炮冠冷却', expireAt: Date.now() + 20_000 }]),
+      }),
+      feathers: 30,
+    });
+    const result = await service.executeSkill(42, '炮冠');
+
+    expect(result).toContain('还需要');
+    expect(result).not.toContain('准备状态');
+    const buffs = parseJson(player.buffs, []);
+    expect(buffs.find((b: any) => b.name === '炮冠')).toBeUndefined();
+    // 光盾保持原样（未被前移 30 秒）
+    expect(buffs.find((b: any) => b.name === '光盾').expireAt).toBeGreaterThanOrEqual(Date.now() + 99 * 1000);
   });
 
   it('日轮：绝灭天使门禁文本与冷却键=绝灭天使技能冷却', async () => {

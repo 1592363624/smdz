@@ -7,8 +7,9 @@ import { MapService } from '../src/modules/game/map.service';
  * 玩家死亡复活级联（原版 战斗相关.ecode L5173-5227）。
  *
  * `PlayerService.resolvePlayerDeath` 是唯一实现：指令/技能门禁 `deathGateText`
- * 与 `CombatSystemService.playerDeath` 都走它。本套件锁定四条判定：
- *   卷土重来免死 → 军姬(存活宠物+sf 60s) → 死亡行者(装备16, 90s) → 石中剑(武器-35, 90s) → 真死
+ * 与 `CombatSystemService.playerDeath` 都走它。本套件锁定这些判定：
+ *   卷土重来免死 → 灵魂石(装备70, 能量≥4层=100% → 三池回满) → 军姬(存活宠物+sf 60s)
+ *   → 死亡行者(装备16, 90s) → 石中剑(武器-35, 90s) → 真死
  * 并锁定「冷却标记必须是毫秒口径」这一踩坑点（秒刻度会让冷却被放大 1000 倍）。
  */
 function makeService() {
@@ -47,6 +48,31 @@ describe('玩家死亡复活级联（原版 战斗相关.ecode L5173-5227）', (
     const r = svc.resolvePlayerDeath(p);
     expect(r.dead).toBe(false);
     expect(r.reviveText).toContain('卷土重来');
+  });
+
+  it('灵魂石(装备 70)：能量满 4 层(=100%) → 三池回满并把能量清零', () => {
+    const svc = makeService();
+    const p = deadPlayer({
+      maxShield: 60, shield: 0, maxArmor: 40, armor: 0,
+      equipment: [{ name: '灵魂石', specialSeq: 70 }],
+      markers: { 灵魂石: 4 },
+    });
+    const r = svc.resolvePlayerDeath(p);
+    expect(r.dead).toBe(false);
+    expect(r.reviveText).toContain('灵魂石');
+    expect(p.hp).toBe(100);
+    expect(p.shield).toBe(60);
+    expect(p.armor).toBe(40);
+    expect(Number(p.markers['灵魂石'])).toBe(0);
+  });
+
+  it('灵魂石能量未满（<4 层）→ 继续走后续级联，不放行', () => {
+    const svc = makeService();
+    const p = deadPlayer({
+      equipment: [{ name: '灵魂石', specialSeq: 70 }],
+      markers: { 灵魂石: 3 },
+    });
+    expect(svc.resolvePlayerDeath(p).dead).toBe(true);
   });
 
   it('死亡行者(装备 16) 冷却就绪 → 半血复活 + 写 90 秒冷却（毫秒口径）', () => {

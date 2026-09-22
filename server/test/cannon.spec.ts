@@ -17,6 +17,8 @@ function makeCannon(options: {
   markers2?: any[];
   currentRespawn?: string;
   targetRespawn?: string;
+  vehicle?: string;
+  parts?: any[];
 } = {}) {
   const player = {
     id: 1,
@@ -24,7 +26,7 @@ function makeCannon(options: {
     name: '炮手',
     mapId: 1,
     mapIndex: 1,
-    vehicle: 'v1',
+    vehicle: options.vehicle ?? 'v1',
     currentWeapon: 1,
     weapons: [{ name: '舰炮', type: '远程武器', cooldown: 4, damageType: 1, properties: { phys: 100 } }],
     sets: JSON.stringify({ attackMode: options.attackMode ?? 1 }),
@@ -41,7 +43,7 @@ function makeCannon(options: {
     mapIndex: 1,
     name: '起点',
     respawnPoint: options.currentRespawn ?? '复活点A',
-    vehicles: JSON.stringify([{ id: 'v1', name: '战车', currentHp: 100, parts: [{ name: '和平鸽' }] }]),
+    vehicles: JSON.stringify([{ id: 'v1', name: '战车', currentHp: 100, parts: options.parts ?? [{ name: '和平鸽' }] }]),
     markers2: '[]',
   };
   const targetMap = {
@@ -139,22 +141,67 @@ describe('炮击复刻（_主程序.ecode L800-L950）', () => {
     expect(fixture.dynamicUpdates).toHaveLength(1);
   });
 
-  it('保留原版 L826-L830 的覆盖分支：未切换炮击模式时即使有炮台也拒绝', async () => {
+  it('驾驶装了舰炮的载具时，未切炮击模式也能炮击（原版 L807-821 的部件支优先，L826-830 只管没载具的情况）', async () => {
     const fixture = makeCannon({ attackMode: 0 });
+    const attack = jest.spyOn(fixture.service, 'weaponAttack').mockResolvedValue({
+      result: '远程炮击 飞龙，造成 12 点伤害',
+      killed: [], damageDealt: 12, expGained: 0, drops: [],
+    });
+
+    const result = await fixture.service.cannonAttack(10, '目标谷');
+
+    expect(result).not.toContain('需要切换为炮击模式');
+    expect(attack).toHaveBeenCalledWith(10, 1, expect.objectContaining({ targetMapId: 2 }));
+  });
+
+  it('没驾驶载具又未切炮击模式才拒绝，并挂临时输入 1@转换#2@架炮（原版 L826-L833）', async () => {
+    const fixture = makeCannon({ attackMode: 0, vehicle: '' });
+    const setTempInput = jest.fn(async () => '');
+    (fixture.service as any).shortcutService = { setTempInput };
     const attack = jest.spyOn(fixture.service, 'weaponAttack');
 
     const result = await fixture.service.cannonAttack(10, '目标谷');
 
     expect(result).toContain('需要切换为炮击模式');
     expect(attack).not.toHaveBeenCalled();
+    expect(setTempInput).toHaveBeenCalledWith(10, '1@转换#2@架炮');
   });
 
-  it('无炮击模式时挂临时输入 1@转换#2@架炮（原版 L833）', async () => {
+  it('和平鸽/平定者/速子光矛(b=4) 仍要求非近战武器在手；载具舰炮不影响 b=1 的拳头限制', async () => {
+    // b=4 属"载具自带舰炮"，原版 L838-841 的拳头/近战限制只对 b==1 生效
     const fixture = makeCannon({ attackMode: 0 });
-    const setTempInput = jest.fn(async () => '');
-    (fixture.service as any).shortcutService = { setTempInput };
-    await fixture.service.cannonAttack(10, '目标谷');
-    expect(setTempInput).toHaveBeenCalledWith(10, '1@转换#2@架炮');
+    fixture.player.weapons = [{ name: '铁剑', type: '近战武器', cooldown: 4, damageType: 1, properties: { phys: 100 } }];
+    const attack = jest.spyOn(fixture.service, 'weaponAttack').mockResolvedValue({
+      result: '远程炮击 飞龙', killed: [], damageDealt: 1, expGained: 0, drops: [],
+    });
+    const result = await fixture.service.cannonAttack(10, '目标谷');
+    expect(result).not.toContain('近战武器无法射出去');
+    expect(attack).toHaveBeenCalled();
+
+    // 对照：没驾驶载具、靠"架炮"（b=1）时，近战武器确实被拒
+    const mounted = makeCannon({ attackMode: 1, vehicle: '' });
+    mounted.player.weapons = [{ name: '铁剑', type: '近战武器', cooldown: 4, damageType: 1, properties: { phys: 100 } }];
+    const blocked = await mounted.service.cannonAttack(10, '目标谷');
+    expect(blocked).toContain('近战武器无法射出去');
+  });
+
+  it('京兆巨炮：炮击用「京兆巨炮a」攻击文本，并可跨复活点（部件说明"任意地点炮击任意地点"）', async () => {
+    const fixture = makeCannon({ parts: [{ name: '京兆巨炮' }], targetRespawn: '复活点B' });
+    const attack = jest.spyOn(fixture.service, 'weaponAttack').mockResolvedValue({
+      result: '远程炮击 飞龙', killed: [], damageDealt: 1, expGained: 0, drops: [],
+    });
+
+    const result = await fixture.service.cannonAttack(10, '目标谷');
+
+    expect(result).not.toContain('无法炮击处于复活点B附近的目标');
+    expect(attack).toHaveBeenCalledWith(10, 1, expect.objectContaining({ attackText: '京兆巨炮a' }));
+
+    // 对照：普通舰炮（和平鸽 b=4）仍受同复活点限制
+    const limited = makeCannon({ targetRespawn: '复活点B' });
+    const limitedAttack = jest.spyOn(limited.service, 'weaponAttack');
+    expect(await limited.service.cannonAttack(10, '目标谷'))
+      .toContain('无法炮击处于复活点B附近的目标');
+    expect(limitedAttack).not.toHaveBeenCalled();
   });
 
   it('复刻目标地图复活点限制', async () => {

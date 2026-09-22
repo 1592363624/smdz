@@ -109,6 +109,8 @@ function weakDefenderBonus() {
 function buildMocks() {
   const players = new Map<number, any>();
   const monstersByMap = new Map<number, any[]>();
+  const groundItems = new Map<number, any[]>(); // 地图地面物品池（原版 地图.物品）
+  const mapMarkers2ByMap = new Map<number, any[]>(); // 地图标记2（绝灭天使「被击败」计数走这里）
   const saveLog: any[] = [];
   const addExpLog: number[] = [];
 
@@ -151,7 +153,10 @@ function buildMocks() {
   } as unknown as jest.Mocked<PlayerService>;
 
   const mapService = {
-    getMapById: jest.fn(async (mapId: number) => ({ id: mapId, name: '医疗室', vehicles: '[]', summons: '[]' })),
+    getMapById: jest.fn(async (mapId: number) => ({
+      id: mapId, name: '医疗室', vehicles: '[]', summons: '[]',
+      markers2: mapMarkers2ByMap.get(mapId) ?? [],
+    })),
     getMapMonsters: jest.fn(async (mapOrId: any) => {
       const id = typeof mapOrId === 'number' ? mapOrId : mapOrId?.id;
       return monstersByMap.get(id) || [];
@@ -168,6 +173,21 @@ function buildMocks() {
       if (found) found.hp = monster.hp;
     }),
     updateDynamicFields: jest.fn(async (_mapId: number, _data: Record<string, any>) => {}),
+    // 地图地面物品池（原版 地图.物品）：圣诞套装被命中掉的礼物要真的进这个池子，
+    // 内存实现只需保住「同一 mapId 的 items 数组被原地修改」这一语义。
+    mutateMapFields: jest.fn(async (mapOrId: any, _fields: string[], mutator: any) => {
+      const id = typeof mapOrId === 'number' ? mapOrId : mapOrId?.id;
+      const store: any[] = groundItems.get(id) ?? [];
+      const fields: any = { items: store };
+      const result = await mutator(fields);
+      groundItems.set(id, Array.isArray(fields.items) ? fields.items : store);
+      return result;
+    }),
+    // 地图标记2 的按名合并落库（绝灭天使「被击败」计数走这条）：内存实现保住
+    // 「同一 mapId 的 markers2 被写回」这一语义即可。
+    mergeMapMarkers2: jest.fn(async (mapId: number, markers: any[]) => {
+      mapMarkers2ByMap.set(mapId, Array.isArray(markers) ? [...markers] : []);
+    }),
   } as unknown as jest.Mocked<MapService>;
 
   const staticData = {
@@ -219,7 +239,7 @@ function buildMocks() {
   const combatState = new CombatStateService() as unknown as jest.Mocked<CombatStateService>;
 
   return {
-    players, monstersByMap, saveLog, addExpLog,
+    players, monstersByMap, groundItems, saveLog, addExpLog,
     playerService, mapService, staticData, bonusService,
     achievementService, itemSystem, prisma, combatState, statsService,
     taskService,
@@ -453,8 +473,31 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       const markers2 = parseJson(player.markers2, []);
       const cooldownEntry = markers2.find((m: any) => m.name === '雷火剑冷却');
       expect(cooldownEntry).toBeDefined();
-      // 雷火剑 specialSeq=1001 → 冷却 3/3=1 秒
-      expect(cooldownEntry.expireAt - Date.now()).toBeLessThanOrEqual(1000 + 50);
+      // 雷火剑的描述只承诺「公共攻击冷却 = 本武器冷却×33.3%」，武器自身冷却不变
+      expect(cooldownEntry.expireAt - Date.now()).toBeLessThanOrEqual(3000 + 50);
+    });
+
+    it('管风琴：攻击无冷却但按发消耗弹药，无弹药时不能出手', async () => {
+      const weapons = [{ name: '管风琴', specialSeq: -14, damageType: 1 }];
+      const player = makePlayer({ userId: 2, currentWeapon: 1, weapons });
+      mocks.players.set(2, player);
+      const monster = makeMonster({ id: 1001, hp: 5000 });
+      registerMonsters(mocks, 1, [monster]);
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+
+      // 描述：弹药用完后需要「装填」
+      const empty = await combat.weaponAttack(2, 1, { mustHit: true });
+      expect(empty.result).toContain('没有弹药');
+
+      player.markers = { 管风琴: 4 } as any;
+      const first = await combat.weaponAttack(2, 1, { mustHit: true });
+      expect(first.result).not.toContain('没有弹药');
+      expect((player.markers as any).管风琴).toBe(3);
+
+      // 描述：攻击无冷却 → 紧接着还能再射一发，且不写「管风琴冷却」拦截标记
+      const second = await combat.weaponAttack(2, 1, { mustHit: true });
+      expect(second.result).not.toContain('冷却中');
+      expect((player.markers as any).管风琴).toBe(2);
     });
 
     it('未装备武器(currentWeapon=0)时，退化为拳头，写入「拳头冷却」', async () => {
@@ -560,10 +603,10 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       expect(fx.effectText).toContain('自动连击');
     });
 
-    it('雷火剑(specialSeq=1001)冷却缩短为 1/3', () => {
+    it('雷火剑(specialSeq=1001)不改写武器自身冷却（描述只涉及公共冷却）', () => {
       const weapon = { name: '雷火剑', specialSeq: 1001, cooldown: 9, properties: {} } as any;
       const fx = (combat as any).processWeaponSpecialEffects(weapon, 9);
-      expect(fx.cooldown).toBe(3);
+      expect(fx.cooldown).toBe(9);
     });
 
     it('机械触手(specialSeq=90)冷却固定为 6 秒', () => {
@@ -579,7 +622,7 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       expect(fx.cooldown).toBe(5);
     });
 
-    it('溅射：splashCount 个额外目标受到真实伤害（result 含溅射文本）', async () => {
+    it('溅射：单体攻击也会溅到同图其他存活怪物（原版 防御方 = 地图怪物数组）', async () => {
       const player = makePlayer({ userId: 2, type: '战斗女仆' });
       mocks.players.set(2, player);
       const main = makeMonster({ id: 1001, hp: 50 });
@@ -595,18 +638,103 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
         attackerBuffs: [], defenderBuffs: [], markerOps: [],
         splashCount: 1, splashDamageMultiplier: 1, splashMustHit: true,
       });
-      // 复刻代码溅射条件：`splashCount>0 && !effectiveAllAttack`，
-      // 且 splashTargets 来自 targets 过滤主目标后剩余 → 需 targets 含 ≥2 个。
-      // 故 mock selectTargets 返回 [主目标, 额外目标1]，模拟"非全体但多目标"场景。
-      jest.spyOn(combat as any, 'selectTargets').mockReturnValue([main, extra1]);
-
-      const result = await combat.weaponAttack(2, 0, { mustHit: true });
+      // 溅射候选池取自「本图存活怪物」（原版 造成伤害 的 防御方），不是本次选中的 targets：
+      // 此前用 targets，单体攻击时恒为 [主目标] → 所有「溅射N个目标」的描述在单体出手时一次都打不出。
+      const result = await combat.weaponAttack(2, 0, { mustHit: true, targetName: '史莱姆' });
 
       // 主目标受到攻击扣血
       expect(main.hp).toBeLessThan(50);
-      // 额外目标受到溅射伤害（result 含「受到溅射伤害」文本，证明接线生效）
-      expect(extra1.hp).toBeLessThan(50);
+      // 溅射次数 = splashCount：兔子/野猪里恰好一只吃到溅射
+      expect([extra1, extra2].filter((m: any) => m.hp < 50)).toHaveLength(1);
       expect(result.result).toContain('受到溅射伤害');
+    });
+
+    it('片翼天使(100)「存活目标数量小于溅射数量时额外溅射一次(可命中相同目标)」', async () => {
+      const player = makePlayer({
+        userId: 2,
+        equipment: JSON.stringify([{ name: '片翼天使', specialSeq: 100 }]),
+      });
+      mocks.players.set(2, player);
+      const main = makeMonster({ id: 1001, hp: 99999, maxHp: 99999 });
+      const other = makeMonster({ id: 1002, name: '兔子', hp: 99999, maxHp: 99999 });
+      registerMonsters(mocks, 1, [main, other]);
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+      const splashFx = {
+        damageMultiplier: 100, forceAllAttack: false, allAttack: false, hitRateModifier: 0,
+        extraPenetration: 0, effectText: '', attackBonus: 0, critDmgBonus: 0,
+        attackerBuffs: [], defenderBuffs: [], markerOps: [],
+        splashCount: 3, splashDamageMultiplier: 1, splashMustHit: true,
+      };
+      jest.spyOn(combat as any, 'processFamiliarEffects').mockReturnValue(splashFx);
+
+      const result = await combat.weaponAttack(2, 0, { mustHit: true, targetName: '史莱姆' });
+      // 存活 2 < 溅射 3 → 【片翼】，并按 3+1 次溅射（候选只有兔子一只 → 重复命中它）
+      expect(result.result).toContain('【片翼】');
+      expect((result.result.match(/受到溅射伤害/g) || [])).toHaveLength(4);
+
+      // 没穿这件装备：溅射次数被存活目标数卡住，且不出现【片翼】
+      mocks.players.set(2, makePlayer({ userId: 2 }));
+      const plain = await combat.weaponAttack(2, 0, { mustHit: true, targetName: '史莱姆' });
+      expect(plain.result).not.toContain('【片翼】');
+      expect((plain.result.match(/受到溅射伤害/g) || [])).toHaveLength(1);
+    });
+
+    it('伊卡洛斯好感≥60「无情」：目标总数小于溅射数量时，按差值×25% 提高溅射攻击', async () => {
+      const player = makePlayer({
+        userId: 2, type: '伊卡洛斯', specialSeq: 13,
+        markers: JSON.stringify({ 伊卡洛斯好感: 60 }),
+      });
+      mocks.players.set(2, player);
+      const main = makeMonster({ id: 1001, hp: 99999, maxHp: 99999 });
+      const other = makeMonster({ id: 1002, name: '兔子', hp: 99999, maxHp: 99999 });
+      registerMonsters(mocks, 1, [main, other]);
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+      jest.spyOn(combat as any, 'processFamiliarEffects').mockReturnValue({
+        damageMultiplier: 100, forceAllAttack: false, allAttack: false, hitRateModifier: 0,
+        extraPenetration: 0, effectText: '', attackBonus: 0, critDmgBonus: 0,
+        attackerBuffs: [], defenderBuffs: [], markerOps: [],
+        splashCount: 3, splashDamageMultiplier: 1, splashMustHit: true,
+      });
+      // 捕获溅射那一击实际用的攻击面板（200 → 溅射3 vs 存活2 → ×1.25 = 250）
+      const seen: any[] = [];
+      const realCalc = (combat as any).calcDamage.bind(combat);
+      jest.spyOn(combat as any, 'calcDamage').mockImplementation((atk: any, ...rest: any[]) => {
+        seen.push(atk);
+        return realCalc(atk, ...rest);
+      });
+
+      const result = await combat.weaponAttack(2, 0, { mustHit: true, targetName: '史莱姆' });
+      expect(result.result).toContain('【无情1】');
+      expect(seen.some((b: any) => Math.abs(Number(b.攻击) - 250) < 1e-6)).toBe(true);
+      // 主命中那一击不吃这个倍率（原版在 造成伤害 主命中之后才改 额外加成.攻击）
+      expect(seen[0].攻击).toBe(200);
+    });
+
+    it('战术目镜(113)：本次出手改用 2 把未冷却武器，写入各自冷却并锁 120 秒', async () => {
+      const player = makePlayer({
+        userId: 2, currentWeapon: 1,
+        equipment: JSON.stringify([{ name: '战术目镜', specialSeq: 113 }]),
+        weapons: JSON.stringify([
+          { name: '铁剑', damage: 1, cooldown: 5, lockTime: 0, type: '近战武器', properties: { phys: 100 } },
+          { name: '火枪', damage: 1, cooldown: 8, lockTime: 0, type: '射弹武器', properties: { phys: 100 } },
+          { name: '冰杖', damage: 1, cooldown: 6, lockTime: 0, type: '射线武器', properties: { phys: 100 } },
+        ]),
+      });
+      mocks.players.set(2, player);
+      const monster = makeMonster({ id: 1001, hp: 99999, maxHp: 99999 });
+      registerMonsters(mocks, 1, [monster]);
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+
+      const result = await combat.weaponAttack(2, 1, { mustHit: true });
+      expect(result.result).toContain('【战术目镜】');
+      const marks2 = parseJson(player.markers2, []);
+      expect(marks2.some((m: any) => m.name === 'zsmj')).toBe(true);
+      const used = ['铁剑冷却', '火枪冷却', '冰杖冷却'].filter((n) => marks2.some((m: any) => m.name === n));
+      expect(used).toHaveLength(2); // 随机 2 把，各写自己的冷却
+      expect(monster.hp).toBeLessThan(99999);
+      // 下一次出手在 120 秒冷却内 → 回到正常单武器流程
+      const second = await combat.weaponAttack(2, 1, { mustHit: true });
+      expect(second.result).not.toContain('【战术目镜】');
     });
   });
 
@@ -709,6 +837,136 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
   });
 
   // ---------- 防御方被动：幻时凝固 / 含光回防（玩家被怪物攻击） ----------
+  describe('防御方被动（怪物攻击玩家方向，原版 战斗相关.ecode L2224-2258 / L2512-2586 / L1945-2000）', () => {
+    /** 让玩家挨一次固定 10 点的怪物攻击，返回回包文本 */
+    async function hitPlayer(player: any, monster: any) {
+      mocks.players.set(player.userId, player);
+      registerMonsters(mocks, 1, [monster]);
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+      jest.spyOn(combat as any, 'buildMonsterBonus').mockReturnValue({
+        攻击: 200, 命中: 200, 闪避: 0, 闪避2: 0, 生命: 50, 护盾: 0, 装甲: 0,
+        护盾物抗: 0, 护盾火抗: 0, 护盾冰抗: 0, 护盾电抗: 0, 护盾全抗: 0,
+        装甲物抗: 0, 装甲火抗: 0, 装甲冰抗: 0, 装甲电抗: 0, 装甲全抗: 0,
+        生命物抗: 0, 生命火抗: 0, 生命冰抗: 0, 生命电抗: 0, 生命全抗: 0,
+        生命伤害上限: 100, 装甲伤害上限: 100, 护盾伤害上限: 100,
+      } as any);
+      jest.spyOn(combat as any, 'checkHit').mockReturnValue(true);
+      jest.spyOn(combat as any, 'calcDamage').mockReturnValue({
+        damage: 10, poolDamage: { shield: 0, armor: 0, hp: 10 }, rating: '', critMultiplier: 1,
+      } as any);
+      return (combat as any).monsterCounterAttackOnePlayer(
+        monster,
+        (combat as any).buildMonsterBonus(monster),
+        player,
+        await mocks.playerService.getPlayerData(player.userId),
+        { id: 1, name: '医疗室', vehicles: '[]' },
+        true,
+      );
+    }
+
+    it('战斗女仆「绝对守护」：守护1 生效期间怪物攻击不扣血', async () => {
+      const player = makePlayer({
+        userId: 2, type: '战斗女仆', specialSeq: 8, hp: 100, maxHp: 100, shield: 0, armor: 0,
+        buffs: JSON.stringify([{ name: '守护1', expireAt: Date.now() + 10_000 }]),
+      });
+      const lines = await hitPlayer(player, makeMonster({ id: 1001, hp: 100, attack: 50 }));
+      expect(player.hp).toBe(100);
+      expect(lines.join('\n')).toContain('守护');
+      // 受击把次数转入 守护2（描述：每被命中一次 → 反击强化），并扣掉 2 秒守护时间
+      const buffs = parseJson(player.buffs, []);
+      expect(buffs.find((b: any) => b.name === '守护2')).toBeTruthy();
+    });
+
+    it('恶毒「色欲」：好感≥100 首次被击免伤，30 秒冷却内再次被击正常扣血', async () => {
+      const player = makePlayer({
+        userId: 2, type: '恶毒', specialSeq: 6, affinity: 100, hp: 100, maxHp: 100, shield: 0, armor: 0,
+      });
+      const monster = makeMonster({ id: 1001, hp: 100, attack: 50 });
+      const first = await hitPlayer(player, monster);
+      expect(player.hp).toBe(100);
+      expect(first.join('\n')).toContain('色欲');
+      const second = await hitPlayer(player, monster);
+      expect(player.hp).toBe(90);
+      expect(second.join('\n')).not.toContain('色欲');
+    });
+
+    it('绝灭天使「光盾」来源：命中时按羽毛÷20 获得光盾增益（60 秒冷却）', async () => {
+      const player = makePlayer({
+        userId: 3, type: '绝灭天使', specialSeq: 3, affinity: 60, hp: 100, maxHp: 100,
+        buffs: '[]', markers: '{}', markers2: '[]',
+      });
+      mocks.players.set(3, player);
+      const monster = makeMonster({ id: 1001, hp: 100_000, maxHp: 100_000 });
+      registerMonsters(mocks, 1, [monster]);
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+      jest.spyOn(combat as any, 'getFeather').mockReturnValue(30);
+
+      const result = await combat.weaponAttack(3, 0, { mustHit: true });
+
+      const buffs = parseJson(player.buffs, []);
+      const shield = buffs.find((b: any) => b.name === '光盾');
+      expect(result.result).toContain('光盾2'); // ceil(30/20)=2 层
+      expect(shield).toBeTruthy();
+      expect(shield.strength).toBe(2);
+      expect(shield.expireAt).toBeGreaterThan(Date.now());
+    });
+
+    it('永恒主宰(83)：玩家被打时首次免疫一次，60 秒冷却内的下一击正常扣血', async () => {
+      const player = makePlayer({
+        userId: 4, type: '伊卡洛斯', specialSeq: 3, hp: 100, maxHp: 100, shield: 0, armor: 0,
+        equipment: JSON.stringify([{ name: '永恒主宰', specialSeq: 83, type: '装备', data: 'e' }]),
+      });
+      const monster = makeMonster({ id: 1001, hp: 100, attack: 50 });
+      const first = await hitPlayer(player, monster);
+      expect(player.hp).toBe(100);
+      expect(first.join('\n')).toContain('永恒主宰');
+      const second = await hitPlayer(player, monster);
+      expect(player.hp).toBe(90);
+      expect(second.join('\n')).not.toContain('永恒主宰');
+    });
+
+    it('圣诞套装(50)：穿满两件的玩家被命中后，地上真的多出一份圣诞礼物，30 秒冷却内不再掉', async () => {
+      const player = makePlayer({
+        userId: 5, hp: 100, maxHp: 100, shield: 0, armor: 0,
+        equipment: JSON.stringify([
+          { name: '圣诞披肩', specialSeq: 50, type: '装备', data: 'e' },
+          { name: '圣诞短裙', specialSeq: 50, type: '装备', data: 'e' },
+        ]),
+      });
+      const monster = makeMonster({ id: 1001, hp: 100, attack: 50 });
+      const first = await hitPlayer(player, monster);
+      expect(first.join('\n')).toContain('【掉落礼物】圣诞礼物');
+      expect((mocks.groundItems.get(1) || []).filter((i: any) => i.name === '圣诞礼物'))
+        .toHaveLength(1);
+      // 30 秒冷却写在 标记2（原版 时间间隔要求 的容器），冷却内第二次被命中不再掉
+      expect(parseJson(player.markers2, []).some((m: any) => m.name === '圣诞')).toBe(true);
+      await hitPlayer(player, monster);
+      expect((mocks.groundItems.get(1) || []).filter((i: any) => i.name === '圣诞礼物'))
+        .toHaveLength(1);
+    });
+
+    it('圣诞套装(50)：只穿一件不掉礼物（描述要求两件一起装备）', async () => {
+      const player = makePlayer({
+        userId: 6, hp: 100, maxHp: 100, shield: 0, armor: 0,
+        equipment: JSON.stringify([{ name: '圣诞披肩', specialSeq: 50, type: '装备', data: 'e' }]),
+      });
+      const lines = await hitPlayer(player, makeMonster({ id: 1001, hp: 100, attack: 50 }));
+      expect(lines.join('\n')).not.toContain('掉落礼物');
+      expect(mocks.groundItems.get(1) || []).toHaveLength(0);
+    });
+
+    it('雪獒铠甲召唤器(91)：被命中把充能锚点前移 60 秒（＝扣 60 层）', async () => {
+      const nowSec = Math.floor(Date.now() / 1000);
+      const player = makePlayer({
+        userId: 7, hp: 100, maxHp: 100, shield: 0, armor: 0,
+        markers: JSON.stringify({ 铠甲: 5, xa: nowSec - 90 }),
+      });
+      const lines = await hitPlayer(player, makeMonster({ id: 1001, hp: 100, attack: 50 }));
+      expect(lines.join('\n')).toContain('【雪獒】充能-60层');
+      expect(parseJson(player.markers, {}).xa).toBe(nowSec - 30); // 90 层 → 60 层
+    });
+  });
+
   describe('防御方被动 幻时凝固/含光回防（monsterCounterAttackOnePlayer 复刻 战斗相关.ecode L1429-1547）', () => {
     // 直接驱动 monsterCounterAttackOnePlayer：构造存活怪物 + 玩家，让怪物命中玩家
     async function runCounter(player: any, monster: any) {
@@ -1011,7 +1269,7 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       expect(res.result).toContain('苇名剑法');
     });
 
-    it('两极反转(装备63) → 攻击时三层穿透+8，result 含「两极反转」', async () => {
+    it('两极反转(装备63) → 命中那次只进25秒冷却，不给穿透', async () => {
       const player = makePlayer({
         userId: 2,
         equipment: [{ specialSeq: 63, name: '两极反转' }],
@@ -1023,8 +1281,27 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
 
       const result = await combat.weaponAttack(2, 0, { mustHit: true });
 
-      expect(result.result).toContain('两极反转');
-      expect(monster.hp).toBeLessThan(50); // 正常造成伤害（穿透+8 使伤害略增）
+      // 描述：「命中后进入25秒冷却。冷却时获得8%穿透（命中的那次攻击不生效）」
+      expect(result.result).toContain('进入25秒冷却');
+      expect(result.result).not.toContain('穿透+8');
+      expect(monster.hp).toBeLessThan(50);
+    });
+
+    it('两极反转(装备63) → 冷却期内攻击三层穿透+8', async () => {
+      const player = makePlayer({
+        userId: 2,
+        equipment: [{ specialSeq: 63, name: '两极反转' }],
+        markers: { 两级反转: Math.floor(Date.now() / 1000) - 5 },
+      });
+      mocks.players.set(2, player);
+      const monster = makeMonster({ id: 1001, hp: 50000 });
+      registerMonsters(mocks, 1, [monster]);
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+
+      const result = await combat.weaponAttack(2, 0, { mustHit: true });
+
+      expect(result.result).toContain('两极反转·穿透+8');
+      expect(monster.hp).toBeLessThan(50000);
     });
 
     it('增幅器套装=2 且目标 s敏锐>=5 → 伤害被免疫（敏锐），怪物不死', async () => {
@@ -1102,8 +1379,10 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
     it('短衬衫2(防御方标记2) → 伤害×0.1，result 含「短衬衫」', async () => {
       const player = makePlayer({ userId: 2 });
       mocks.players.set(2, player);
+      // 容器按原版：短衬衫2 写在 防御方.标记2（L3631 写、L1945 读），旧桩放在 标记 里等于固化了读取端的容器错误。
       const monster = makeMonster({
-        id: 1001, hp: 100, maxHp: 100, markers: JSON.stringify({ 短衬衫2: 1 }),
+        id: 1001, hp: 100, maxHp: 100,
+        markers2: JSON.stringify([{ name: '短衬衫2', expireAt: Date.now() + 60_000 }]),
       });
       registerMonsters(mocks, 1, [monster]);
       jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
@@ -1214,6 +1493,56 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
       const result = await combat.weaponAttack(2, 0, { mustHit: true });
 
       expect(result.result).toContain('斗转星移');
+    });
+
+    it('湮灭主宰(装备85) 命中 → 目标叠「湮灭」增益，5 秒冷却内不重复叠', async () => {
+      const player = makePlayer({
+        userId: 2,
+        equipment: JSON.stringify([{ name: '湮灭主宰', type: '装备', specialSeq: 85, data: 'e' }]),
+      });
+      mocks.players.set(2, player);
+      const monster = makeMonster({ id: 1001, hp: 100000, maxHp: 100000 });
+      registerMonsters(mocks, 1, [monster]);
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+
+      const first = await combat.weaponAttack(2, 0, { mustHit: true });
+      expect(first.result).toContain('湮灭');
+      const buffs = parseJson(monster.buffs, []);
+      const ann = buffs.find((b: any) => b.name === '湮灭');
+      expect(ann).toBeTruthy();
+      expect(ann.strength).toBe(1);
+
+      await combat.weaponAttack(2, 0, { mustHit: true });
+      expect(parseJson(monster.buffs, []).find((b: any) => b.name === '湮灭').strength).toBe(1);
+    });
+
+    it('闪避击2(超频连接) → 下一击必中并播报【超频】，标记清零', async () => {
+      const player = makePlayer({
+        userId: 2, markers: JSON.stringify({ 闪避击2: 1 }),
+      });
+      mocks.players.set(2, player);
+      const monster = makeMonster({ id: 1001, hp: 100, maxHp: 100 });
+      registerMonsters(mocks, 1, [monster]);
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+
+      const result = await combat.weaponAttack(2, 0, {}); // 不给 mustHit，靠标记兑现必中
+      expect(result.result).toContain('超频');
+      expect(parseJson(player.markers, {})['闪避击2']).toBeFalsy();
+    });
+
+    it('花园猫 闪避击(好感≥100) → 必中 + 播报【闪避击】', async () => {
+      const player = makePlayer({
+        userId: 2, type: '花园猫', specialSeq: 1, affinity: 100,
+        markers: JSON.stringify({ 闪避击: 1 }),
+      });
+      mocks.players.set(2, player);
+      const monster = makeMonster({ id: 1001, hp: 100, maxHp: 100 });
+      registerMonsters(mocks, 1, [monster]);
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+
+      const result = await combat.weaponAttack(2, 0, {});
+      expect(result.result).toContain('闪避击');
+      expect(parseJson(player.markers, {})['闪避击']).toBeFalsy();
     });
 
     it('防御方恶毒(6) 好感≥100 → 色欲免疫，怪物 hp 不变', async () => {
@@ -1887,5 +2216,65 @@ describe('战斗系统端到端回归（五轮原汁原味修复）', () => {
         expect(melee.result).not.toContain('(弹药充沛)');
       });
     });
+
+  describe('直死魔眼(54)「无视任何效果直接杀死目标」（原版 战斗相关.ecode L3614-3626）', () => {
+    it('被击后仍存活 → 按 (1−当前生命÷上限)×25% 斩杀，免死类效果不再有机会', async () => {
+      const player = makePlayer({
+        userId: 2,
+        equipment: JSON.stringify([{ name: '直死魔眼', specialSeq: 54, type: '装备', data: 'e' }]),
+      });
+      mocks.players.set(2, player);
+      const monster = makeMonster({ id: 1001, hp: 5000, maxHp: 5000 });
+      registerMonsters(mocks, 1, [monster]);
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+      jest.spyOn(combat as any, 'buildMonsterBonus').mockReturnValue(weakDefenderBonus());
+      jest.spyOn(Math, 'random').mockReturnValue(0); // 几率判定一律放行
+      const result = await combat.weaponAttack(2, 0, { mustHit: true, targetName: '史莱姆' });
+      expect(result.result).toContain('被直死魔眼斩杀');
+      expect(monster.hp).toBe(0);
+      expect(result.killed).toContain('史莱姆');
+    });
+
+    it('没穿这件装备时不出现斩杀判定（同一只残血怪只是掉血）', async () => {
+      mocks.players.set(2, makePlayer({ userId: 2 }));
+      const monster = makeMonster({ id: 1002, name: '史莱姆', hp: 5000, maxHp: 5000 });
+      registerMonsters(mocks, 1, [monster]);
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+      jest.spyOn(combat as any, 'buildMonsterBonus').mockReturnValue(weakDefenderBonus());
+      jest.spyOn(Math, 'random').mockReturnValue(0);
+      const result = await combat.weaponAttack(2, 0, { mustHit: true, targetName: '史莱姆' });
+      expect(result.result).not.toContain('直死魔眼');
+      expect(monster.hp).toBeGreaterThan(0);
+    });
+  });
+
+  describe('京兆巨炮「炮击造成2倍伤害、无法被闪避、冷却30秒」（原版 战斗相关.ecode L1388-1392）', () => {
+    const bigMonster = () => makeMonster({ id: 1001, hp: 999999, maxHp: 999999 });
+
+    it('jzjp 冷却就绪 → 本次×2 且必中并写入30秒冷却；冷却中按普通倍率结算', async () => {
+      // 固定随机数：让两次出手的伤害随机数完全一致，只差在 2 倍倍率上
+      jest.spyOn(Math, 'random').mockReturnValue(0.5);
+      const player = makePlayer({ userId: 3 });
+      mocks.players.set(3, player);
+      jest.spyOn(combat as any, 'buildAttackerBonus').mockReturnValue(strongAttackerBonus());
+      jest.spyOn(combat as any, 'buildMonsterBonus').mockReturnValue(weakDefenderBonus());
+
+      const first = bigMonster();
+      registerMonsters(mocks, 1, [first]);
+      const boosted = await combat.weaponAttack(3, 0, { attackText: '京兆巨炮a', targetName: '史莱姆' });
+      expect(boosted.result).toContain('【京兆巨炮】');
+      expect(parseJson(player.markers2, []).some((m: any) => m.name === 'jzjp')).toBe(true);
+
+      const second = bigMonster();
+      registerMonsters(mocks, 1, [second]);
+      const cooled = await combat.weaponAttack(3, 0, { attackText: '京兆巨炮a', targetName: '史莱姆' });
+      expect(cooled.result).not.toContain('【京兆巨炮】');
+
+      const boostedLoss = 999999 - first.hp;
+      const cooledLoss = 999999 - second.hp;
+      expect(boostedLoss).toBeGreaterThan(0);
+      expect(boostedLoss).toBeGreaterThanOrEqual(cooledLoss * 1.8);
+    });
+  });
   });
 });

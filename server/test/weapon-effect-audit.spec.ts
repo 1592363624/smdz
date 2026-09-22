@@ -39,7 +39,7 @@ const WEAPON_EFFECT_KEYS = Object.keys(WEAPON_EFFECT_ROW.bonus);
 
 /** 核装药：攻击冷却10 / aoe / 必中 / 攻击文本 —— 覆盖特效的全部附加语义 */
 const NUKE_ID = poolIndex(weaponPool, '核装药');
-/** 航空母舰：攻击次数=1，按原版「>=2 才追加」的门槛不应生效 */
+/** 航空母舰：特效加成 攻击次数=1，按「额外攻击次数」口径应原样追加 */
 const CARRIER_ID = poolIndex(weaponPool, '航空母舰');
 
 const cleanDef = () => ({
@@ -162,13 +162,13 @@ describe('武器特效附加语义在战斗侧生效', () => {
     expect(weaponData.effectFlags?.mustHit).toBe(true);
   });
 
-  it('攻击次数：原版门槛 >=2，数值为 1 的特效不追加', () => {
+  it('攻击次数：按额外次数生效（旧门槛 >=2 会让 航空母舰 的 1 恒不生效）', () => {
     const shared = cleanDef();
     const resolved = (buildCombat(makeStaticData(shared)) as any).resolveItemBonus(
       { name: shared.name, type: '装备', data: `a!bx${CARRIER_ID}` },
     );
     expect(CARRIER_ID).toBeGreaterThan(0);
-    expect(Number(resolved.bonus?.['攻击次数'] ?? 0)).toBe(0);
+    expect(Number(resolved.bonus?.['攻击次数'] ?? 0)).toBe(1);
   });
 
   it('无特效装备不产生 effectBonus 与语义标记', () => {
@@ -192,14 +192,16 @@ describe('使魔技能增益数值：确实进入 bonus 计算', () => {
     expect(bonus.攻击2).toBe(35);
   });
 
-  it('冰精灵：冰伤2 + 30 + 技能等级，并追加穿透10', () => {
+  it('冰精灵：冰伤2 + 30 + 技能等级，并追加穿透15', () => {
     const bonus: any = {};
     bonusService.calculateGameBonus(
       { bonus, buffs: [{ name: '冰精灵', expireAt: nowSec() + 60 }], skillLevel: 5 },
       nowSec(),
     );
     expect(bonus.冰伤2).toBe(35);
-    expect(bonus.生命穿透).toBe(10);
+    // 原版 加成计算 L158-161 是 增加穿透(玩家.加成, 15)，文案「穿透+15%」与之一致；
+    // 此前断言里的 10 是把移植错值当成了口径。
+    expect(bonus.生命穿透).toBe(15);
   });
 
   it('增益过期后数值不再计入', () => {

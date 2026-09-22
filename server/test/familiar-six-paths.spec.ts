@@ -143,7 +143,7 @@ describe('冥鱼六道轮回洗装（使魔技能.ecode L667-L1306）', () => {
 
   it('冥鱼腿环按品质提升条数（b=7条）', async () => {
     const { service } = makeFixture({
-      equipment: JSON.stringify([{ name: '蕾丝边腿环', type: '腿环', data: 'b!ai100' }]),
+      equipment: JSON.stringify([{ name: '冥鱼腿环', type: '腿环', data: 'b!ai100' }]),
     });
     const result = await service.sixPaths(1, '1攻击');
     expect(result).toMatch(/\n7、/);
@@ -151,10 +151,10 @@ describe('冥鱼六道轮回洗装（使魔技能.ecode L667-L1306）', () => {
   });
 
   it('传说腿环刷出8条，神迹腿环刷出11条', async () => {
-    const s8 = makeFixture({ equipment: JSON.stringify([{ name: '蕾丝边腿环', type: '腿环', data: 's' }]) });
+    const s8 = makeFixture({ equipment: JSON.stringify([{ name: '冥鱼腿环', type: '腿环', data: 's' }]) });
     expect(await s8.service.sixPaths(1, '1攻击')).toMatch(/\n8、/);
 
-    const s11 = makeFixture({ equipment: JSON.stringify([{ name: '蕾丝边腿环', type: '腿环', data: 'x' }]) });
+    const s11 = makeFixture({ equipment: JSON.stringify([{ name: '冥鱼腿环', type: '腿环', data: 'x' }]) });
     expect(await s11.service.sixPaths(1, '1攻击')).toMatch(/\n11、/);
   });
 

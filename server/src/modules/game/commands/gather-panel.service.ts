@@ -1577,7 +1577,9 @@ export class GatherPanelService {
       const lieCount = lieDisplay.count;
       const lieSummons = asJsonValue<any[]>(map.summons, []);
       const luo = lieSummons.find((s: any) => (s?.specialSeq ?? s?.special_seq ?? s?.seq) === -4);
-      const expBonus = Number(player.expBonus ?? 0);
+      // 经验加成读计算属性（player.bonus.经验，奶酪等增益写在这里）；
+      // player.expBonus 这一列在本作 Schema 里不存在，恒为 0，面板与躺下经验都读不到加成。
+      const expBonus = Number((player.bonus as any)?.经验 ?? (player as any).属性?.经验 ?? (player as any).expBonus ?? 0);
       const level = Number(player.level ?? 1);
       const lieLines = [
         `${lieCount > 0 ? `正在和${lieDisplay.names.join('、')}` : '正'}躺在床上`,
@@ -1792,7 +1794,8 @@ export class GatherPanelService {
     this.logger.log(`玩家 ${userId} 躺下了（陪睡${sleepover}${hasLuo ? '，有洛' : ''}）`);
 
     // 躺下起床显示(1)（原版 数据显示.ecode L299-311）
-    const expBonus = Number(player.expBonus ?? 0);
+    // 经验加成读计算属性（player.bonus.经验）；player.expBonus 列不存在，恒 0。
+    const expBonus = Number((player.bonus as any)?.经验 ?? (player as any).属性?.经验 ?? (player as any).expBonus ?? 0);
     const level = Number(player.level ?? 1);
     let text = `${name}${display.count > 0 ? `和${display.names.join('和')}` : ''}躺到了床上`;
     text += `\n每秒获得经验:${this.support.round2Text(level / 100)}`;

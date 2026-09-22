@@ -129,3 +129,32 @@ describe('货币列化（P1）透明转换', () => {
     expect(parseJson(row.markers, {})).toEqual({ x: 1 });
   });
 });
+
+describe('读档闸：使魔好感度权威值同步（标记 > 列 时刷列）', () => {
+  // 好感的真相源是 标记["<使魔名>好感"]（巧克力/任务/行商都写它），而 affinity 列只在
+  // 「更换使魔」那一刻同步过一次 → 战斗里所有「好感≥N 解锁」的使魔描述会长期按旧值判定。
+  const baseRow = () => ({
+    id: 1, userId: 42, version: 0, mapId: 1,
+    type: '恶毒', specialSeq: 6, affinity: 0,
+    diamonds: 0, tickets: 0, dataCores: 0,
+    backpack: '[]', markers: '{"恶毒好感":100}',
+  });
+
+  it('标记里的好感高于列值 → 读档后列被刷成标记值', async () => {
+    const service = makeService(makePrisma([baseRow()]));
+    const snap = await service.getPlayerData(42);
+    expect(snap.player.affinity).toBe(100);
+  });
+
+  it('列值本来就更高时不被压低（幂等，且不越界改数）', async () => {
+    const service = makeService(makePrisma([{ ...baseRow(), affinity: 150 }]));
+    const snap = await service.getPlayerData(42);
+    expect(snap.player.affinity).toBe(150);
+  });
+
+  it('没有使魔类型或没有好感标记时保持原值', async () => {
+    const service = makeService(makePrisma([{ ...baseRow(), type: '', markers: '{}' }]));
+    const snap = await service.getPlayerData(42);
+    expect(snap.player.affinity).toBe(0);
+  });
+});

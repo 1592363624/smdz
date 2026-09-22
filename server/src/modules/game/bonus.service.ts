@@ -605,8 +605,11 @@ export class BonusService {
     const a1 = 1 - this.safeNum(target.韧性) / 100;
 
     // 生产（默认叠加）
+    // 「科学家/科学狂人」特效的加成键是 生产（effects.json），原版同为 加成.生产；
+    // 本框架面板与棘轮读的是 生产力，故两键一并汇入。
     if (!opts.noProduction) {
-      target.生产力 = this.safeNum(target.生产力) + this.safeNum(source.生产力) * inc;
+      const sourceProduction = this.safeNum(source.生产力) + this.safeNum((source as any).生产);
+      target.生产力 = this.safeNum(target.生产力) + sourceProduction * inc;
     }
     // 魅力、攻击次数直接累加
     target.魅力 = this.safeNum(target.魅力) + this.safeNum(source.魅力) * inc;
@@ -1217,6 +1220,28 @@ export class BonusService {
   }
 
   /**
+   * 称号加成（原版 加成计算.ecode L1625-1632）：
+   * 遍历玩家已拥有称号，逐个按称号定义表的 `bonus` 走一次 叠加加成。
+   *
+   * 走的是与装备/增益完全相同的合并入口，故「正加负乘」「韧性减免」等规则对称号同样成立；
+   * `说明` 是 titles.json 里的伪加成键（人类可读文案），必须跳过。
+   */
+  applyTitleBonuses(target: BonusData, rows: Array<{ bonus?: any } | null | undefined>): void {
+    for (const row of rows) {
+      const raw = row?.bonus;
+      if (!raw || typeof raw !== 'object') continue;
+      const source: BonusData = {};
+      for (const [key, value] of Object.entries(raw)) {
+        if (key === '说明') continue;
+        const n = Number(value);
+        if (Number.isFinite(n) && n !== 0) (source as any)[key] = n;
+      }
+      if (Object.keys(source).length === 0) continue;
+      this.mergeBonusTo(target, source, {});
+    }
+  }
+
+  /**
    * 最终加成
    * 对应原版：最终加成()（加成计算.ecode L3233-L3333）
    * 将目标(目标加成)与来源(来源加成)合并计算最终属性，处理：
@@ -1723,7 +1748,10 @@ export class BonusService {
         * (1 + this.safeNum(bonus.攻击2) / 100) * factor;
     };
 
-    // L92-L128：成就铠甲。
+    // L92-L128：成就铠甲（标记「铠甲」由 skill-command.activateArmor 写入）。
+    // 飞影/地虎 的武器冷却换算不在这里做：原版改的是内存里的 玩家.武器[当前武器]，
+    // 而本框架的 weapons 是 Json 列直出的同一引用 → 每重算一次再乘一层
+    //（飞影一路 ×0.85 收敛到 0、地虎一路 ×1.2 无限放大）。两条都改在 getWeaponData 按次换算。
     const armorType = this.safeNum(markers['铠甲']);
     if (armorType === 1) {
       bonus.攻击2 = this.safeNum(bonus.攻击2) + 10;
@@ -1734,20 +1762,18 @@ export class BonusService {
       bonus.装甲2 = this.safeNum(bonus.装甲2) + 12;
       addAllResist(15, 15, 15);
     } else if (armorType === 3 && currentWeapon > 0) {
-      const weapon = weapons[currentWeapon - 1];
-      weapon.cooldown = weapon.冷却 = this.safeNum(weapon.cooldown ?? weapon.冷却) * 0.85;
       bonus.贯穿 = this.safeNum(bonus.贯穿) + 5;
       bonus.暴击伤害 = this.safeNum(bonus.暴击伤害) + 33;
     } else if (armorType === 4) {
       bonus.物伤 = this.safeNum(bonus.物伤) * 1.15;
-      if (currentWeapon > 0) {
-        const weapon = weapons[currentWeapon - 1];
-        weapon.cooldown = weapon.冷却 = this.safeNum(weapon.cooldown ?? weapon.冷却) * 1.2;
-      }
       bonus.攻击生命 = this.safeNum(bonus.攻击生命) + 20;
     } else if (armorType === 5) {
+      // 雪獒充能：标记 xa 是「上次消耗时的秒级锚点」，层数 = s - xa（原版把它夹在 120 层内）。
+      // 原版的三分支是 空→置为 s；超过120秒→回拨到 s-120；否则**保持锚点不动**。
+      // 这里原先写的是 Math.max(previous, nowSec)，等于每次重算加成都把锚点推到当下
+      //（→ 层数恒 0），「每1秒充能1层、命中消耗60层」这条描述永远攒不出来。
       const previous = this.safeNum(markers.xa) || nowSec;
-      const capped = nowSec - previous > 120 ? nowSec - 120 : Math.max(previous, nowSec);
+      const capped = nowSec - previous > 120 ? nowSec - 120 : previous;
       markers.xa = capped;
     }
 
@@ -1778,7 +1804,8 @@ export class BonusService {
     if (hasBuff('蛋糕') !== undefined) bonus.掉落率 = this.safeNum(bonus.掉落率) + 50;
     if (hasBuff('冰精灵') !== undefined) {
       bonus.冰伤2 = this.safeNum(bonus.冰伤2) + 30 + skillLevel;
-      addPenetration(10);
+      // 原版 加成计算 L160 与文案都是「穿透+15%」（此前移植写成 10）
+      addPenetration(15);
       (bonus as any).特效文本 = [...((bonus as any).特效文本 || []), '冰精灵'];
     }
     if (hasBuff('冰凯') !== undefined) {
@@ -1884,6 +1911,16 @@ export class BonusService {
       bonus.装甲回复 = this.safeNum(bonus.装甲回复) * (1 + stack / 40);
       bonus.护盾回复 = this.safeNum(bonus.护盾回复) * (1 + stack / 40);
       addAllResist(0, stack * 2.5, stack * 2.5);
+    }
+    // 神兽之力-祥瑞(116)：描述「每次被攻击无论是否命中，攻击+10%，贯穿+3%，可叠加5层。持续30秒」。
+    // 原版只在 战斗相关.ecode L1354-1360 写增益并播报层数，加成侧没有消费端（且第7参为空 →
+    // 强度恒 1，与"可叠加5层"矛盾）；投放端本轮已按描述改为逐层叠加（CombatSystemService
+    // .applyDefenderGearHitPhase），这里补齐消费。
+    const auroraStacks = hasBuff('祥瑞');
+    if (auroraStacks !== undefined) {
+      const stack = Math.min(5, auroraStacks);
+      bonus.攻击2 = this.safeNum(bonus.攻击2) + stack * 10;
+      bonus.贯穿 = this.safeNum(bonus.贯穿) + stack * 3;
     }
     if (hasBuff('灼烂歼鬼') !== undefined) {
       addPenetration(10 + skillLevel / 2);
@@ -2014,33 +2051,22 @@ export class BonusService {
     if (sets.crown === 3) sets.legendaryRate = this.safeNum(sets.legendaryRate) + 2;
 
     // L437-L443：叹息之墙装备、纳米注喷器。
+    // 疾风之翼(5)：描述「命中率+5%」是 效果=（特殊序号）而不是装备基础属性
+    //（原版 使魔大战.txt 该件只有 暴击=5 魅力=1），此前没有任何实现。
+    if (hasEquipBySeq(5)) bonus.命中2 = this.safeNum(bonus.命中2) + 5;
     if (hasEquipBySeq(12)) bonus.护盾 = this.safeNum(bonus.护盾) * 1.2;
     else if (hasEquipBySeq(13)) bonus.装甲 = this.safeNum(bonus.装甲) * 1.25;
 
-    // L444-L456：心形贴冷却、暴击熟练度。
-    if (hasEquipBySeq(30)) {
-      if (currentWeapon > 0) {
-        const weapon = weapons[currentWeapon - 1];
-        weapon.cooldown = weapon.冷却 = this.safeNum(weapon.cooldown ?? weapon.冷却) * 0.85;
-      } else {
-        weapons.forEach((weapon) => {
-          weapon.cooldown = weapon.冷却 = this.safeNum(weapon.cooldown ?? weapon.冷却) * 0.85;
-        });
-      }
-    }
+    // L444-L456：心形贴攻击冷却、暴击熟练度。
+    // 「攻击冷却-15%」是 心形贴(103) 的 ◆本装备效果；纳米套装(30) 的描述只有
+    // 「装备6件时可以使用技能“纳米生化装”」，挂错序号会让整套纳米装白送 15% 攻速。
+    // 冷却换算本身已移到 CombatSystemService.getWeaponData：加成计算里直接改
+    // weapons[i].冷却 会在每次重算时再乘一层（存档里的冷却被无限压到 0）。
     bonus.暴击伤害 = this.safeNum(bonus.暴击伤害) + this.safeNum(markers['暴击']);
 
-    // L457-L464：超载核心（原版默认分支为武器×0.85，按原版保留）。
-    if (hasEquipBySeq(24)) {
-      if (currentWeapon > 0) {
-        const weapon = weapons[currentWeapon - 1];
-        weapon.cooldown = weapon.冷却 = this.safeNum(weapon.cooldown ?? weapon.冷却) * 1.25;
-      } else {
-        weapons.forEach((weapon) => {
-          weapon.cooldown = weapon.冷却 = this.safeNum(weapon.cooldown ?? weapon.冷却) * 0.85;
-        });
-      }
-    }
+    // L457-L464：超载核心（描述「伤害随机上限+25%，武器攻击冷却+25%」）。
+    // 同样只在这里留下说明：原先对 weapons[i].冷却 的 ×1.25 / ×0.85 就地改写会随重算
+    // 不断累积（且无当前武器分支用的是 ×0.85，与描述相反）；换算改在 getWeaponData 按次做。
 
     // L467-L473：生命祝福。
     if (hasEquipByName('生命祝福')) {

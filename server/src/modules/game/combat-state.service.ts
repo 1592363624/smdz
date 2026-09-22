@@ -466,9 +466,9 @@ export class CombatStateService {
     if (特殊序号 !== 0) {
       switch (特殊序号) {
         case SEQ.植入体强攻: 套装.implant = 1; return;
-        case SEQ.植入体雷霆: 套装.implant = 2; return;
-        case SEQ.植入体烈火: 套装.implant = 3; return;
-        case SEQ.植入体冰结: 套装.implant = 4; return;
+        case SEQ.植入体烈火: 套装.implant = 2; return;
+        case SEQ.植入体冰结: 套装.implant = 3; return;
+        case SEQ.植入体雷霆: 套装.implant = 4; return;
         case SEQ.增幅器侵彻: 套装.amplifier = 5; return;
         case SEQ.增幅器速射: 套装.amplifier = 1; return;
         case SEQ.增幅器敏锐: 套装.amplifier = 2; return;
@@ -509,7 +509,12 @@ export class CombatStateService {
         case SEQ.心形贴: 套装.reverseBunny = (套装.reverseBunny || 0) + 1; return;
         case SEQ.创可贴: 套装.reverseBunny = (套装.reverseBunny || 0) + 1; return;
         case SEQ.逆兔女郎: 套装.reverseBunny = (套装.reverseBunny || 0) + 1; return;
-        default: break; // 特殊序号未命中 → 不返回，继续第二段按名称判定（对齐原版未命中分支）
+        default:
+          // 原版结构是 .判断开始(特殊序号!=0) … .默认(空) .判断结束，名称段位于**外层 .默认**：
+          // 只要特殊序号不为 0，就绝不进入第二段按名称判定。
+          // 此前写成 break 落到名称段，会让 生命增强器(55)/生命祝福(14) 等
+          // 首字命中「生命」的装备白送 生命套装 件数（同类污染对所有前缀套系统存在）。
+          return;
       }
     }
 

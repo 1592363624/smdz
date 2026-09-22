@@ -90,9 +90,16 @@ describe('打开箱子端到端（真实远程库）', () => {
   });
 
   it('奶恢复三池并附带经验；死亡状态受120秒复活冷却限制', async () => {
-    // 高等级夹具：奶每次附带 +10000 经验，三次共 3 万仍低于 Lv.175 的升级门槛
-    // （175²+5=30630），避免经验归一化在此用例内触发升级/属性重算——
-    // 升级行为已由 test/exp-normalize.spec.ts 单测覆盖，此处聚焦开箱与三池恢复本身。
+    // 高等级夹具：留出足够的经验余量，让本用例的三次发放不至于触发升级/属性重算
+    //（175²+5=30630；升级行为由 test/exp-normalize.spec.ts 单测覆盖，此处聚焦开箱与三池恢复本身）。
+    // 每次使用发放的经验从 items.json 取：数值属存量数据（原版 [奶] 使用可得=经验10000，
+    // 本作在 奶/瓶装奶/瓶子/蛋糕/奶油蛋糕/奶酪/粽子/至纯圣水 上统一调低过，见审计报告第二节），
+    // 把绝对值硬编进断言会让"改数据"每次都变成"产品回归"。
+    const milkEffects: string[] = (JSON.parse(
+      require('fs').readFileSync(require('path').join(__dirname, '../prisma/data/items.json'), 'utf8'),
+    ) as any[]).find((i: any) => i?.name === '奶')?.useEffects ?? [];
+    const expPerUse = Number((milkEffects.find((e: any) => String(e).startsWith('经验')) || '').replace('经验', ''));
+    expect(expPerUse).toBeGreaterThan(0); // 数据缺这项时本用例应红，而不是退化成"经验不变"
     const uid = await makePlayer([
       { name: '奶', type: '资源', quantity: 5 },
     ], { level: 175, upgradeExp: 30630 });
@@ -121,7 +128,7 @@ describe('打开箱子端到端（真实远程库）', () => {
     expect(t3).toContain('使用奶复活冷却');
     const p3 = await prisma.player.findUnique({ where: { userId: uid } });
     expect(p3!.hp).toBe(0); // 未复活
-    expect(p3!.exp).toBe(expBefore + 10000); // 经验照常发放
+    expect(p3!.exp).toBe(expBefore + expPerUse); // 经验照常发放（数值按 items.json 取）
   });
 
   it('凭证每日一次发放等级/2的改良建筑箱，同日再次使用进入冷却', async () => {

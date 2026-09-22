@@ -525,10 +525,41 @@ export class SkillCommandService {
    * @param armorName 铠甲名称（可选，如炎龙/黑犀/飞影/地虎/雪獒）
    */
   async handleArmorCombine(userId: number, armorName?: string): Promise<string> {
-    if (armorName) {
-      return `⚡ ${armorName}铠甲，合体！铠甲激活成功！`;
+    if (!armorName) return this.familiarSkillsService.executeSkill(userId, '铠甲合体');
+    return this.activateArmor(userId, armorName);
+  }
+
+  /**
+   * 「X铠甲合体！」（原版 _主程序.ecode L10690-10712）：
+   * 必须**正穿着**「X铠甲召唤器」（腰部装备），已激活过不再重复，成功即把
+   * `标记.铠甲` 置成 1..5（炎龙/黑犀/飞影/地虎/雪獒，@Constant.ecode L3-7）。
+   *
+   * 这个标记是五件铠甲唯一的效果开关：加成侧（bonus.service 的 铠甲 分支）与
+   * 战斗侧（雪獒充能）都只读它。原先本指令只回一句文案、什么都不写 →
+   * 「装备之后发送…来激活，攻击+10%、穿透+6%」这类描述五条全都永不成立。
+   * 「更换装备后失效」的清零在换装与切换装备预设两处（item.service / equip-command.service）。
+   */
+  private async activateArmor(userId: number, armorName: string): Promise<string> {
+    const armorSeqByName: Record<string, number> = { 炎龙: 1, 黑犀: 2, 飞影: 3, 地虎: 4, 雪獒: 5 };
+    const armorSeq = armorSeqByName[String(armorName).trim()];
+    if (!armorSeq) return `${armorName}没有对应的铠甲`;
+    const summonerName = `${armorName}铠甲召唤器`;
+    const playerData = await this.playerService.getPlayerData(userId);
+    const { player, markers } = playerData;
+    const worn: any[] = Array.isArray(playerData.equipment)
+      ? playerData.equipment
+      : asJsonValue<any[]>(player.equipment, []);
+    // 原版 装备要求(玩家, , "X铠甲召唤器")：只按名字在穿戴栏里找，不限部位
+    if (!worn.some((e: any) => String(e?.name ?? '').includes(summonerName))) {
+      return `${player.name || '冒险者'}需要装备“${summonerName}”`;
     }
-    return this.familiarSkillsService.executeSkill(userId, '铠甲合体');
+    if (Number(this.playerService.getMarkerValue(markers, '铠甲') ?? 0) !== 0) {
+      return `${player.name || '冒险者'}已经激活过了`;
+    }
+    this.playerService.setMarker(markers, '铠甲', armorSeq);
+    player.markers = markers; // markers 为原生 Json 列，直接写对象
+    await this.playerService.savePlayer(player);
+    return `⚡ ${summonerName}（${player.name || '冒险者'}）${armorName}铠甲激活`;
   }
 
   /** 缓天使（安乐天使）：目标可为自己、当前地图召唤物或其他玩家（原版 _主程序.ecode L995-1041） */

@@ -166,13 +166,16 @@ describe('兰音/普拉娜 使魔技能 端到端实战（真实远程库）', (
     expect(pb.mustHitNext).toBe(true);
 
     // 验证友方召唤物 buffs 同步获得 mustHitNext
+    // 宠物侧与玩家侧同名（旧写法两条蓄势都叫「下次攻击·标记」，既分不开、也缺
+    // consumeNextAttackBuffs 认的 onceAttack 位 → 写进去没人读）
     const map = await refreshMap();
     if (!map) throw new Error('测试地图不存在');
     const summons = parseJson(map.summons, []);
     const ally = summons.find((s: any) => s.name === allyName);
-    const sb = findSummonBuff(ally.buffs, '下次攻击·标记');
+    const sb = findSummonBuff(ally.buffs, '心无所扰·蓄势');
     expect(sb).toBeDefined();
     expect(sb.mustHitNext).toBe(true);
+    expect(sb.onceAttack).toBe(true);
   });
 
   it('测试3 月落寸光：player.buffs 含「月落寸光·蓄势」+ 模式2同步友方召唤物', async () => {
@@ -193,9 +196,10 @@ describe('兰音/普拉娜 使魔技能 端到端实战（真实远程库）', (
     if (!map) throw new Error('测试地图不存在');
     const summons = parseJson(map.summons, []);
     const ally = summons.find((s: any) => s.name === allyName);
-    const sb = findSummonBuff(ally.buffs, '下次攻击·标记');
+    const sb = findSummonBuff(ally.buffs, '月落寸光·蓄势');
     expect(sb).toBeDefined();
     expect(sb.nextPenetration).toBe(true);
+    expect(sb.onceAttack).toBe(true);
   });
 
   it('测试4 形神合一：地图怪物麻醉 + 风月入墨地图增益 + 模式2友方同步', async () => {

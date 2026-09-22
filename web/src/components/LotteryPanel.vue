@@ -134,9 +134,46 @@ async function reload() {
     const res = await gameApi.lotteryStatus();
     status.value = res.data || null;
     errorText.value = '';
+    // 打开/刷新时先把奖池预览铺进跑马灯，否则中间只有空框和金线
+    seedIdleReel();
   } catch (e) {
     errorText.value = e?.response?.data?.message || '抽奖状态加载失败';
   }
+}
+
+/** 用 status.poolPreview 填一列待机奖池名；抽奖动画/中奖高亮时不覆盖 */
+function seedIdleReel() {
+  if (spinning.value || result.value) return;
+
+  const pool = status.value?.poolPreview || [];
+  if (!pool.length) {
+    // 预览偶发为空时仍给可见占位，避免中间又变成空框
+    const size = Number(status.value?.poolSize) || 0;
+    reelRows.value = size > 0
+      ? [{ name: `奖池 ${size} 件`, quantity: 1, kind: 'resource' }]
+      : [];
+    resultIndex.value = -1;
+    reelY.value = 0;
+    return;
+  }
+
+  // 视窗约 140px / 行高 52px ≈ 3 行；多铺几条，看起来是完整奖池而非单行占位
+  const shuffled = [...pool];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  const count = Math.min(shuffled.length, Math.max(8, pool.length));
+  reelRows.value = Array.from({ length: count }, (_, i) => {
+    const p = shuffled[i % shuffled.length];
+    return {
+      name: p.name,
+      quantity: Math.max(1, Number(p.quantity) || 1),
+      kind: p.kind || 'resource',
+    };
+  });
+  resultIndex.value = -1;
+  reelY.value = 0;
 }
 
 function pickPreviewPool() {

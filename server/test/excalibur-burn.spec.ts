@@ -357,16 +357,18 @@ describe('誓约胜利之剑（excalibur）复刻', () => {
     expect(clean.hp).toBe(100); // 未扣灼烧伤害
   });
 
-  it('引擎免伤：防御方 buff 含 invincible:true 时本次伤害完全免疫（Saber好感2/安乐天使护盾统一消费点）', async () => {
+  it('引擎免伤：防御方带「安乐天使」增益时本次伤害完全免疫（原版 战斗相关 L1824 的名称分支）', async () => {
     const mocks = buildCombatMocks();
     const combat = mocks.build();
     const caster = makePlayer();
     mocks.players.set(2, caster);
 
-    // 怪物带 invincible 增益（如 saber 好感2 写出的 saber_无敌），引擎应在防御方段免疫
+    // 免疫只有一条口径：防御方增益里按名称匹配（安乐天使 / saber 的 ex / 四糸乃的 bk1），
+    // 不再有「buff.invincible 布尔位」这第二条并行通道（它的写入端已全部删掉，
+    // 留着会让同一个「无敌」语义有两套判定，改一处漏一处）。
     const defender = makeMonster({
       id: 9001, hp: 500, shield: 0, armor: 0,
-      buffs: JSON.stringify([{ name: 'saber_无敌', expireAt: Date.now() / 1000 + 10, invincible: true }]),
+      buffs: JSON.stringify([{ name: '安乐天使', expireAt: Date.now() / 1000 + 10 }]),
     });
     mocks.monstersByMap.set(1, [defender]);
 
@@ -380,7 +382,7 @@ describe('誓约胜利之剑（excalibur）复刻', () => {
       extraPenetrationFlat: 15, burnSeconds: 30,
     });
     // 免疫文本出现且防御方生命未被扣（hp 仍 500）
-    expect(result.result).toContain('无敌');
+    expect(result.result).toContain('安乐天使');
     expect(defender.hp).toBe(500);
   });
 });
@@ -431,52 +433,51 @@ function makeSaberService(player: any) {
   return service;
 }
 
-describe('Saber 好感2/4/5 触发式 buff（誓约胜利之剑施放后）', () => {
-  it('好感≥2：写入 saber_无敌(invincible) 15秒；≥4 追加 saber_物攻；≥5 追加 saber_全属性', async () => {
-    const player = makeSaberPlayer(5, 10); // 好感满级，技能等级10
+describe('Saber 施放「ex」：只写 ex 标记，好感档位由消费端判定', () => {
+  // familiars.json 第2/4/5档写的是「使用主动技能后15秒内…」，交付这三档的只有一处消费端，
+  // 判定口径统一在 好感度 0~100（档位2/4/5 → 40/80/100）：
+  //   · 抵挡所有伤害 → combat-system 承伤段 defSeq===19 && hasActive(buffs,'ex')
+  //     （本套件上面的免疫用例 + battle-e2e「防御方 saber(19) 好感≥40 且含 ex 增益 → 免疫」）
+  //   · 物攻+50(+【1技能等级】)% / 全属性+15(+【0.5技能等级】)% → combat-system 加成 case '19'
+  // 施放端曾经还并行写过 saber_无敌 / saber_物攻 / saber_全属性 三条增益：门槛误用档位号
+  // （affinity>=2/4/5，攒到 2 点好感就白拿 15 秒免疫），而增益对象顶层的 攻击/生命/护盾 等键
+  // 没有任何消费端（calculateBuffs 按名去增益定义表查，这些名字查不到定义，数值恒 0）。
+  const DEAD_BUFFS = ['saber_无敌', 'saber_物攻', 'saber_全属性'];
+  const DEAD_PAYLOAD_KEYS = ['攻击', '生命', '装甲', '护盾', '闪避', '命中'];
+
+  it('好感满级：只写 ex（约15秒），不再写 saber_* 派生增益', async () => {
+    const player = makeSaberPlayer(100, 10);
     const service = makeSaberService(player);
     await service.excalibur(1);
 
     const buffs = parseJson(player.buffs, []);
-    const names = buffs.map((b: any) => b.name);
-    expect(names).toContain('ex'); // 基础 ex 标记仍写入
-    expect(names).toContain('saber_无敌');
-    expect(names).toContain('saber_物攻');
-    expect(names).toContain('saber_全属性');
-
-    const inv = buffs.find((b: any) => b.name === 'saber_无敌');
-    expect(inv.invincible).toBe(true);
-    expect(inv.expireAt).toBeGreaterThan(Date.now() / 1000 + 10); // 约15秒
-
-    const atk = buffs.find((b: any) => b.name === 'saber_物攻');
-    expect(atk.攻击).toBe(50 + 10); // 50 + 1*技能等级
-
-    const all = buffs.find((b: any) => b.name === 'saber_全属性');
-    expect(all.生命).toBeCloseTo(15 + 10 / 2); // 15 + 0.5*技能等级
-    expect(all.装甲).toBeCloseTo(20);
-    expect(all.攻击).toBeCloseTo(20);
+    expect(buffs.map((b: any) => b.name)).toEqual(['ex']);
+    expect(buffs[0].expireAt).toBeGreaterThan(Date.now() / 1000 + 10); // 约15秒
+    expect(buffs[0].invincible).toBeUndefined(); // 免疫不在施放端挂
+    for (const name of DEAD_BUFFS) {
+      expect(buffs.some((b: any) => b.name === name)).toBe(false);
+    }
   });
 
-  it('好感1（未满2）：不写入任何触发式 buff，仅 ex 标记', async () => {
-    const player = makeSaberPlayer(1, 0);
-    const service = makeSaberService(player);
-    await service.excalibur(1);
-
-    const buffs = parseJson(player.buffs, []);
-    const names = buffs.map((b: any) => b.name);
-    expect(names).toEqual(['ex']); // 仅基础标记，无好感触发 buff
+  it('好感 0/1/20/39/40/79/80/100：施放端写出的增益集合恒定，且不含无消费端的属性载荷', async () => {
+    for (const affinity of [0, 1, 20, 39, 40, 79, 80, 100]) {
+      const player = makeSaberPlayer(affinity, 5);
+      const service = makeSaberService(player);
+      await service.excalibur(1);
+      const buffs = parseJson(player.buffs, []);
+      expect(buffs.map((b: any) => b.name)).toEqual(['ex']);
+      for (const b of buffs) {
+        for (const key of DEAD_PAYLOAD_KEYS) expect(b[key]).toBeUndefined();
+      }
+    }
   });
 
-  it('好感3（<4）：仅好感2的 saber_无敌，无 saber_物攻/saber_全属性', async () => {
-    const player = makeSaberPlayer(3, 5);
+  it('施放回包不再播报好感档加成（避免文本先于数值出现）', async () => {
+    const player = makeSaberPlayer(100, 10);
     const service = makeSaberService(player);
-    await service.excalibur(1);
-
-    const buffs = parseJson(player.buffs, []);
-    const names = buffs.map((b: any) => b.name);
-    expect(names).toContain('saber_无敌');
-    expect(names).not.toContain('saber_物攻');
-    expect(names).not.toContain('saber_全属性');
+    const text = await service.excalibur(1);
+    expect(text).toContain('誓约胜利之剑');
+    expect(text).not.toContain('激活');
   });
 });
 

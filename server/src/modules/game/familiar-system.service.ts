@@ -2763,9 +2763,12 @@ ${this.getAwakenStageName(d)}(${d})`;
 
     // resolvePetVsMonster 已通过对象引用直接修改 qualifiedPet.hp（反伤掉血），
     // 本流程还写入了"降"冷却 markers2；此处 mutateSummons 锁内闭环重定位宠物，
-    // 仅回写 hp/markers2 两个实际变更字段，避免快照整组写回覆盖并发变更。
+    // 仅回写 hp/markers2/buffs 三个实际变更字段，避免快照整组写回覆盖并发变更。
+    // buffs 必须在列：兰音「心无所扰/月落寸光」给宠物的"下次攻击"蓄势是一次性消费的，
+    // 只回写 hp 会让蓄势标记留在身上、下次攻击继续生效。
     const petHp = qualifiedPet.hp;
     const petMarkers2Final = qualifiedPet.markers2;
+    const petBuffsFinal = qualifiedPet.buffs;
     const synced = await this.mapService.mutateSummons(map.id, (fresh) => {
       const idx = fresh.findIndex((s: any) =>
         s.ownerQQ === userId.toString() &&
@@ -2775,6 +2778,7 @@ ${this.getAwakenStageName(d)}(${d})`;
       if (idx === -1) return false;
       fresh[idx].hp = petHp;
       fresh[idx].markers2 = petMarkers2Final;
+      fresh[idx].buffs = petBuffsFinal;
       return true;
     });
     if (!synced) {

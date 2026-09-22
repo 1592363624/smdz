@@ -149,15 +149,16 @@ describe('装备解析 (物品操作.ecode L1262-1511)', () => {
     expect(parsed.durability).toBe(7);
   });
 
-  it('保留原版 bx39 的属性覆盖行为（火焰属性写入物理）', () => {
+  it('bx39 龙之吐息按特效描述放大火焰伤害百分比（不动物理）', () => {
     const parser = new ItemService({} as PrismaService, {
       getEquipmentByName: () => ({ name: '龙息', equipType: '射弹武器', specialSeq: -39, properties: '{"damage":{"物理":20,"火焰":80}}' }),
       isWeapon: () => true,
       getEffectById: () => undefined,
     } as unknown as StaticDataService, {} as any, {} as any, {} as any);
     const parsed = parser.parseEquipment({ name: '龙息', type: '装备', quantity: 1, durability: 0, data: 'e!bx39' });
-    expect(parsed.properties.phys).toBe(100);
-    expect(parsed.properties.fire).toBe(80);
+    // 特效描述：「你确定这玩意不是烟花？[武器的火焰伤害百分比x1.25]」
+    expect(parsed.properties.fire).toBe(100);
+    expect(parsed.properties.phys).toBe(20);
   });
 });
 

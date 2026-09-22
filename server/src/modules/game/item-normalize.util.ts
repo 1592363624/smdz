@@ -23,6 +23,12 @@ export interface ItemTypeLookup {
   isEquipment(name: string): boolean;
   /** 物品定义的 type（无定义返回 undefined） */
   itemTypeName(name: string): string | undefined;
+  /**
+   * 装备定义的「特殊序号」（无定义返回 undefined）。
+   * 可选成员：只需 type/堆叠语义的调用方（含测试桩）可以不提供，
+   * backfillSpecialSeq 拿不到序号时按 0 处理，不会写坏条目。
+   */
+  equipmentSpecialSeq?(name: string): number | undefined;
 }
 
 /** 由 StaticDataService 适配出查询接口 */
@@ -30,6 +36,12 @@ export function lookupFromStaticData(staticData: any): ItemTypeLookup {
   return {
     isEquipment: (name: string) => !!staticData?.getEquipmentByName?.(name),
     itemTypeName: (name: string) => staticData?.getItemByName?.(name)?.type,
+    equipmentSpecialSeq: (name: string) => {
+      const raw = staticData?.getEquipmentByName?.(name)?.specialSeq;
+      if (raw === undefined || raw === null || raw === '') return undefined;
+      const n = Number(raw);
+      return Number.isFinite(n) ? n : undefined;
+    },
   };
 }
 
@@ -144,4 +156,31 @@ export function canonicalizeBackpack(backpack: any[], lookup: ItemTypeLookup): a
 
   if (removeIdx.size === 0) return backpack;
   return backpack.filter((_, idx: number) => !removeIdx.has(idx));
+}
+
+/**
+ * 按静态定义补齐装备/武器条目的「特殊序号」（幂等、就地写派生字段、不换数组引用）。
+ *
+ * 为什么要在读档闸做：存档里的装备/武器条目通常只落
+ * `{name,type,quantity,durability,data}`（见 item.service 穿戴、掉落生成），
+ * 而 `加成计算` 与战斗链路里绝大多数装备效果是**按 特殊序号 判定**的
+ *（棒棒糖97、射爆核心29、叹息之墙12、纳米注喷器13、心形贴103、丝袜系列59-62/118、
+ * 植入体/增幅器的"排除自身"分支…）。不补齐时这些判定对真实玩家恒为假，
+ * 只有少数额外写了名称匹配的分支侥幸生效 —— 表现为"描述里的效果实际没生效"。
+ *
+ * 就地写而不返回新数组：Prisma Json 列读出的是同一份数组引用，调用方改哪侧都等价；
+ * 换引用会让 installCanonicalAccessors 的权威态与本地快照分叉。
+ * 已显式带 specialSeq 的条目（新档/测试构造）原样尊重，不覆盖。
+ */
+export function backfillSpecialSeq(list: any, lookup: ItemTypeLookup): any {
+  if (!Array.isArray(list)) return list;
+  for (const item of list) {
+    if (!item || typeof item !== 'object') continue;
+    if (item.specialSeq !== undefined && item.specialSeq !== null) continue;
+    const name = String(item.name ?? '');
+    if (!name) continue;
+    const seq = lookup?.equipmentSpecialSeq?.(name);
+    if (seq !== undefined) item.specialSeq = seq;
+  }
+  return list;
 }

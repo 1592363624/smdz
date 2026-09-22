@@ -197,7 +197,11 @@ export class ItemSystemService {
     let isEquipment = false;
     // player.sets 为 Player Json 列（对象/字符串兼容读取）；safeJsonParse 对对象会解析失败丢数据
     const playerSets = asJsonValue<any>(player.sets, {});
-    const legendaryRate = Number(playerSets?.传说率 ?? playerSets?.legendRate ?? player.legendRate ?? 0) || 0;
+    const legendaryRate = Number(playerSets?.传说率 ?? playerSets?.legendRate
+      // 皇冠套装（crown===3）写入的是 sets.legendaryRate；缺这一项时「传说品质几率+25%」
+      // 在制造路径恒为 0，与掉落路径（已补同一键名）口径不一致。
+      ?? playerSets?.legendaryRate
+      ?? player.legendRate ?? 0) || 0;
     const hasMingYu = Number(player.specialSeq ?? 0) === 9 || String(player.type ?? '') === '冥鱼';
     const nextQuality: Record<string, string> = { e: 'd', d: 'c', c: 'b', b: 'a', a: 's' };
     for (const out of outputs) {
@@ -1769,6 +1773,12 @@ export class ItemSystemService {
           equipmentPresets: presets, // Player equipmentPresets 为 Json 列，直接写数组
           sets,
         });
+        // 「更换装备后失效」（原版 _主程序.ecode L4152 切换装备预设即 置成就熟练度("铠甲",0)）：
+        // 五件铠甲的效果全挂在 标记.铠甲 上，整套换装后必须重新发一次「X铠甲合体！」。
+        if (Number(_pd.markers?.['铠甲'] ?? 0) !== 0) {
+          this.playerService.setMarker(_pd.markers, '铠甲', 0);
+          _pd.player.markers = _pd.markers; // Json 列直接写对象
+        }
         await this.playerService.savePlayer(_pd.player);
       });
 
@@ -3071,7 +3081,12 @@ export class ItemSystemService {
           await this.achievementService.addAchievement(player, '好感', qty, false);
           if (qty > 0) opts?.onTaskProgress?.('好感', qty);
         } else if (dropName === '经验') {
-          const adj = Math.floor(qty * (1 + (player.属性?.经验 || player.expBonus || 0) / 100));
+          // 经验加成走计算属性 player.bonus.经验（原版 玩家.属性.经验）；
+          // player.属性 / player.expBonus 都不存在，导致 奶酪「经验+100%」对道具经验无效。
+          const expRate = Number((player.bonus as any)?.经验
+            ?? (player as any).属性?.经验
+            ?? (player as any).expBonus ?? 0) || 0;
+          const adj = Math.floor(qty * (1 + expRate / 100));
           if (adj > 0) {
             player.exp = (player.exp || 0) + adj;
           }

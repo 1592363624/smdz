@@ -378,7 +378,7 @@ export class EquipCommandService {
 
   /**
    * 装甲回充（对应原版 _主程序.ecode L7001-L7010）：装备护盾回充器后启动10秒回充增益，
-   * 共用90秒「回充冷却」，不消耗背包物品。
+   * 共用30秒「回充冷却」（装备描述值），不消耗背包物品。
    */
   async handleRepairItem(userId: number, itemName: string): Promise<string> {
     const playerData = await this.playerService.getPlayerData(userId);
@@ -390,7 +390,7 @@ export class EquipCommandService {
     const remaining = { value: '' };
     const now = Date.now();
     const cooling = this.combatState.timeIntervalRequire(
-      '回充冷却', 90, markers2, now, remaining, now,
+      '回充冷却', 30, markers2, now, remaining, now,
     );
     if (cooling) {
       player.markers2 = markers2;

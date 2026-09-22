@@ -72,12 +72,22 @@ export class TimeSettleService {
       }
 
       // 计算时间差（秒）
-      const timeDiff = Math.max(0, (now - storedOpTime) / 1000);
+      let timeDiff = Math.max(0, (now - storedOpTime) / 1000);
 
       // 如果时间差小于10秒，不进行补偿（避免频繁操作时的误补偿）；
       // force=true（WS 断开/重连的强制结算）跳过防抖，把时间基准精确推进到该时刻
       if (timeDiff < 10 && !opts?.force) {
         return '';
+      }
+
+      // 逆兔女郎套装「子弹时间」（心形贴103 + 创可贴109 + 逆兔女郎133，≥3件）：
+      // 描述「自身时间流逝速度+15%（仅自身，对载具、建筑、宠物和怪物皆无效）」。
+      // 只放大本次结算的时间差（回复/经验/活力按 1.15 倍推进），
+      // 不改变上面「距上次操作是否满 10 秒」的判断口径，也不会让结算更频繁。
+      // 原版 _主程序.ecode L105-116 在 _计算玩家 之后同样只改 s 的取值。
+      const bulletSets = asJsonValue<any>(player.sets, {});
+      if (Number(bulletSets?.reverseBunny ?? 0) >= 3) {
+        timeDiff *= 1.15;
       }
 
       // 获取回复率（每秒回复量）
@@ -146,8 +156,12 @@ export class TimeSettleService {
           const setsObj = asJsonValue<any>(player.sets, {});
           const sleepover = Math.abs(Number(setsObj.sleepover) || 0);
           const isHaveCrane = (Number(setsObj.sleepover) || 0) < 0; // 负数为有鹭
+          // 经验加成走计算属性 属性.经验（奶酪等增益写这里）；
+          // 原先读 player.expBonus / player.属性.经验，两列在 Prisma Player 上都不存在 → 恒 0，
+          // 描述「获得的经验+100%」只在采集路径生效，躺下/离线经验完全吃不到。
+          const expRate = Number((this.combatSystem.buildAttackerBonus(player, playerData) as any)?.经验) || 0;
           let lieExp = (player.level || 1) / 100 * timeDiff
-            * (1 + (player.expBonus || 0) / 100)
+            * (1 + expRate / 100)
             * (1 + sleepover * 0.5);
           if (isHaveCrane) lieExp *= 1.1;
           if (lieExp > 0) {
@@ -588,7 +602,7 @@ export class TimeSettleService {
   }
 
   /**
-   * 「回充」指令：需已装备护盾回充器，与「修理」共用 90 秒回充冷却；
+   * 「回充」指令：需已装备护盾回充器，与「修理」共用 30 秒回充冷却（描述即 30 秒）；
    * 成功 +1 活跃度并挂 10 秒「回充」增益，不消耗背包物品。
    */
 
@@ -602,7 +616,7 @@ export class TimeSettleService {
     const remaining = { value: '' };
     const now = Date.now();
     const cooling = this.combatState.timeIntervalRequire(
-      '回充冷却', 90, markers2, now, remaining, now,
+      '回充冷却', 30, markers2, now, remaining, now,
     );
     if (cooling) {
       player.markers2 = markers2;

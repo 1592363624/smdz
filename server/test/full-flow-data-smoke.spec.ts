@@ -13,6 +13,7 @@ import { AppModule } from '../src/app.module';
 import { CommandService } from '../src/modules/command/command.service';
 import { ShortcutService } from '../src/modules/game/shortcut.service';
 import { PlayerService } from '../src/modules/game/player.service';
+import { ActorRuntime } from '../src/modules/actor';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { CommandContext, CommandSource } from '../src/modules/command/interfaces/command.interface';
 import { parseJson } from './parse-json.util';
@@ -190,6 +191,14 @@ describe('全链路数据口径冒烟（注册→主循环）', () => {
     if (idx >= 0) bp[idx].quantity = Number(bp[idx].quantity || 0) + quantity;
     else bp.push({ name, type, quantity });
     await prisma.player.update({ where: { userId: uid }, data: { backpack: bp as any } });
+    // 绕开 Actor 邮箱的直接写必须让该用户的活态缓存失效：否则下一条指令仍读到
+    // beginGame 时载入的旧背包，表现为「你的背包中没有普通装备补给箱」。
+    // 只有"当天首次运行"才绿（开局签到结算会顺带把状态刷回邮箱），第二次跑必假红。
+    try {
+      app.get(ActorRuntime).invalidate('player', uid);
+    } catch {
+      /* 测试模块未注册 ActorRuntime 时跳过（此时 PlayerService 自建实例，无共享缓存） */
+    }
   }
 
   it('A. 开局：状态/任务/背包字段形状正确，货币列与镜像一致', async () => {

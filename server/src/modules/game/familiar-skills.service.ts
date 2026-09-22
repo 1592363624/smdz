@@ -159,8 +159,10 @@ export class FamiliarSkillsService {
     case '隐匿模式': return this.nanoMode(userId, '隐匿');
 
     // 新增缺失技能
-    case '安乐天使': return this.easeAngel(userId);
-    case '福音书': return this.gospel(userId);
+    // 安乐天使/福音书委托给权威实现（可指定目标、按穿戴栏判定、福音书每日一次），
+    // 让「使用技能」入口和主指令入口给出同一个效果。
+    case '安乐天使': return this.familiarSystem.safetyAngel(userId, target);
+    case '福音书': return this.familiarSystem.gospelBook(userId, target);
     case '启示录': return this.apocalypse(userId);
     case '铠甲合体': return this.armorCombine(userId);
     case '切换模式': return this.switchMode(userId, target);
@@ -522,6 +524,10 @@ export class FamiliarSkillsService {
    * 给指定友方召唤物施加"下次攻击"标记（必中/穿透蓄势）。
    * 对应原版 兰音模式2 时友方召唤物也获得 心无所扰/月落寸光 效果。
    * 数据落在该召唤物的 buffs 中，由攻击引擎在下次攻击时消费。
+   *
+   * `onceAttack: true` 是消费端的识别位：CombatSystemService.consumeNextAttackBuffs
+   * 只认带该位的 buff，缺位时宠物的这两条效果写进去也没人读（玩家侧由
+   * setNextAttackBuff 负责写，宠物侧此前漏写，故在这里补上）。
    */
   private async applySummonNextAttack(mapId: number, summonName: string, next: Record<string, any>): Promise<void> {
     const map = await this.mapService.getMapById(mapId);
@@ -530,8 +536,10 @@ export class FamiliarSkillsService {
     const found = summons.find((s: any) => s.name === summonName);
     if (!found) return;
     const sbuffs: any[] = this.safeParse(found.buffs, []);
-    sbuffs.push({ name: '下次攻击·标记', expireAt: Math.floor(Date.now() / 1000) + 3600, ...next });
-    found.buffs = sbuffs; // summons 嵌套元素字段保持对象形态（读取方均容错）
+    // 同类蓄势只保留最新一条（与玩家侧 setNextAttackBuff 的"覆盖"口径一致）
+    const name = next.mustHitNext ? '心无所扰·蓄势' : '月落寸光·蓄势';
+    found.buffs = [...sbuffs.filter((b: any) => b && b.name !== name),
+      { name, expireAt: Math.floor(Date.now() / 1000) + 3600, onceAttack: true, ...next }];
     // GameMap summons 为 Json 列，直接写数组
     await this.mapService.updateDynamicFields(mapId, { summons });
   }
@@ -1069,7 +1077,10 @@ export class FamiliarSkillsService {
 
     // 冥鱼腿环：按腿环品质提升刷出条数（原版 L1219-1235），无腿环固定5条
     const equipped = asJsonValue<any[]>(player.equipment, []);
-    const ringIdx = equipped.findIndex((eq: any) => String(eq?.type ?? '') === '腿环');
+    // 「冥鱼腿环」按名称/序号识别：只按 类型==='腿环' 匹配会让 次元破碎/幻蝶/风精灵/排斥力场
+    // 等任意腿环都白送 六道轮回 的额外结果条数（描述里这是冥鱼腿环的专属效果）。
+    const ringIdx = equipped.findIndex((eq: any) =>
+      Number(eq?.specialSeq ?? NaN) === 53 || String(eq?.name ?? '').includes('冥鱼腿环'));
     let rolls = 5;
     if (ringIdx >= 0) {
       // 品质码读取走统一实现 equipment-ref.util
@@ -1398,36 +1409,20 @@ export class FamiliarSkillsService {
     this.addBuff(livePlayer, 'ex', Math.floor(15 * a3));
     // addBuff 只改内存对象，必须落库否则 15 秒免伤增益不会生效
 
-    // ===== 好感分层被动（对应原版 _decoded_original.txt [saber] 好感2/4/5）=====
-    // 原版语义是「使用主动技能后15秒内…」——即施放 #ex 时写入 15 秒窗口增益。
-    // 好感1/3/ex全属性层是常驻属性，已在 combat-system _计算玩家 saber case（原版加成计算 L2107-2132）实现，此处不重复。
+    // ===== 好感第2/4/5档「使用主动技能后15秒内…」由 "ex" 标记本身驱动，不在这里再挂一层增益 =====
+    // 三档效果的消费端各只有一处，判定口径统一在 标记"<使魔名>好感"（0~100，档位2/4/5 对应 40/80/100）：
+    //   · 好感≥40（第2档 抵挡所有伤害）：combat-system 承伤段 defSeq===19 && hasActive(buffs,'ex') → 伤害倍率=0
+    //   · 好感≥80（第4档 物攻+50(+【1技能等级】)%）：combat-system 加成 case '19' 在 ex 生效时 物伤2+50+技能等级
+    //   · 好感≥100（第5档 全属性+15(+【0.5技能等级】)%）：同上，攻击2/装甲2/护盾2/生命2/闪避2/命中2 各 +15+技能等级/2
+    // 这里原先额外写过 saber_无敌 / saber_物攻 / saber_全属性 三条增益，两处硬伤：
+    //   1) 门槛误用档位号（affinity>=2/4/5），而好感值是 0~100 —— 等于只要攒到 2 点好感就白送 15 秒免疫；
+    //   2) 增益对象顶层的 攻击/生命/护盾 等键没有任何消费端（calculateBuffs 按名去增益定义表里查，
+    //      这些名字查不到定义），所以属性加成只体现在施法文本里，实际数值为 0。
     // 好感键与写入键保持一致：用数据权威名小写 "saber"，写成 'Saber' 会读不到好感（恒 0）。
-    const affinity = this.getAffinity(liveMarkers, 'saber');
-    const buffDur = 15; // 原版固定15秒窗口，不受库洛牌 a3 放大影响
-    let affinityBuffText = '';
-    // 好感2：15秒内抵挡所有伤害（原版「无敌」语义，映射为 invincible 字段，由 combat-system 消费）
-    if (affinity >= 2) {
-      this.addBuff(livePlayer, 'saber_无敌', buffDur, { invincible: true });
-      affinityBuffText += `\n（好感≥2 激活：15秒内【无敌】抵挡所有伤害）`;
-    }
-    // 好感4：15秒内物攻+50(+【1技能等级】)%
-    if (affinity >= 4) {
-      const atkPct = 50 + skillLevel; // 50 + 1*技能等级
-      this.addBuff(livePlayer, 'saber_物攻', buffDur, { 攻击: atkPct });
-      affinityBuffText += `\n（好感≥4 激活：15秒内物攻+${atkPct}%）`;
-    }
-    // 好感5：15秒内 生命/装甲/护盾/闪避/命中/攻击 +15(+【0.5技能等级】)%
-    if (affinity >= 5) {
-      const allPct = 15 + skillLevel / 2; // 15 + 0.5*技能等级
-      this.addBuff(livePlayer, 'saber_全属性', buffDur, {
-        生命: allPct, 装甲: allPct, 护盾: allPct, 闪避: allPct, 命中: allPct, 攻击: allPct,
-      });
-      affinityBuffText += `\n（好感≥5 激活：15秒内全属性+${allPct}%）`;
-    }
 
     await this.playerService.savePlayer(livePlayer);
 
-    return `Excalibur——誓约胜利之剑！！\n圣剑绽放出耀眼的光芒！\n${result}${affinityBuffText}`;
+    return `Excalibur——誓约胜利之剑！！\n圣剑绽放出耀眼的光芒！\n${result}`;
   }
 
   /**
@@ -2163,12 +2158,16 @@ export class FamiliarSkillsService {
       return `${player.name || '冒险者'}还需要${Math.ceil(crownCdRemain / 1000)}秒`;
     }
 
-    // 原版 L1863-1868：炮冠增益 5 秒（准备状态）→ 光盾增益 -30 秒（叠加时间负值前移）→
-    // hd 标记 60 秒 → 文本“N个羽毛进入了准备状态”
+    // 原版 L1863-1868：炮冠增益 5 秒（准备状态）→ 光盾**增益** -30 秒（叠加时间负值前移，
+    // 即描述里的"光盾清零"）→ hd 标记 60 秒 → 文本“N个羽毛进入了准备状态”。
+    // 容器修正：光盾 是 玩家.增益 条目（原版 战斗相关.ecode L2504 写入、L2534 读取），
+    // 此前在 标记2 里找 → 永远找不到，炮冠的"光盾清零"一步从不生效。
     this.addBuff(player, '炮冠', 5);
-    const lightShield = markers2.find((m: any) => m?.name === '光盾');
+    const shieldBuffs = asJsonValue<any[]>(player.buffs, []);
+    const lightShield = shieldBuffs.find((b: any) => b?.name === '光盾');
     if (lightShield) {
       lightShield.expireAt = Number(lightShield.expireAt ?? 0) - 30 * 1000;
+      player.buffs = shieldBuffs; // Json 列直接写数组
     }
     markers2.push({ name: 'hd', expireAt: now + 60 * 1000 });
     player.markers2 = markers2; // Json 列直接写数组
@@ -3447,77 +3446,10 @@ ${result}`;
 
   // ===== 新增缺失技能 =====
 
-  /**
-   * 安乐天使 - 装备技能
-   * 创造护盾保护自己，回复全部生命
-   * 对应原版：安乐天使()
-   */
-  async easeAngel(userId: number): Promise<string> {
-    const playerData = await this.playerService.getPlayerData(userId);
-    const { player, markers } = playerData;
-
-    if (!this.hasItem(player, '安乐天使')) {
-      return '需要「安乐天使」装备才能使用此技能';
-    }
-
-    const cooldownCheck = this.checkCooldown(player, '安乐天使', 300);
-    if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
-
-    const affinity = player.type ? this.getAffinity(markers, player.type) : 0;
-    const effect = this.getSkillEffect(affinity);
-
-    const maxHp = player.maxHp || 100;
-    player.hp = maxHp;
-
-    this.addBuff(player, '安乐天使·护盾', 20, { invincible: true, 护盾: Math.floor(500 * effect) });
-
-    this.setCooldown(player, '安乐天使', 300);
-
-    markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
-
-    player.markers = markers; // Player markers 为 Json 列，直接写对象
-    await this.playerService.savePlayer(player);
-
-    return `安乐天使展开光环！\n生命已全部恢复，获得护盾保护（持续20秒）\n好感度加成: ${Math.round(effect * 100)}%`;
-  }
-
-  /**
-   * 福音书 - 装备技能
-   * 增益效果，增加全属性抗性
-   * 对应原版：福音书()
-   */
-  async gospel(userId: number): Promise<string> {
-    const playerData = await this.playerService.getPlayerData(userId);
-    const { player, markers } = playerData;
-
-    if (!this.hasItem(player, '福音书')) {
-      return '需要「福音书」装备才能使用此技能';
-    }
-
-    const cooldownCheck = this.checkCooldown(player, '福音书', 600);
-    if (cooldownCheck.isOnCooldown) return cooldownCheck.text;
-
-    const affinity = player.type ? this.getAffinity(markers, player.type) : 0;
-    const effect = this.getSkillEffect(affinity);
-
-    const resistBonus = Math.floor(30 * effect);
-
-    this.addBuff(player, '福音书·加护', 300, {
-      shieldResist: resistBonus,
-      armorResist: resistBonus,
-      hpResist: resistBonus,
-      strength: Math.floor(10 * effect),
-    });
-
-    this.setCooldown(player, '福音书', 600);
-
-    markers['活跃度'] = (this.playerService.getMarkerValue(markers, '活跃度') || 0) + 1;
-
-    player.markers = markers; // Player markers 为 Json 列，直接写对象
-    await this.playerService.savePlayer(player);
-
-    return `福音书绽放出神圣的光芒！\n全属性抗性提升 ${resistBonus} 点，力量提升 ${Math.floor(10 * effect)} 点（持续300秒）\n好感度加成: ${Math.round(effect * 100)}%`;
-  }
+  // 「安乐天使」「福音书」不在此处另写一套：权威实现在 FamiliarSystemService.safetyAngel / gospelBook
+  //（可指定目标、按穿戴栏判定装备、福音书走「一天一次」标记），分发处 case 直接委托过去。
+  // 之前的遗留版本只给自己挂一条没有任何消费端的增益（护盾/抗性写在增益对象顶层，
+  // 而消费端读的是按名匹配的增益定义），玩家从「使用技能」入口施放时什么效果都拿不到。
 
   /**
    * 启示录 - 装备技能

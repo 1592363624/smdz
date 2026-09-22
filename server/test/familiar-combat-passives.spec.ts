@@ -125,6 +125,31 @@ describe('掉落率/品质接入普通击杀（原版 后台运作 L846-857）',
     expect(hit.lines.join('\n')).toContain('的主动技能冷却完毕');
   });
 
+  it('兰音模式是派生状态：算加成时落标记「套装_兰音模式」，使魔技能侧据此决定宠物共享蓄势', () => {
+    const combat = makeCombat();
+    const lann = () => ({
+      specialSeq: 23, type: '兰音', affinity: 20, name: '兰音', level: 1,
+      markers: {}, buffs: [], sets: {}, equipment: [], weapons: [],
+      hp: 100, armor: 0, shield: 0, maxHp: 100, currentWeapon: 1,
+    });
+    const pd = () => ({
+      weapons: [{ name: '拳头', type: '近战武器' }], markers: {}, equipment: [], buffs: [], backpack: [],
+    }) as any;
+    const player: any = lann();
+    const bonus: any = combat.buildAttackerBonus(player, pd());
+    const mode = Number(player.markers?.['套装_兰音模式'] ?? 0);
+    // 写入端此前完全缺失 → getFamiliarSetMode 恒取 1，特性末句的宠物共享永不触发
+    expect([1, 2]).toContain(mode);
+    // 标记必须与真正走的那条补齐分支一致：1=火/电互相 1.1 倍，2=命中/闪避互相 1.25 倍
+    const elementAligned = (bonus.火伤 > 0 || bonus.电伤 > 0)
+      && (Math.abs((bonus.火伤 || 0) - (bonus.电伤 || 0) * 1.1) < 1e-6
+        || Math.abs((bonus.电伤 || 0) - (bonus.火伤 || 0) * 1.1) < 1e-6);
+    const accuracyAligned = (bonus.命中 > 0 || bonus.闪避 > 0)
+      && (Math.abs((bonus.命中 || 0) - (bonus.闪避 || 0) * 1.25) < 1e-6
+        || Math.abs((bonus.闪避 || 0) - (bonus.命中 || 0) * 1.25) < 1e-6);
+    expect(mode === 1 ? elementAligned : accuracyAligned).toBe(true);
+  });
+
   it('剑道：仅 当前武器!=0 且 武器类型=="近战武器" 时生效（原版 加成计算 L2010-2016）', () => {
     const combat = makeCombat();
     const melee = { name: '铁剑', type: '近战武器' };

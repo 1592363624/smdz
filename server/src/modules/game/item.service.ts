@@ -1231,6 +1231,13 @@ export class ItemService {
           equipment: equipment,
           sets,
         });
+        // 「更换装备后失效」（原版 _主程序.ecode L4283-4285）：穿上任意**腰部**装备就把
+        // 标记.铠甲 清零。五件铠甲（炎龙/黑犀/飞影/地虎/雪獒）的加成与雪獒充能全部挂在
+        // 这个标记上，换掉召唤器后必须一起失效；只在已激活时写，避免每次换装都脏一个字段。
+        if (newType === '腰部' && Number(_pd.markers?.['铠甲'] ?? 0) !== 0) {
+          this.playerService.setMarker(_pd.markers, '铠甲', 0);
+          _pd.player.markers = _pd.markers; // Json 列直接写对象
+        }
         await this.playerService.savePlayer(_pd.player);
       });
       const q = this.qualityPrefix(item.data);
