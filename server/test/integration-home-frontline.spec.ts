@@ -8,6 +8,7 @@
  */
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../src/app.module';
+import { CombatSystemService } from '../src/modules/game/combat-system.service';
 import { FamiliarSystemService } from '../src/modules/game/familiar-system.service';
 import { GameService } from '../src/modules/game/game.service';
 import { MapService } from '../src/modules/game/map.service';
@@ -25,6 +26,7 @@ describe('家园动态地图与前线攻势（真实数据库端到端）', () =
   let mapService: MapService;
   let familiar: FamiliarSystemService;
   let game: GameService;
+  let combat: CombatSystemService;
   let userId = 0;
   let houseName = '';
   let dynamicMapIds: number[] = [];
@@ -38,6 +40,7 @@ describe('家园动态地图与前线攻势（真实数据库端到端）', () =
     mapService = app.get(MapService);
     familiar = app.get(FamiliarSystemService);
     game = app.get(GameService);
+    combat = app.get(CombatSystemService);
 
     const startMap = (await mapService.getAllMaps()).find((map: any) => !map.isInstance && !map.isFrontier);
     const user = await prisma.user.create({
@@ -134,7 +137,7 @@ describe('家园动态地图与前线攻势（真实数据库端到端）', () =
   });
 
   it.each([
-    [0, 2, ['地精', '地精']],
+    [1, 2, ['地精', '地精']],
     [15, 3, ['地精', '地精', '地精十夫长']],
     [40, 4, ['地精', '地精', '地精十夫长', '地精百夫长']],
     [60, 5, ['地精', '地精', '地精十夫长', '地精百夫长', '地精千夫长']],
@@ -144,7 +147,9 @@ describe('家园动态地图与前线攻势（真实数据库端到端）', () =
     const playerData = await playerService.getPlayerData(userId);
     const markers = playerData.markers;
     markers['家园进度'] = 4;
-    markers['前线'] = level;
+    // 前线等级是「前线熟练度」按平方阈值派生出来的（原版 显示熟练度等级），
+    // 等级 L 的下界是 (L-1)²。直接写 markers['前线'] 已经不再生效。
+    markers['前线熟练度'] = (Number(level) - 1) ** 2;
     playerData.player.markers = markers;
     await playerService.savePlayer(playerData.player);
 
@@ -154,5 +159,130 @@ describe('家园动态地图与前线攻势（真实数据库端到端）', () =
     const monsters = await mapService.getMapMonsters(frontline.id);
     expect(monsters).toHaveLength(expectedCount);
     expect(monsters.map((monster: any) => monster.name)).toEqual(expectedNames);
+  });
+
+  it('战斗节拍打在真正的前线地图上：地精掉血、阵地存活、活动标记在窗口内', async () => {
+    const frontline = await mapService.getMapByName(`${houseName}前线`);
+    await mapService.clearMapMonsters(frontline.id);
+    const playerData = await playerService.getPlayerData(userId);
+    playerData.markers['家园进度'] = 4;
+    playerData.markers['前线熟练度'] = 0;
+    playerData.player.markers = playerData.markers;
+    await playerService.savePlayer(playerData.player);
+    expect(await game.handleStartBattle(userId)).toContain('地精的攻势开始了');
+
+    // 回归点：MapBattleLoopService 过去把 GameMap.mapIndex 当成 getAllMaps() 的
+    // 1-based 下标传给 adminAttackMap，动态家园地图两者并不相等（实测前线
+    // mapIndex=12、数组下标=95），整条循环于是跑到「居民区」上，前线地精一滴血不掉。
+    const allMaps = await mapService.getAllMaps();
+    const arrayIndexPlusOne = allMaps.findIndex((m: any) => m.id === frontline.id) + 1;
+    expect(frontline.mapIndex).not.toBe(arrayIndexPlusOne);
+
+    // 阵地必中，但每回合只出一只手且地图节拍有 2 秒节流，跑几回合保证命中
+    const pool = async () => {
+      const list = await mapService.getMapMonsters(frontline.id);
+      return list.reduce(
+        (s: number, m: any) => s + Number(m.hp || 0) + Number(m.shield || 0) + Number(m.armor || 0),
+        0,
+      );
+    };
+    const totalBefore = await pool();
+    expect(totalBefore).toBeGreaterThan(0);
+
+    let damaged = false;
+    for (let round = 0; round < 4 && !damaged; round++) {
+      if (round > 0) await new Promise((resolve) => setTimeout(resolve, 2200));
+      await combat.adminAttackMapById(0, Number(frontline.id));
+      damaged = (await pool()) < totalBefore;
+    }
+    expect(damaged).toBe(true);
+
+    // 阵地（前线召唤物）必须真的在场上，否则火力通道是空的、玩家什么也看不到
+    const refreshed = await mapService.getMapByName(`${houseName}前线`);
+    const summons = parseJson(refreshed.summons, []);
+    expect(summons.find((s: any) => s.QQ?.startsWith('怪物前线'))).toBeDefined();
+    const markers2 = parseJson(refreshed.markers2, []);
+    expect(
+      markers2.some((g: any) => g.name === '活动' && Number(g.expireAt) > Date.now()),
+    ).toBe(true);
+  });
+
+  it('阵地归属到真正的主人，不会把击杀记到别的玩家头上', async () => {
+    const frontline = await mapService.getMapByName(`${houseName}前线`);
+    const summons = parseJson(frontline.summons, []);
+    const position = summons.find((s: any) => s.QQ?.startsWith('怪物前线'));
+    expect(position).toBeDefined();
+    // 回归点：ownerQQ 在网页登录玩家身上退化成 String(userId)，而归属解析过去把
+    // 纯数字当 Player.id 查。实测 userId=3 的阵地被解析成 Player.id=3 的另一名玩家
+    // （userId=4），击杀记到别人头上，前线奖励判定「地图名==击杀者房子+前线」永不成立。
+    expect(Number(position.ownerUserId)).toBe(userId);
+    expect(await (combat as any).resolveSummonOwnerUserId(position, 0)).toBe(userId);
+  });
+
+  it('击杀地精发放前线熟练度、载具残骸与本波战报', async () => {
+    const frontline = await mapService.getMapByName(`${houseName}前线`);
+    await mapService.clearMapMonsters(frontline.id);
+    const playerData = await playerService.getPlayerData(userId);
+    playerData.markers['家园进度'] = 4;
+    playerData.markers['前线熟练度'] = 0;
+    playerData.player.markers = playerData.markers;
+    await playerService.savePlayer(playerData.player);
+    expect(await game.handleStartBattle(userId)).toContain('地精的攻势开始了');
+
+    const monsters = await mapService.getMapMonsters(frontline.id);
+    const target = monsters[0];
+    const fresh = await playerService.getPlayerData(userId);
+    const frontlineText = await combat.handleMonsterDeath(target, userId, frontline.id, fresh, 'normal', '');
+
+    expect(String(frontlineText.frontlineText)).toContain('前线熟练度+1');
+    expect(String(frontlineText.frontlineText)).toContain('载具残骸');
+
+    const data = await playerService.getPlayerData(userId);
+    expect(Number(data.markers['前线熟练度']) || 0).toBe(1);
+
+    const settled = await mapService.getMapByName(`${houseName}前线`);
+    const resources2 = parseJson(settled.resources2, []);
+    const wreckage = resources2.find((r: any) => r.name === '载具残骸');
+    // 残骸必须带 gatherCmd/outputs，否则计数在涨但玩家「收集残骸」采不走
+    expect(wreckage).toBeDefined();
+    expect(wreckage.times).toBeGreaterThan(0);
+    expect(wreckage.gatherCmd).toBe('收集残骸');
+    expect(Array.isArray(wreckage.outputs) && wreckage.outputs.length > 0).toBe(true);
+
+    const report = parseJson(settled.markers, {})['前线战报'];
+    expect(report).toBeDefined();
+    expect(report.kills).toBe(1);
+    expect(report.proficiency).toBe(1);
+    expect(report.wreckage).toBeGreaterThan(0);
+    expect(report.byName['地精']).toBe(1);
+    expect(report.result).toBe('');
+
+    // 最后一只地精是在本回合的召唤物攻击里没掉的，下一回合读到空怪物数组就提前 return；
+    // 少了这条收尾，已经清空的一波会永远显示「交战中」。
+    await mapService.clearMapMonsters(frontline.id);
+    await combat.adminAttackMapById(0, Number(frontline.id));
+    const closed = parseJson((await mapService.getMapByName(`${houseName}前线`)).markers, {})['前线战报'];
+    expect(closed.result).toBe('victory');
+    expect(Number(closed.finishedAt)).toBeGreaterThan(0);
+  });
+
+  it('阵地丢失后「开始战斗」清残留重建阵地，不再永久卡死', async () => {
+    const frontline = await mapService.getMapByName(`${houseName}前线`);
+    // 造出用户实测到的死局：地精满血挂在图上，但阵地召唤物已经没了
+    await mapService.clearMapMonsters(frontline.id);
+    await game.handleStartBattle(userId);
+    await mapService.mutateMapFields(frontline.id, ['summons'], (f) => {
+      f.summons = (f.summons || []).filter((s: any) => !String(s.QQ || s.qq).startsWith('怪物前线'));
+      return true;
+    });
+
+    const stuck = await game.handleStartBattle(userId);
+    expect(stuck).toContain('地精的攻势开始了');
+    expect(stuck).toContain('重筑阵地');
+
+    const monsters = await mapService.getMapMonsters(frontline.id);
+    expect(monsters.length).toBeGreaterThan(0);
+    const summons = parseJson((await mapService.getMapByName(`${houseName}前线`)).summons, []);
+    expect(summons.find((s: any) => s.QQ?.startsWith('怪物前线'))).toBeDefined();
   });
 });

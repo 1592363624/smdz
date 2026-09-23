@@ -134,7 +134,7 @@ export class HomeBuildService {
         (sum: number, item: any) => sum + Number(item?.quantity ?? 1),
         0,
       );
-      const frontLevel = Number(this.playerService.getMarkerValue(markers, '前线') ?? 0) || 0;
+      const frontLevel = this.playerService.getFrontlineLevel(markers);
       const limit = frontLevel + 3;
       if (installed + count > limit) {
         return `${player.name}当前前线等级只能再安装${Math.max(0, limit - installed)}个防御建筑`;

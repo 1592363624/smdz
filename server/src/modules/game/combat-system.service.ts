@@ -49,6 +49,7 @@ import {
 } from './bond-skill.util';
 
 import { resolvePoolDamage, subtractPoolValue, capPoolValue, round2 } from './player-pool.util';
+import { FRONTLINE_WRECKAGE_RATIO } from './frontline-view.config';
 
 // ===== 类型定义 =====
 
@@ -272,6 +273,11 @@ export interface MonsterDeathResult {
   passiveText?: string;
   /** 远古遗迹守卫：波次推进/解封提示 */
   sealText?: string;
+  /**
+   * 家园前线专属收益行（前线熟练度 +1 / 载具残骸掉落），
+   * 原版 后台运作.ecode L976-983 随击杀文本一起回群。调用方并进 resultLines。
+   */
+  frontlineText?: string;
 }
 
 interface CombatTaskProgress {
@@ -3639,6 +3645,8 @@ export class CombatSystemService implements OnApplicationShutdown {
         taskProgress.push(...(deathResult.taskProgress || []));
         // 原版把击杀被动回显串进战斗文本（伊卡洛斯/剑圣减冷却等）
         if (deathResult.passiveText) resultLines.push(deathResult.passiveText);
+        // 家园前线收益行（前线熟练度 / 载具残骸）——玩家必须看得见自己拿到了什么
+        if (deathResult.frontlineText) resultLines.push(deathResult.frontlineText);
         // 远古遗迹守卫：波次推进/解封提示
         if (deathResult.sealText) resultLines.push(String(deathResult.sealText));
 
@@ -7549,6 +7557,8 @@ export class CombatSystemService implements OnApplicationShutdown {
     let vitalityCost = 0;
     let rewardMultiplier = 1;
     let vitalityText = '';
+    /** 家园前线专属收益行（前线熟练度 / 载具残骸），随击杀文本回显给玩家 */
+    let frontlineText = '';
 
     // 置掉落（原版 战利品 前序 置掉落 L5245）：记录攻击者对怪物的掉落能力到怪物标记
     // 注意：原版在怪物删除前写怪物.标记，本框架怪物即时删除，此处保留原版调用顺序（行为可见）
@@ -7646,6 +7656,20 @@ export class CombatSystemService implements OnApplicationShutdown {
           taskProgress.push({ actionName: '稀有掉落', count: rareCount });
         }
       }
+
+      // ===== 家园前线击杀结算（原版 后台运作.ecode L976-983）=====
+      // 前线熟练度 / 载具残骸 / 活跃度三项只在「击杀者自己的 <房子>前线 图 + 死者是地精」时成立，
+      // 其余地图与怪物一律跳过。
+      if (Number(mapId) > 0 && (playerData.player.houseName || userId)) {
+        try {
+          const frontlineLines = await this.settleFrontlineKill(
+            Number(mapId), monster, playerData, taskProgress, expGain, dropText, Number(userId) || 0,
+          );
+          if (frontlineLines.length > 0) frontlineText = frontlineLines.join('\n');
+        } catch (error: any) {
+          this.logger.warn(`家园前线击杀结算失败 map=${mapId}: ${error?.message ?? error}`);
+        }
+      }
       // 传入攻击方的 PlayerData 时，掉落直接写入 weaponAttack 使用的同一内存玩家对象。
     }
 
@@ -7685,6 +7709,7 @@ export class CombatSystemService implements OnApplicationShutdown {
       expGain, drops, dropText, taskProgress, vitalityCost, rewardMultiplier, vitalityText,
       passiveText: passiveLines.join('\n'),
       sealText,
+      frontlineText,
     };
   }
 
@@ -12685,13 +12710,8 @@ export class CombatSystemService implements OnApplicationShutdown {
    */
   dropWreckage(resources2: any[], name: string): any[] {
     const res = Array.isArray(resources2) ? resources2.slice() : [];
-    let b = 0;
-    if (name === '地精') b = 1;
-    else if (name === '地精十夫长') b = 1.5;
-    else if (name === '地精百夫长') b = 2;
-    else if (name === '地精千夫长') b = 2.5;
-    else if (name === '地精将军') b = 3;
-    else return res; // 原版 默认 返回()
+    const b = FRONTLINE_WRECKAGE_RATIO[String(name ?? '')];
+    if (!b) return res; // 原版 默认 返回()
 
     // 已存在"载具残骸"则累加
     let found = false;
@@ -12702,11 +12722,153 @@ export class CombatSystemService implements OnApplicationShutdown {
         break;
       }
     }
-    // 不存在则新增（原版从 资源列表1 取模板，此处直接构造最小模板）
+    // 不存在则新增。原版取 资源列表1 的模板整体加入，这里必须同样克隆静态定义：
+    // 采集侧靠 gatherCmd/outputs/timeScale 才能「收集残骸」出合金，
+    // 旧代码只塞 {name, times}，残骸计数在涨但玩家永远采不走。
+    // 拿不到静态资源表时宁可不落条目，也不写一个采不走的半成品（存量单测的
+    // StaticDataService 是空桩，正好走这条分支）。
     if (!found) {
-      res.push({ name: '载具残骸', times: b });
+      const allResources = typeof this.staticData?.getAllResources === 'function'
+        ? (this.staticData.getAllResources() || [])
+        : [];
+      const template = allResources
+        .find((resource: any) => String(resource?.name ?? '') === '载具残骸');
+      if (!template) return res;
+      res.push({ ...JSON.parse(JSON.stringify(template)), times: b });
     }
     return res;
+  }
+
+  /** 地精系列 → 前线熟练度/残骸系数的判定表（非地精系列不参与前线结算） */
+  static readonly FRONTLINE_GOBLINS = new Set(Object.keys(FRONTLINE_WRECKAGE_RATIO));
+
+  /**
+   * 家园前线击杀结算（对应原版 后台运作.ecode L976-983 奖励玩家 的前线分支）。
+   *
+   * 原版语义：击杀者有房子、且击杀发生在 `房子名称+"前线"` 这张图上、且死者是地精系列时
+   *   ① 添加成就("前线熟练度", 1) —— 前线等级的**唯一**来源（等级 = 显示熟练度等级(标记,"前线")）
+   *   ② 掉落残骸 —— 载具残骸次数累加进地图.资源2，之后由「收集残骸」采集换成合金等
+   *   ③ 活跃度 +3
+   *
+   * 这一段此前在本框架完全缺失：全仓没有任何写入「前线熟练度」的代码，dropWreckage
+   * 定义了却零调用。玩家「开始战斗」后即使把地精打光，前线等级永远停在 0、
+   * 防御上限永远 3、波次永远两只地精、也拿不到一份残骸 —— 也就是"不知道有什么用"。
+   *
+   * @returns 展示给玩家的收益行（原版把这几行随击杀文本一起回群）
+   */
+  private async settleFrontlineKill(
+    mapId: number,
+    monster: any,
+    playerData: any,
+    taskProgress: Array<{ actionName: string; count: number }>,
+    /** 本次击杀结算到的经验（战报用） */
+    expGain = 0,
+    /** distributeLoot 已经格式化好的掉落串（战报用） */
+    dropText = '',
+    /** 击杀名义玩家 userId：召唤物击杀时 playerData.player 是运行时召唤物，得靠它找回主人 */
+    killerUserId = 0,
+  ): Promise<string[]> {
+    const lines: string[] = [];
+    if (Number(mapId) <= 0) return lines;
+    if (!CombatSystemService.FRONTLINE_GOBLINS.has(String(monster?.name ?? monster?.type ?? '').trim())) {
+      return lines;
+    }
+
+    // 阵地（前线召唤物）出手时，weaponAttack 传进来的 attacker 是召唤物的运行时 actor 数据，
+    // 它的 .player 就是召唤物本身 —— 没有 houseName、也没有 userId，直接拿它去 addAchievement
+    // 会被 savePlayer 判成无效写入丢弃（实测日志「savePlayer 收到既无 userId 也无有效行 id」）。
+    // 所以 houseName 缺失时必须按 killerUserId 找回真正的主人。
+    let owner = playerData?.player ?? null;
+    let ownerMarkers: Record<string, any> = playerData?.markers
+      ?? asJsonValue<Record<string, any>>(owner?.markers, {});
+    let houseName = String(owner?.houseName ?? '').trim();
+    if (!houseName && Number(killerUserId) > 0) {
+      const ownerData = await this.playerService.getPlayerData(Number(killerUserId)).catch(() => null);
+      owner = ownerData?.player ?? owner;
+      ownerMarkers = ownerData?.markers ?? asJsonValue<Record<string, any>>(owner?.markers, {});
+      houseName = String(owner?.houseName ?? '').trim();
+    }
+    if (!owner || !houseName) return lines;
+    const monsterName = String(monster?.name ?? monster?.type ?? '').trim();
+
+    const map = await this.mapService.getMapById(Number(mapId)).catch(() => null);
+    if (!map || String(map.name ?? '') !== `${houseName}前线`) return lines;
+
+    // ① 前线熟练度 +1（走 addAchievement：自带并发冲突重放，与「稀有掉落」同一条路径）
+    await this.achievementService.addAchievement(owner, '前线熟练度', 1, false);
+    taskProgress.push({ actionName: '前线熟练度', count: 1 });
+    ownerMarkers = asJsonValue<Record<string, any>>(owner.markers, ownerMarkers);
+    const proficiency = this.achievementService.getAchievement(ownerMarkers, '前线熟练度');
+    const level = this.playerService.getFrontlineLevel(ownerMarkers);
+    lines.push(`前线熟练度+1（累计${proficiency}，前线等级 Lv.${level}）`);
+
+    // ③ 活跃度 +3（原版 L983）
+    await this.achievementService.addAchievement(owner, '活跃度', 3, false);
+
+    // ② 载具残骸入地图资源2（锁内读改写，避免同图多只地精同回合互相覆盖）
+    const wreckageBefore = this.playerService.safeJsonParse<any[]>(map.resources2, [])
+      .find((r: any) => r?.name === '载具残骸')?.times || 0;
+    await this.mapService.mutateMapFields(Number(mapId), ['resources2'], (f) => {
+      const current = Array.isArray(f.resources2) ? f.resources2 : [];
+      f.resources2 = this.dropWreckage(current, monsterName);
+      return true;
+    });
+    const gained = FRONTLINE_WRECKAGE_RATIO[monsterName] || 0;
+    lines.push(`掉落载具残骸+${gained}（阵地累计${wreckageBefore + gained}，可用「收集残骸」分解）`);
+
+    // ④ 本波战报累计（写进地图永久标记，前端轮询即可看到「这一波拿到了什么」）。
+    //    原版把每只击杀的文本直接发群，网页端没有群，就必须有一份可回看的落点，
+    //    否则玩家点完「开始战斗」只看到血条不动，等于没有反馈。
+    await this.mapService.mutateMapFields(Number(mapId), ['markers'], (f) => {
+      const box: Record<string, any> = f.markers && typeof f.markers === 'object' && !Array.isArray(f.markers)
+        ? f.markers
+        : {};
+      const prev = box['前线战报'];
+      const report: Record<string, any> = prev && typeof prev === 'object' && !Array.isArray(prev)
+        ? prev
+        : { startedAt: Date.now(), kills: 0, byName: {}, exp: 0, wreckage: 0, proficiency: 0 };
+      report.kills = (Number(report.kills) || 0) + 1;
+      report.byName = report.byName && typeof report.byName === 'object' ? report.byName : {};
+      report.byName[monsterName] = (Number(report.byName[monsterName]) || 0) + 1;
+      report.exp = Math.round(((Number(report.exp) || 0) + (Number(expGain) || 0)) * 100) / 100;
+      report.wreckage = Math.round(((Number(report.wreckage) || 0) + gained) * 100) / 100;
+      report.proficiency = (Number(report.proficiency) || 0) + 1;
+      if (dropText) report.drops = String(report.drops || '') + (report.drops ? '、' : '') + dropText;
+      report.level = level;
+      report.lastKillAt = Date.now();
+      report.result = '';
+      box['前线战报'] = report;
+      f.markers = box;
+      return true;
+    });
+
+    return lines;
+  }
+
+  /**
+   * 前线这一波收尾：把结论写回地图「前线战报」，供 Web 面板轮询后弹结算。
+   * @param outcome 'victory' 本波地精已清空 / 'stalled' 活动到期但仍有残留
+   */
+  private async settleFrontlineRound(map: any, outcome: 'victory' | 'stalled'): Promise<void> {
+    const mapId = Number(map?.id ?? 0);
+    if (!(mapId > 0) || !String(map?.name ?? '').endsWith('前线')) return;
+    try {
+      await this.mapService.mutateMapFields(mapId, ['markers'], (f) => {
+        const box: Record<string, any> = f.markers && typeof f.markers === 'object' && !Array.isArray(f.markers)
+          ? f.markers
+          : {};
+        const report = box['前线战报'];
+        if (!report || typeof report !== 'object' || Array.isArray(report)) return false;
+        if (report.result === outcome && report.finishedAt) return false;
+        report.result = outcome;
+        report.finishedAt = Date.now();
+        box['前线战报'] = report;
+        f.markers = box;
+        return true;
+      });
+    } catch (error: any) {
+      this.logger.warn(`前线战报收尾失败 map=${mapId}: ${error?.message ?? error}`);
+    }
   }
 
   /**
@@ -13486,7 +13648,7 @@ export class CombatSystemService implements OnApplicationShutdown {
    * @param frontLineLevel 前线等级（短整数）
    * @returns { summon, summons, vehicles } 修改后的召唤物与写回用的数组（调用方负责持久化）
    */
-  generateFrontline(map: any, qq: string, s: number, frontLineLevel: number): {
+  generateFrontline(map: any, qq: string, s: number, frontLineLevel: number, ownerUserId = 0): {
     summon: any;
     summons: any[];
     vehicles: any[];
@@ -13502,6 +13664,17 @@ export class CombatSystemService implements OnApplicationShutdown {
       type: '前线',
       ownerQQ: qq,
       QQ: '怪物前线' + qq + 'sg',
+      /**
+       * 归属玩家的 userId（唯一无歧义）。
+       *
+       * ownerQQ 是一段自由文本：网页登录玩家没有 qqNumber/externalId，写入侧退化成
+       * String(player.userId)，而读取侧 resolveSummonOwnerUserId 会把纯数字当 **Player.id**
+       * 去查。实测 userId=3（剑圣[住这了I]，家园 中转站3329268）的阵地被解析成
+       * Player.id=3 → userId=4（剑圣，家园 巅峰阁），于是阵地打死的怪记到别人头上、
+       * 前线奖励判定「地图名 == 击杀者房子+前线」永远不成立，熟练度与残骸全部丢失。
+       * 显式带一个 userId 字段，解析时优先读它，彻底绕开这个撞号。
+       */
+      ownerUserId: Number(ownerUserId) > 0 ? Number(ownerUserId) : undefined,
       属性: {}, // 原版 属性 结构（字典键为属性名内容语义，不在字段合同收敛范围）
       weapons: [],
       equipments: [],
@@ -13688,27 +13861,55 @@ export class CombatSystemService implements OnApplicationShutdown {
   async adminAttackMap(userId: number, arg: string): Promise<string> {
     // userId>0：玩家名义（手动指令/玩家触发的立即结算）；userId=0：延时回合（原版 QQ="0"，
     // 地图维度的怪物攻击，见 MapBattleLoopService.runRound）
-    const playerData = userId > 0 ? await this.playerService.getPlayerData(userId) : null;
-    const player = playerData?.player ?? null;
 
     // 原版 L200-206：参数是地图列表的1-based编号，非法编号直接返回空文本。
     const maps = await this.mapService.getAllMaps();
     const requested = Number((arg || '').trim());
     const mapIndex = Number.isInteger(requested) && requested > 0 ? requested : 0;
+    if (mapIndex > maps.length) return '';
+    const playerData = userId > 0 ? await this.playerService.getPlayerData(userId) : null;
+    const player = playerData?.player ?? null;
     const map = mapIndex > 0
       ? maps[mapIndex - 1]
       : (player ? await this.mapService.getMapById(player.mapId) : null);
     if (!map) return '';
-    const actualMapIndex = mapIndex || Number(map.mapIndex || map.id || 0);
-    if (mapIndex > maps.length) return '';
+    return this.runMapBattleRound(map, userId);
+  }
 
+  /**
+   * 按地图 DB 主键执行一回合地图战斗节拍（延时循环专用入口）。
+   *
+   * 为什么不能复用 adminAttackMap 的「1-based 列表编号」：
+   * getAllMaps() 先把 90 张静态地图按静态顺序铺开，再把家园等动态地图 **追加** 在尾部，
+   * 因此动态地图的 GameMap.mapIndex（家园前线实测 =12）与它在数组中的下标（实测 =95）
+   * 根本不是一个东西。旧代码把 mapIndex 当列表下标传进来，maps[12-1] 取到的是「居民区」，
+   * 于是「开始战斗」之后整条怪物攻击循环都在居民区空转，前线地精一滴血都没掉
+   * （实测 GameMonster 4368/4369 长期停在 802/802）。循环侧必须按主键定位。
+   */
+  async adminAttackMapById(userId: number, mapId: number): Promise<string> {
+    const id = Number(mapId);
+    if (!Number.isFinite(id) || id <= 0) return '';
+    const map = await this.mapService.getMapById(id);
+    if (!map) return '';
+    return this.runMapBattleRound(map, userId);
+  }
+
+  /**
+   * 地图战斗节拍回合本体（原版 覅攻击pd 的 L207 之后全部逻辑）。
+   * @param map 已定位的地图（静态合并视图或 DB 行）
+   * @param userId 玩家名义ID；0 表示延时回合
+   */
+  private async runMapBattleRound(map: any, userId: number): Promise<string> {
     const nowMs = Date.now();
     // 地图标记2 容器必须是数组：存量数据可能被写成 '{}'，直接当数组遍历会抛错
     const rawMapMarkers2 = this.playerService.safeJsonParse<any>(map.markers2, []);
     const mapMarkers2 = Array.isArray(rawMapMarkers2) ? rawMapMarkers2 : [];
     const cooldownText = { value: '' };
-    if (actualMapIndex > 0 && this.combatState.timeIntervalRequire(
-      `gw${actualMapIndex}`,
+    // 节流键按 DB 主键唯一化：旧键 "gw"+mapIndex 在动态地图上会与静态地图撞号，
+    // 导致两张不同地图互相吃掉对方的 2 秒节拍。
+    const throttleKey = `gw#${map.id}`;
+    if (this.combatState.timeIntervalRequire(
+      throttleKey,
       2,
       mapMarkers2,
       nowMs,
@@ -13722,7 +13923,13 @@ export class CombatSystemService implements OnApplicationShutdown {
     // 原版 L208-210：定点攻击前先移动临时怪物；GameMonster 已由地图服务独立持久化，
     // 读取最新实例即等价于原版内存中的移动后数组。
     const monsters = await this.mapService.getMapMonsters(map);
-    if (monsters.length === 0) return '';
+    if (monsters.length === 0) {
+      // 图上没怪就直接返回是原版语义，但前线战报必须在这里收尾：
+      // 最后一只地精往往是在本回合的召唤物攻击里没掉的，下一回合读到空数组就提前 return，
+      // 于是 result 永远停在 ""，面板把已经清空的一波显示成「交战中」。
+      await this.settleFrontlineRound(map, 'victory');
+      return '';
+    }
 
     const lines: string[] = [];
     const activityText = { value: '' };
@@ -13738,6 +13945,8 @@ export class CombatSystemService implements OnApplicationShutdown {
       await this.mapService.updateDynamicFields(map.id, {
         vehicles: map.vehicles,
       });
+      // 「活动」到期而地精仍在 → 本波僵持，战报落一个可回看的结论
+      await this.settleFrontlineRound(map, 'stalled');
       return lines.join('\n');
     }
 
@@ -13788,6 +13997,10 @@ export class CombatSystemService implements OnApplicationShutdown {
           continueLoop = true;
         }
       }
+    }
+    // 本回合打完就没有活口了 → 前线这一波胜利，战报落结论（前端弹结算）
+    if (noTarget.value || monsters.every((item: any) => (Number(item?.hp ?? 0) || 0) <= 0)) {
+      await this.settleFrontlineRound(map, 'victory');
     }
 
     map.markers2 = mapMarkers2; // 内存对象保持一致（本方法随后即返回）
@@ -14256,6 +14469,11 @@ export class CombatSystemService implements OnApplicationShutdown {
 
   /** 召唤物主人 userId 解析（ownerQQ 存 qqNumber 或 userId，原版击败结算跟随主人）；失败回退 fallback。 */
   private async resolveSummonOwnerUserId(summon: any, fallback: number): Promise<number> {
+    // 阵地等写入侧显式带 ownerUserId 的召唤物：直接用它，绕开 ownerQQ 纯数字与
+    // Player.id 撞号导致的跨玩家误归属（详见 generateFrontline 的 ownerUserId 注释）。
+    const explicitOwner = Number(summon?.ownerUserId ?? 0) || 0;
+    if (explicitOwner > 0) return explicitOwner;
+
     const owner = String(summon?.ownerQQ ?? summon?.owner ?? '').trim();
     if (owner) {
       const cached = this.summonOwnerCache.get(owner);

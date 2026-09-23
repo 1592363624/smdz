@@ -29,6 +29,7 @@ import { SystemConfigService } from '../../system-config/system-config.service';
 import { GameSupportService } from '.././game-support.service';
 import { GatherPanelService } from './gather-panel.service';
 import { MovementVehicleService } from './movement-vehicle.service';
+import { buildFrontlineWave } from '../frontline-view.config';
 
 @Injectable()
 export class DungeonChallengeService {
@@ -75,26 +76,39 @@ export class DungeonChallengeService {
       return `${player.name || '冒险者'}#一个错误发生了:家园前线地图编号为0`;
     }
 
-    const existingMonsters = await this.mapService.getMapMonsters(frontlineMap);
-    if (existingMonsters.length !== 0) {
-      return `${player.name || '冒险者'}还有需要解决的敌人`;
+    const ownerQQ = String((player as any).qqNumber || (player as any).externalId || player.userId || userId);
+    const frontlineQQ = `怪物前线${ownerQQ}sg`;
+
+    const liveMonsters = (await this.mapService.getMapMonsters(frontlineMap))
+      .filter((monster: any) => (Number(monster?.hp ?? 0) || 0) > 0);
+
+    // 阵地（前线召唤物 + 载具）是否还在场上。原版 生成前线 每回合都会重建，
+    // 网页版过去只在「首次查看前线」时生成一次，于是出现死局：
+    // 阵地丢失/被打爆 → 地精一滴血掉不了 → 「开始战斗」又被
+    // 「还有需要解决的敌人」挡回来，玩家既打不动也重开不了，只能干看着。
+    const summonsNow = asJsonValue<any[]>(frontlineMap.summons, []);
+    const position = summonsNow.find((s: any) => (s.QQ || s.qq) === frontlineQQ);
+    const positionAlive = !!position && (Number(position.hp ?? 0) || 0) > 0;
+
+    let reorganized = false;
+    if (liveMonsters.length > 0) {
+      if (positionAlive) {
+        // 原版 L2079-2082：上一波还没清完，不允许叠加新波次
+        return `${player.name || '冒险者'}还有需要解决的敌人`;
+      }
+      // 阵地不在了 = 上一波已经失败/存档被清，地精是打不动的残留。
+      // 与其让玩家永久卡死，不如就地清场重建（原版语义里这一波本来就没结算）。
+      await this.mapService.clearMapMonsters(frontlineMap.id);
+      reorganized = true;
     }
 
     // 原版：活跃度+1、置成就熟练度("阵地", 玩家2.标记, 1)，然后按前线等级分支。
-    markers['活跃度'] = this.playerService.getMarkerValue(markers, '活跃度') + 1;
-    markers['阵地'] = 1;
-    const frontlineLevel = this.playerService.getMarkerValue(markers, '前线');
-    const wave: string[] = ['地精', '地精'];
-    if (frontlineLevel >= 15 && frontlineLevel < 40) {
-      wave.push('地精十夫长');
-    } else if (frontlineLevel >= 40 && frontlineLevel < 60) {
-      wave.push('地精十夫长', '地精百夫长');
-    } else if (frontlineLevel >= 60) {
-      wave.push('地精十夫长', '地精百夫长', '地精千夫长');
-      if (frontlineLevel >= 80) wave.push('地精将军');
-    }
+    // 这两处标记写入挪到方法末尾的 mutatePlayer 里：本方法中间有刷怪、生成阵地、
+    // 落地图标记等多次 await，期间后台地精攻势回合会给同一玩家结算击杀奖励并推进
+    // version，拿开头的快照直接 savePlayer 会撞上 CAS 严格模式（实测「玩家数据并发冲突」）。
+    const frontlineLevel = this.playerService.getFrontlineLevel(markers);
+    const wave = buildFrontlineWave(frontlineLevel);
 
-    const ownerQQ = String((player as any).qqNumber || (player as any).externalId || player.userId || userId);
     for (const monsterName of wave) {
       const monster = await this.mapService.spawnMonsterByName(frontlineMap.id, monsterName, {
         level: frontlineLevel,
@@ -110,22 +124,60 @@ export class DungeonChallengeService {
       }
     }
 
-    const generated = this.combatSystem.generateFrontline(
-      frontlineMap,
-      ownerQQ,
-      Date.now(),
-      frontlineLevel,
-    );
-    await this.mapService.updateDynamicFields(frontlineMap.id, {
-      summons: generated.summons,
-      vehicles: generated.vehicles,
-      markers2: [{ name: '活动', strength: 0, expireAt: Date.now() + 120000 }],
+    // 阵地重建走锁内闭环：只在这张图当前最新的 summons/vehicles 上改，
+    // 避免与并发的地图写路径互相整组覆盖。
+    await this.mapService.mutateMapFields(frontlineMap.id, ['summons', 'vehicles'], (f) => {
+      const generated = this.combatSystem.generateFrontline(
+        { ...frontlineMap, summons: f.summons, vehicles: f.vehicles },
+        ownerQQ,
+        Date.now(),
+        frontlineLevel,
+        userId,
+      );
+      f.summons = generated.summons;
+      f.vehicles = generated.vehicles;
+      return true;
     });
 
-    // 保留现有网页版的战斗模式标记，供自动攻击入口读取；前线波次才是本命令的实际效果。
-    markers['battle_mode'] = true;
-    player.markers = markers;
-    await this.playerService.savePlayer(player);
+    // 「活动」120 秒是战斗循环的存活窗口。旧代码用 updateDynamicFields 整组覆盖
+    // markers2，会把「刷新怪物」「刷新资源X」等其它写路径刚登记的标记一起抹掉；
+    // 这里改成读现有数组 + gainBuff + 按名合并落库。
+    const mapMarkers2 = asJsonValue<any[]>(frontlineMap.markers2, []);
+    const activityArray = Array.isArray(mapMarkers2) ? mapMarkers2 : [];
+    this.combatState.gainBuff(activityArray, '活动', 120, false, Date.now());
+    await this.mapService.mergeMapMarkers2(frontlineMap.id, activityArray);
+
+    // 开一波新战线：把本波战报的基线重置，前端据此显示「这一波打了什么、拿到了什么」。
+    const mapMarkers = asJsonValue<Record<string, any>>(frontlineMap.markers, {});
+    const reportBox: Record<string, any> = mapMarkers && typeof mapMarkers === 'object' && !Array.isArray(mapMarkers)
+      ? mapMarkers
+      : {};
+    reportBox['前线战报'] = {
+      startedAt: Date.now(),
+      level: frontlineLevel,
+      wave,
+      kills: 0,
+      byName: {},
+      exp: 0,
+      wreckage: 0,
+      proficiency: 0,
+      drops: '',
+      finishedAt: 0,
+      result: '',
+    };
+    await this.mapService.updateDynamicFields(frontlineMap.id, { markers: reportBox });
+
+    // 玩家侧标记统一在 mutate 上下文里基于活态改写、一次性落库
+    // （活跃度+1 / 阵地=1 见上；battle_mode 供网页自动攻击入口读取，
+    //  前线波次才是本命令的实际效果）。
+    await this.support.mutatePlayer(userId, async (ctx: any) => {
+      const liveMarkers: Record<string, any> = ctx.markers
+        ?? asJsonValue<Record<string, any>>(ctx.player.markers, {});
+      liveMarkers['活跃度'] = this.playerService.getMarkerValue(liveMarkers, '活跃度') + 1;
+      liveMarkers['阵地'] = 1;
+      liveMarkers['battle_mode'] = true;
+      ctx.player.markers = liveMarkers; // Json 列直接写对象
+    });
 
     // 原版 _主程序.ecode L2167：地精攻势开始后 新建延时("覅攻击pd"+地图, "0", 群号, 3)，
     // 3秒后怪物回合开始并自动续回合（"活动"120秒标记已在上方写入）。
@@ -136,7 +188,10 @@ export class DungeonChallengeService {
     }
 
     this.logger.log(`玩家 ${userId} 进入战斗模式`);
-    return `${player.name || '冒险者'}\n地精的攻势开始了`;
+    const head = reorganized
+      ? `${player.name || '冒险者'}阵地已失联，清剿了上一波的残留地精并重筑阵地`
+      : `${player.name || '冒险者'}`;
+    return `${head}\n地精的攻势开始了\n本波来袭：${wave.join('、')}\n前线等级 Lv.${frontlineLevel}，防御上限 ${frontlineLevel + 3}\n击杀会累积「前线熟练度」并掉落可收集的载具残骸`;
   }
 
   /**

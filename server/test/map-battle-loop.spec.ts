@@ -43,7 +43,10 @@ function buildLoopService(overrides: {
 } = {}) {
   const mapService: any = {
     getMapById: jest.fn(async (mapId: number) => ({
-      id: mapId, mapIndex: mapId, name: `地图${mapId}`,
+      // mapIndex 故意与 id 不相等：真实动态家园地图就是这个关系（前线 id=1092 / mapIndex=12，
+      // 而它在 getAllMaps() 数组里的下标是 95）。循环侧一旦误传 mapIndex 或列表下标，
+      // 本文件的断言会立刻红，复现"节拍打在别的地图上、地精一滴血不掉"。
+      id: mapId, mapIndex: mapId + 100, name: `地图${mapId}`,
       markers2: '[]', summons: '[]', vehicles: '[]',
     })),
     updateDynamicFields: jest.fn(async () => undefined),
@@ -66,7 +69,8 @@ function buildLoopService(overrides: {
     },
   };
   const chatService = { broadcastSystem: jest.fn(async () => undefined) };
-  const combatSystem = overrides.combatSystem ?? { adminAttackMap: jest.fn(async () => '怪物攻击了') };
+  // 循环侧按 DB 主键定位地图（adminAttackMapById），不再传「1-based 列表编号」
+  const combatSystem = overrides.combatSystem ?? { adminAttackMapById: jest.fn(async () => '怪物攻击了') };
 
   const loop = new MapBattleLoopService(
     prisma as any,
@@ -95,7 +99,7 @@ describe('MapBattleLoopService：原版 覅攻击pd 延时递归驱动', () => {
     expect(loop.hasPendingRound(1)).toBe(true);
 
     await jest.advanceTimersByTimeAsync(3100);
-    expect((combatSystem.adminAttackMap as jest.Mock).mock.calls.length).toBe(1);
+    expect((combatSystem.adminAttackMapById as jest.Mock).mock.calls.length).toBe(1);
     expect(loop.hasPendingRound(1)).toBe(false);
   });
 
@@ -104,20 +108,21 @@ describe('MapBattleLoopService：原版 覅攻击pd 延时递归驱动', () => {
     loop.scheduleRound(1, 3);
     await jest.advanceTimersByTimeAsync(3100);
 
-    expect((combatSystem.adminAttackMap as jest.Mock).mock.calls[0][0]).toBe(2);
-    expect((combatSystem.adminAttackMap as jest.Mock).mock.calls[0][1]).toBe('1');
+    expect((combatSystem.adminAttackMapById as jest.Mock).mock.calls[0][0]).toBe(2);
+    // 第二参必须是 DB 主键 1，而不是桩里刻意错开的 mapIndex(101) 或列表下标
+    expect((combatSystem.adminAttackMapById as jest.Mock).mock.calls[0][1]).toBe(1);
     expect(chatService.broadcastSystem).toHaveBeenCalledWith('世界频道', '怪物攻击了');
   });
 
   it('runRound：同图无人在线时以 0 进入（怪物仍攻击地图召唤物），空文本不广播', async () => {
     const { loop, combatSystem, chatService } = buildLoopService({
       online: new Set<number>([99]),
-      combatSystem: { adminAttackMap: jest.fn(async () => '') },
+      combatSystem: { adminAttackMapById: jest.fn(async () => '') },
     });
     loop.scheduleRound(1, 3);
     await jest.advanceTimersByTimeAsync(3100);
 
-    expect((combatSystem.adminAttackMap as jest.Mock).mock.calls[0][0]).toBe(0);
+    expect((combatSystem.adminAttackMapById as jest.Mock).mock.calls[0][0]).toBe(0);
     expect(chatService.broadcastSystem).not.toHaveBeenCalled();
   });
 
@@ -134,11 +139,11 @@ describe('MapBattleLoopService：原版 覅攻击pd 延时递归驱动', () => {
       expect.objectContaining({ name: '活动' }),
     ]));
     expect(mapService.lastMergedMarkers2.some((item: any) => item.name === '活动')).toBe(true);
-    expect((combatSystem.adminAttackMap as jest.Mock).mock.calls.length).toBe(0);
+    expect((combatSystem.adminAttackMapById as jest.Mock).mock.calls.length).toBe(0);
     expect(loop.hasPendingRound(1)).toBe(true);
 
     await jest.advanceTimersByTimeAsync(3100);
-    expect((combatSystem.adminAttackMap as jest.Mock).mock.calls.length).toBe(1);
+    expect((combatSystem.adminAttackMapById as jest.Mock).mock.calls.length).toBe(1);
   });
 
   it('triggerByPlayerAction：隐匿模式玩家不惊动怪物（原版 L160 隐匿攻击豁免）', async () => {
@@ -151,7 +156,7 @@ describe('MapBattleLoopService：原版 覅攻击pd 延时递归驱动', () => {
     await loop.triggerByPlayerAction(2, 3, { player, map });
 
     expect(loop.hasPendingRound(1)).toBe(false);
-    expect((combatSystem.adminAttackMap as jest.Mock).mock.calls.length).toBe(0);
+    expect((combatSystem.adminAttackMapById as jest.Mock).mock.calls.length).toBe(0);
   });
 
   it('triggerByPlayerAction：轻量路径（仅userId）从库读玩家并拉起；不存在的玩家忽略', async () => {
@@ -171,7 +176,7 @@ describe('MapBattleLoopService：原版 覅攻击pd 延时递归驱动', () => {
     loop.onApplicationShutdown();
     expect(loop.hasPendingRound(1)).toBe(false);
     await jest.advanceTimersByTimeAsync(11000);
-    expect((combatSystem.adminAttackMap as jest.Mock).mock.calls.length).toBe(0);
+    expect((combatSystem.adminAttackMapById as jest.Mock).mock.calls.length).toBe(0);
   });
 });
 

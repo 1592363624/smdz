@@ -146,8 +146,11 @@ export class MapBattleLoopService implements OnApplicationShutdown {
         .filter((uid: number) => online.has(uid));
       const nominal = candidates.length > 0 ? candidates[0] : 0;
 
-      const mapArg = String(map.mapIndex ?? map.id);
-      const text = await this.combatSystem.adminAttackMap(nominal, mapArg);
+      // 按 DB 主键定位地图：mapIndex 是 GameMap 上的独立编号，动态家园地图被追加在
+      // getAllMaps() 尾部，两者并不对应（前线 mapIndex=12 实际下标=95）。旧代码传 mapIndex
+      // 让 adminAttackMap 按「1-based 列表下标」取图，整条循环会跑到「居民区」上，
+      // 前线地精一滴血都不掉。
+      const text = await this.combatSystem.adminAttackMapById(nominal, mapId);
       if (text && text.trim()) {
         // 原版回合文本发送到群（处理群 → 发送群消息）；本框架走世界频道系统消息
         await this.chatService.broadcastSystem('世界频道', text).catch(() => undefined);

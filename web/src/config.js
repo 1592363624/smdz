@@ -17,7 +17,7 @@ export const WS_URL =
 export const COMMAND_PREFIXES = ['/', '！', '!'];
 
 // 版本号：显示在界面右上角，发新版时在此调整
-export const APP_VERSION = '0.9.1';
+export const APP_VERSION = '0.9.2';
 
 // GitHub Issue 反馈页地址：头部「BUG 反馈」按钮的跳转目标，可用 VITE_GITHUB_ISSUES_URL 覆盖
 export const GITHUB_ISSUES_URL =
@@ -357,6 +357,12 @@ export const HOME_YARD_CONFIG = {
 export const HOME_FRONTLINE_CONFIG = {
   /** 前线数据自动刷新间隔（毫秒）；操作后会立即再拉一次 */
   refreshMs: 30000,
+  /**
+   * 战斗进行中（地图「活动」未到期）的刷新间隔。
+   * 30 秒是静态面板的节奏，但一波攻势总共只有 120 秒：按 30 秒轮询，
+   * 玩家点完「开始战斗」要等半分钟才看到血条动，跟"什么也没发生"没区别。
+   */
+  combatRefreshMs: 3000,
   /** 执行指令后重新拉取数据的延迟（毫秒），等后端写完再读 */
   refetchDelayMs: 500,
   /**
@@ -398,6 +404,8 @@ export const HOME_FRONTLINE_CONFIG = {
     install: (buildingName) => `安装 ${buildingName}`,
     remove: (buildingName) => `拆卸 ${buildingName}`,
     startBattle: () => '开始战斗',
+    // 收集阵地上的载具残骸（前线击杀掉落，走统一的采集指令通道）
+    gatherWreckage: () => '收集残骸',
     // 查看前线文本状态（家园前线），与 UI 互为印证
     view: () => '家园前线',
   },
@@ -415,6 +423,19 @@ export const HOME_FRONTLINE_CONFIG = {
     installEmpty: '背包里没有可安装的防御建筑（带 攻击 加成的建筑）',
     noFirepower: '火力通道为空，安装防御建筑后会生成对应武器',
     frontlineHint: '防御阵地和地精无视载具伤害上限，攻击无载具目标时一击必杀',
+    /** 玩法闭环说明：玩家最先问的就是"打这个到底有什么用" */
+    loopHint: '击杀地精 → 攒前线熟练度（升级解锁更强波次与更多防御位）+ 掉落载具残骸（收集后分解成合金等）',
+    positionLost: '阵地已失联：地精打不动了。点「开始战斗」会清掉残留地精并重筑阵地。',
+    proficiencyLabel: '前线熟练度',
+    toNextLevel: (need) => `再 ${need} 点升下一级`,
+    maxWaveLabel: '下一波来袭',
+    wreckageLabel: '载具残骸',
+    wreckageEmpty: '阵地还没有可收集的残骸，击败地精后会累积在这里',
+    reportTitle: '本波战报',
+    reportEmpty: '还没有打过一波攻势。布防后点「开始战斗」试试。',
+    reportVictory: '本波地精已清空',
+    reportStalled: '活动到期，仍有地精残留',
+    reportFighting: '交战中',
   },
 };
 

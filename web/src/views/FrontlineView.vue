@@ -65,6 +65,57 @@
           </div>
         </div>
         <div class="fl-hint">{{ C.texts.frontlineHint }}</div>
+        <div class="fl-hint">{{ C.texts.loopHint }}</div>
+      </section>
+
+      <!-- 成长与产出：这条面板回答「打前线到底有什么用」 -->
+      <section class="fl-block growth">
+        <div class="fl-block-head"><span class="fl-b-chip grow">📈</span><span>前线收益</span></div>
+        <div class="fl-prof">
+          <div class="fl-prof-top">
+            <span class="fl-prof-label">{{ C.texts.proficiencyLabel }}</span>
+            <span class="fl-prof-num">{{ proficiency.value }} / {{ proficiency.nextLevelAt }}</span>
+          </div>
+          <div class="fl-prof-bar"><div class="fl-prof-fill" :style="{ width: levelPct + '%' }"></div></div>
+          <div class="fl-prof-foot">
+            <span>Lv.{{ frontLevel }} → Lv.{{ frontLevel + 1 }}</span>
+            <span>{{ C.texts.toNextLevel(proficiency.toNext) }}</span>
+          </div>
+        </div>
+        <div class="fl-warn-box">
+          <div>
+            <div class="fl-warn-val">{{ wreckage }}</div>
+            <div class="fl-warn-label">{{ C.texts.wreckageLabel }}</div>
+          </div>
+          <button class="fl-btn" :disabled="!wreckage || running" :title="wreckage ? '分解残骸换取合金等' : C.texts.wreckageEmpty" @click="collectWreckage">
+            📦 收集残骸
+          </button>
+        </div>
+        <div v-if="nextWave.length" class="fl-wave">
+          {{ C.texts.maxWaveLabel }}：
+          <em v-for="(w, i) in nextWave" :key="i">{{ iconOf(w, 'enemy') }} {{ w }}</em>
+        </div>
+      </section>
+
+      <!-- 本波战报：击杀/经验/掉落/残骸，打完必须有可回看的落点 -->
+      <section class="fl-block report">
+        <div class="fl-block-head">
+          <span class="fl-b-chip report">📜</span><span>{{ C.texts.reportTitle }}</span>
+          <span v-if="report" class="fl-chip-count" :class="reportState.class">{{ reportState.text }}</span>
+        </div>
+        <div v-if="report && report.kills" class="fl-report">
+          <div class="fl-report-row">
+            <span>击杀 <b>{{ report.kills }}</b></span>
+            <span>经验 <b>{{ round2(report.exp) }}</b></span>
+            <span>熟练度 <b>+{{ report.proficiency }}</b></span>
+            <span>残骸 <b>+{{ round2(report.wreckage) }}</b></span>
+          </div>
+          <div v-if="reportByName.length" class="fl-report-tags">
+            <span v-for="t in reportByName" :key="t.name">{{ iconOf(t.name, 'enemy') }} {{ t.name }} ×{{ t.count }}</span>
+          </div>
+          <div v-if="report.drops" class="fl-report-drops">掉落：{{ report.drops }}</div>
+        </div>
+        <div v-else class="fl-empty">{{ C.texts.reportEmpty }}</div>
       </section>
 
       <!-- 敌人区：地精波次（开始战斗后出现） -->
@@ -85,11 +136,18 @@
 
       <!-- 火力通道：前线召唤物的武器 -->
       <section class="fl-block firepower">
-        <div class="fl-block-head"><span class="fl-b-chip fire">🎯</span><span>火力通道</span></div>
+        <div class="fl-block-head"><span class="fl-b-chip fire">🎯</span><span>火力通道</span><span v-if="firepower.length" class="fl-chip-count">{{ firepower.length }} 门</span></div>
+        <div v-if="positionLost" class="fl-lost">{{ C.texts.positionLost }}</div>
+        <div v-else-if="position.exists && position.vehicleMaxHp" class="fl-position">
+          <span>阵地耐久</span>
+          <div class="fl-pos-bar"><div class="fl-pos-fill" :class="{ low: positionHpPct <= 30 }" :style="{ width: positionHpPct + '%' }"></div></div>
+          <b>{{ Math.round(position.vehicleHp) }} / {{ Math.round(position.vehicleMaxHp) }}</b>
+        </div>
         <div v-if="firepower.length" class="fl-weapon-list">
-          <div v-for="(w, i) in firepower" :key="i" class="fl-weapon">
+          <div v-for="(w, i) in firepower" :key="i" class="fl-weapon" :class="{ cooling: w.cooldownRemainSec > 0 }">
             <span class="fl-weapon-icon">{{ iconOf(w.name, 'weapon') }}</span>
             <span class="fl-weapon-name">{{ w.name }}</span>
+            <span v-if="w.cooldownRemainSec > 0" class="fl-weapon-cd">冷却 {{ w.cooldownRemainSec }}s</span>
             <span class="fl-weapon-dmg">伤害 {{ w.damagePct }}%</span>
           </div>
         </div>
@@ -127,8 +185,15 @@
         <button v-if="!atFrontline" class="fl-btn primary big" :disabled="running" @click="goFrontline">
           📍 前往前线
         </button>
-        <button v-else class="fl-btn danger big" :disabled="running || enemies.length > 0 || !canBattle" :title="enemies.length ? C.texts.hasEnemies : C.texts.canBattle" @click="startBattle">
-          {{ enemies.length ? '⚔️ 战斗进行中' : '⚔️ 开始战斗' }}
+        <button
+          v-else
+          class="fl-btn big"
+          :class="positionLost ? 'warn' : 'danger'"
+          :disabled="running || !canBattle"
+          :title="battleButtonHint"
+          @click="startBattle"
+        >
+          {{ battleButtonText }}
         </button>
       </div>
     </main>
@@ -188,6 +253,53 @@ const enemies = computed(() => data.value?.enemies || []);
 const active = computed(() => data.value?.active || { active: false, remainSeconds: 0 });
 const stock = computed(() => data.value?.stock || []);
 const canBattle = computed(() => Boolean(data.value?.canBattle));
+const position = computed(() => data.value?.position || { exists: false, hp: 0, vehicleHp: 0, vehicleMaxHp: 0, broken: false });
+const positionLost = computed(() => Boolean(data.value?.positionLost));
+const proficiency = computed(() => data.value?.proficiency || { value: 0, currentLevelBase: 0, nextLevelAt: 1, toNext: 1 });
+const wreckage = computed(() => Number(data.value?.wreckage ?? 0) || 0);
+const report = computed(() => data.value?.report || null);
+const nextWave = computed(() => data.value?.nextWave || []);
+
+/** 熟练度进度条：本等级区间内的百分比 */
+const levelPct = computed(() => {
+  const p = proficiency.value;
+  const span = (Number(p.nextLevelAt) || 0) - (Number(p.currentLevelBase) || 0);
+  if (span <= 0) return 100;
+  return Math.max(0, Math.min(100, Math.round(((Number(p.value) || 0) - (Number(p.currentLevelBase) || 0)) / span * 100)));
+});
+const positionHpPct = computed(() => {
+  const max = Number(position.value.vehicleMaxHp) || 1;
+  return Math.max(0, Math.min(100, Math.round((Number(position.value.vehicleHp) || 0) / max * 100)));
+});
+const reportByName = computed(() => Object.entries(report.value?.byName || {})
+  .map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count));
+const reportState = computed(() => {
+  const r = report.value;
+  if (!r) return { text: '', class: '' };
+  if (r.result === 'victory') return { text: C.texts.reportVictory, class: 'ok' };
+  if (r.result === 'stalled') return { text: C.texts.reportStalled, class: 'warn' };
+  // 后端 result 还没落上时按现场状态推断，别让已经清空的一波一直挂着「交战中」
+  if (!enemies.value.length) {
+    return r.kills
+      ? { text: C.texts.reportVictory, class: 'ok' }
+      : { text: C.texts.reportFighting, class: 'run' };
+  }
+  return { text: C.texts.reportFighting, class: 'run' };
+});
+const battleButtonText = computed(() => {
+  if (positionLost.value && enemies.value.length) return '🛠️ 重整战线';
+  if (enemies.value.length) return '⚔️ 战斗进行中';
+  return '⚔️ 开始战斗';
+});
+const battleButtonHint = computed(() => {
+  if (positionLost.value && enemies.value.length) return C.texts.positionLost;
+  if (enemies.value.length) return C.texts.hasEnemies;
+  return C.texts.canBattle;
+});
+function round2(v) {
+  const n = Number(v) || 0;
+  return Math.round(n * 100) / 100;
+}
 
 /** 上次自动补发「前往前线」的时间戳（毫秒），配合 autoEnter.cooldownMs 防止赶路中反复重发 */
 let lastAutoEnterAt = 0;
@@ -220,8 +332,12 @@ async function refresh() {
   loading.value = true;
   try {
     const res = await homeApi.frontline();
+    const prevReport = report.value;
     data.value = res?.data ?? null;
     error.value = '';
+    notifyWaveEnd(prevReport, report.value);
+    // 活动窗口一开就把轮询提速，否则玩家要等满 30 秒才看到血条动
+    if (active.value?.active && timer) startTimer();
     // 数据到位后再判定位置，避免用旧的 atFrontline 误判
     void maybeAutoEnterFrontline();
   } catch (e) {
@@ -231,9 +347,35 @@ async function refresh() {
   }
 }
 
+function startTimer() {
+  stopTimer();
+  // 交战中按 3 秒拉一次：一波攻势只有 120 秒，30 秒的节奏等于让玩家盯着不动的血条
+  const interval = active.value?.active ? C.combatRefreshMs : C.refreshMs;
+  timer = setInterval(refresh, interval);
+}
+
+function stopTimer() {
+  if (timer) { clearInterval(timer); timer = null; }
+}
+
+/**
+ * 战斗结束后弹一次结算 toast。
+ * 原版把每只击杀的文本发群，网页没有群；不补这一步，玩家点完「开始战斗」
+ * 只会看到按钮从「战斗中」变回「开始战斗」，拿没拿到奖励完全无从判断。
+ */
+function notifyWaveEnd(prevReport, nextReport) {
+  if (!prevReport || !nextReport) return;
+  if (prevReport.result && nextReport.result === prevReport.result) return;
+  if (!nextReport.result) return;
+  const text = nextReport.result === 'victory'
+    ? `前线告捷：击杀 ${nextReport.kills}，经验 +${round2(nextReport.exp)}，熟练度 +${nextReport.proficiency}，残骸 +${round2(nextReport.wreckage)}`
+    : `攻势中止：活动到期，本波击杀 ${nextReport.kills}，熟练度 +${nextReport.proficiency}`;
+  ui.pushToast({ type: nextReport.result === 'victory' ? 'success' : 'warning', message: text, timeout: 8000 });
+}
+
 onMounted(() => {
   refresh();
-  timer = setInterval(refresh, C.refreshMs);
+  startTimer();
 });
 /* 再点一次「前线」标签：回到阵地顶部，不用玩家自己往上拖 */
 onTabRetap('/frontline', () => scrollTopWithin('.fl-body'));
@@ -243,14 +385,10 @@ onTabRetap('/frontline', () => scrollTopWithin('.fl-body'));
 onActivated(() => {
   if (timer) return;
   refresh();
-  timer = setInterval(refresh, C.refreshMs);
+  startTimer();
 });
-onDeactivated(() => {
-  if (timer) { clearInterval(timer); timer = null; }
-});
-onBeforeUnmount(() => {
-  if (timer) clearInterval(timer);
-});
+onDeactivated(() => stopTimer());
+onBeforeUnmount(() => stopTimer());
 
 // ---------- 展示工具 ----------
 /** 按名称关键词匹配图标（规则见 config.HOME_FRONTLINE_CONFIG.icons） */
@@ -284,7 +422,10 @@ function gateBlocked() {
 /**
  * 执行单条指令并刷新数据。
  * @param {string} cmd 与 QQ 端逐字一致的指令文本
- * @param {{requireFrontline?: boolean}} opts 布防/拆卸要求人在前线
+ * @param {{requireFrontline?: boolean, longMessage?: boolean, fastPoll?: boolean}} opts
+ *   requireFrontline 布防/拆卸要求人在前线；
+ *   longMessage 回包是多行结算文本（开战收益、采集产出）时给足阅读时间；
+ *   fastPoll 指令会开启一段实时战斗，接下来几秒高频拉数据。
  */
 async function run(cmd, opts = {}) {
   if (running.value) return;
@@ -297,12 +438,20 @@ async function run(cmd, opts = {}) {
   try {
     const res = await commandApi.execute(cmd);
     const text = res?.data?.content ?? '';
-    ui.pushToast({ type: text.includes('成功') ? 'success' : 'info', message: text || '指令已发送', timeout: 4000 });
+    ui.pushToast({
+      type: text.includes('成功') ? 'success' : 'info',
+      message: text || '指令已发送',
+      timeout: opts.longMessage ? 9000 : 4000,
+    });
   } catch (e) {
     ui.pushToast({ type: 'error', message: e?.response?.data?.message || `执行失败：${cmd}` });
   } finally {
     running.value = false;
     setTimeout(refresh, C.refetchDelayMs);
+    if (opts.fastPoll) {
+      // 开战后 120 秒内每 3 秒一拉：不提速的话玩家只会看到血条长时间不动
+      setTimeout(startTimer, C.refetchDelayMs + 100);
+    }
   }
 }
 
@@ -333,14 +482,27 @@ async function doRemove() {
   await run(C.commands.remove(name), { requireFrontline: true });
 }
 
-/** 开始战斗（原版「开始战斗」：消耗活跃度 1，生成地精波次；无地点门禁） */
+/**
+ * 开始战斗 / 重整战线（原版「开始战斗」：消耗活跃度 1，生成地精波次；无地点门禁）。
+ *
+ * 阵地已失联时不再拦玩家：后端那条路径会清掉打不动的残留地精并重筑阵地，
+ * 过去这里用 enemies.length 直接挡死，正好把用户实测到的死局锁在了界面上。
+ */
 function startBattle() {
-  if (enemies.value.length > 0) {
+  if (enemies.value.length > 0 && !positionLost.value) {
     ui.pushToast({ type: 'warning', message: C.texts.hasEnemies });
     return;
   }
-  if (!window.confirm(C.texts.startBattleConfirm)) return;
-  run(C.commands.startBattle());
+  const confirmText = positionLost.value && enemies.value.length
+    ? '阵地已失联，开始战斗会清掉打不动的残留地精并重筑阵地，确定吗？'
+    : C.texts.startBattleConfirm;
+  if (!window.confirm(confirmText)) return;
+  run(C.commands.startBattle(), { longMessage: true, fastPoll: true });
+}
+
+/** 收集阵地上的载具残骸（击杀地精掉落，走统一采集指令通道） */
+function collectWreckage() {
+  run(C.commands.gatherWreckage(), { requireFrontline: true, longMessage: true });
 }
 </script>
 
@@ -713,6 +875,162 @@ button.fl-switch-btn:active {
   color: #fb923c;
   flex-shrink: 0;
 }
+/* 冷却中的武器：灰掉 + 剩余秒数，让玩家看懂"这门炮现在没在打"而不是"没在打" */
+.fl-weapon.cooling {
+  opacity: 0.62;
+}
+.fl-weapon-cd {
+  font-size: 11px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+/* 阵地耐久条 */
+.fl-position {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.fl-pos-bar {
+  flex: 1;
+  height: 7px;
+  border-radius: 4px;
+  background: rgba(74, 222, 128, 0.14);
+  overflow: hidden;
+}
+.fl-pos-fill {
+  height: 100%;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #4ade80, #22d3ee);
+  transition: width 0.5s ease;
+}
+.fl-pos-fill.low {
+  background: linear-gradient(90deg, #f87171, #fb923c);
+}
+.fl-lost {
+  padding: 9px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(251, 146, 60, 0.42);
+  background: rgba(251, 146, 60, 0.1);
+  color: #fdba74;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+/* 前线收益：熟练度进度条 + 残骸 */
+.fl-b-chip.grow { background: rgba(34, 211, 238, 0.18); }
+.fl-prof {
+  background: var(--bg2, #0f1116);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px;
+}
+.fl-prof-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 12px;
+}
+.fl-prof-label { color: var(--muted); }
+.fl-prof-num {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.fl-prof-bar {
+  height: 8px;
+  margin: 7px 0 5px;
+  border-radius: 5px;
+  background: rgba(34, 211, 238, 0.14);
+  overflow: hidden;
+}
+.fl-prof-fill {
+  height: 100%;
+  border-radius: 5px;
+  background: linear-gradient(90deg, #22d3ee, #8b5cf6);
+  transition: width 0.5s ease;
+}
+.fl-prof-foot {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--muted);
+}
+.fl-warn-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 10px;
+  background: var(--bg2, #0f1116);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.fl-warn-box > div { flex: 1; min-width: 0; }
+.fl-warn-val {
+  font-size: 20px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.fl-warn-label {
+  font-size: 11px;
+  color: var(--muted);
+}
+.fl-wave {
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.9;
+}
+.fl-wave em {
+  font-style: normal;
+  margin-right: 8px;
+  color: var(--text, #e5e7eb);
+}
+
+/* 本波战报 */
+.fl-b-chip.report { background: rgba(167, 139, 250, 0.18); }
+.fl-chip-count.ok { color: #4ade80; border-color: rgba(74, 222, 128, 0.4); }
+.fl-chip-count.warn { color: #fbbf24; border-color: rgba(251, 191, 36, 0.4); }
+.fl-chip-count.run { color: #fb923c; border-color: rgba(251, 146, 60, 0.45); }
+.fl-report {
+  background: var(--bg2, #0f1116);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px;
+}
+.fl-report-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.fl-report-row b {
+  color: var(--text, #e5e7eb);
+  font-variant-numeric: tabular-nums;
+}
+.fl-report-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.fl-report-tags span {
+  padding: 2px 8px;
+  border-radius: 9px;
+  background: rgba(248, 113, 113, 0.12);
+  border: 1px solid rgba(248, 113, 113, 0.28);
+  font-size: 11px;
+}
+.fl-report-drops {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.7;
+  word-break: break-all;
+}
 
 /* 网格（防御建筑 / 库存） */
 .fl-grid {
@@ -811,6 +1129,11 @@ button.fl-switch-btn:active {
 .fl-btn.danger {
   background: linear-gradient(135deg, #ef4444, #dc2626);
   border-color: rgba(239, 68, 68, 0.6);
+}
+/* 重整战线：橙红色，和"开战"区分开，读作"这是修复动作不是新波次" */
+.fl-btn.warn {
+  background: linear-gradient(135deg, #f97316, #c2410c);
+  border-color: rgba(249, 115, 22, 0.6);
 }
 .fl-btn.big {
   flex: 1;
@@ -981,6 +1304,18 @@ button.fl-switch-btn:active {
     padding: 10px 16px;
     font-size: 14px;
   }
+
+  /* 收益/战报两块是本页新加的信息密度最高的地方，手机上按手游习惯放大：
+     数字要一眼读到，按钮要拇指按得到 */
+  .fl-warn-val { font-size: 22px; }
+  .fl-report-row { font-size: 13px; gap: 6px 12px; }
+  .fl-warn-box .fl-btn {
+    flex-shrink: 0;
+    min-width: 96px;
+    font-weight: 700;
+  }
+  .fl-position { font-size: 13px; }
+  .fl-lost { font-size: 13px; padding: 10px; }
 
   /* 主行动按钮：滚动容器是 .fl-body（根节点 overflow:hidden），
      所以 sticky 的下沿天然停在底栏上沿，这里只需要把按钮撑成通栏大CTA */

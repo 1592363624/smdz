@@ -309,10 +309,52 @@ export class PlayerService {
   getSkillLevel(markers: any, name: string): number {
     // 原版调用方传入“使魔名称”，实际标记名为“使魔名称+技能熟练度”。
     // 例如兰音对应“兰音技能熟练度”，不能误读为“兰音熟练度”。
-    const proficiency = Math.max(0, this.getMarkerValue(markers, `${name}技能熟练度`));
+    return this.getProficiencyLevel(markers, `${name}技能熟练度`);
+  }
+
+  /**
+   * 按「显示熟练度等级」的平方阈值曲线，把任意熟练度计数器换算成等级。
+   * 对应原版 数据显示.ecode L1640-L1665；与 getSkillLevel 同一条曲线，
+   * 只是计数器名字由调用方给全（前线用的是「前线熟练度」，不带「技能」）。
+   */
+  getProficiencyLevel(markers: any, counterName: string): number {
+    const proficiency = Math.max(0, this.getMarkerValue(markers, counterName));
     let level = 1;
     while (proficiency >= level * level) level += 1;
     return level;
+  }
+
+  /**
+   * 前线等级（原版 显示熟练度等级(玩家.标记, "前线")）。
+   *
+   * 唯一真相源是「前线熟练度」计数器：原版 后台运作.ecode L977 每杀一只地精 +1，
+   * 等级按平方曲线派生，同时决定 ①防御建筑上限（等级+3）②地精波次强度（15/40/60/80
+   * 分段）③阵地装甲与命中。旧代码三处读取点都直接读 markers['前线'] 这个原始键，
+   * 而全仓没有任何地方写过它 —— 前线等级恒为 0，整条成长线是死的。
+   */
+  getFrontlineLevel(markers: any): number {
+    return this.getProficiencyLevel(markers, '前线熟练度');
+  }
+
+  /** 升到下一级还差多少点前线熟练度（面板进度条用） */
+  getFrontlineLevelProgress(markers: any): {
+    level: number;
+    proficiency: number;
+    currentLevelBase: number;
+    nextLevelAt: number;
+    need: number;
+  } {
+    const proficiency = Math.max(0, this.getMarkerValue(markers, '前线熟练度'));
+    const level = this.getFrontlineLevel(markers);
+    const currentLevelBase = (level - 1) * (level - 1);
+    const nextLevelAt = level * level;
+    return {
+      level,
+      proficiency,
+      currentLevelBase,
+      nextLevelAt,
+      need: Math.max(0, nextLevelAt - proficiency),
+    };
   }
 
   /**

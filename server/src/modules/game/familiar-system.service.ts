@@ -2008,6 +2008,7 @@ export class FamiliarSystemService {
           qq,
           Date.now(),
           0,
+          userId,
         );
         f.summons = generated.summons;
         f.vehicles = generated.vehicles;
@@ -2032,12 +2033,16 @@ export class FamiliarSystemService {
 
     const mapBuildings = asJsonValue<any[]>(map.buildings, []);
     const frontline = summons.find((s: any) => (s.QQ || s.qq) === frontlineQQ);
-    const frontLevel = this.playerService.getMarkerValue(markers, '前线');
+    const frontProgress = this.playerService.getFrontlineLevelProgress(markers);
+    const frontLevel = frontProgress.level;
+    const wreckageTimes = asJsonValue<any[]>(map.resources2, [])
+      .reduce((sum: number, r: any) => sum + (String(r?.name ?? '') === '载具残骸' ? Number(r.times ?? 0) : 0), 0);
 
     const lines = [
       `${player.name || '冒险者'},${player.houseName}前线防御阵地`,
       `防御阵地和地精无视载具伤害上限，攻击无载具目标时一击必杀`,
-      `防御:${totalBuildings}/${frontLevel + 3} 等级:${frontLevel}`,
+      `防御:${totalBuildings}/${frontLevel + 3} 等级:${frontLevel}（前线熟练度${frontProgress.proficiency}，再${frontProgress.need}点升级）`,
+      `载具残骸:${wreckageTimes}（发送「收集残骸」分解成合金等）`,
       `火力通道:`,
     ];
 

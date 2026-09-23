@@ -339,12 +339,22 @@ describe('挑战怪物 - 名字映射 (战斗相关.ecode L4726-4790)', () => {
 
 // ==================== 掉落残骸 (战斗相关.ecode L4947-4985) ====================
 describe('掉落残骸 - 地精系列累加载具残骸 (战斗相关.ecode L4947-4985)', () => {
+  // 载具残骸模板与 prisma/data/resources.json 同形：采集侧靠 gatherCmd/outputs 才走得通
+  const wreckageTemplate = {
+    name: '载具残骸',
+    description: '地精载具的残骸，可从“家园前线”中了解',
+    times: 1,
+    gatherCmd: '收集残骸',
+    timeScale: 0.4,
+    renewable: false,
+    outputs: [{ name: '合金', chance: 50, quantity: 5 }],
+  };
   const combat6 = new CombatSystemService(
     {} as PrismaService,
     {} as PlayerService,
     {} as BonusService,
     {} as MapService,
-    {} as StaticDataService,
+    { getAllResources: () => [wreckageTemplate] } as unknown as StaticDataService,
     {} as AchievementService,
     {} as ItemSystemService,
     {} as any,
@@ -357,6 +367,15 @@ describe('掉落残骸 - 地精系列累加载具残骸 (战斗相关.ecode L494
     expect(combat6.dropWreckage([], '地精百夫长').find((r: any) => r.name === '载具残骸').times).toBe(2);
     expect(combat6.dropWreckage([], '地精千夫长').find((r: any) => r.name === '载具残骸').times).toBe(2.5);
     expect(combat6.dropWreckage([], '地精将军').find((r: any) => r.name === '载具残骸').times).toBe(3);
+  });
+
+  it('新增条目克隆静态模板（带 gatherCmd/outputs），否则玩家「收集残骸」采不走', () => {
+    const entry = combat6.dropWreckage([], '地精').find((r: any) => r.name === '载具残骸');
+    expect(entry.gatherCmd).toBe('收集残骸');
+    expect(entry.outputs).toEqual(wreckageTemplate.outputs);
+    expect(entry.timeScale).toBe(0.4);
+    // 模板本体不能被写脏（times 每次累加到条目上，不是模板上）
+    expect(wreckageTemplate.times).toBe(1);
   });
 
   it('L4967 已存在载具残骸 → 累加次数', () => {
